@@ -1,53 +1,13 @@
 # news-hunter-scanner
 
-Cloud daemon that scans ~60 Brazilian oil & gas news sources every 30 seconds
-and pushes new articles to a shared Supabase table (`news_articles`). Deployed
-on Fly.io free tier in the `gru` (São Paulo) region.
+Cron-driven scanner that sweeps ~60 Brazilian oil & gas news sources every
+5 minutes via GitHub Actions and pushes new articles to a shared Supabase
+table (`news_articles`).
 
-Reads the keyword search set from the `news_hunter_keywords` table (union of
-every authenticated user's personal list). The SectorData dashboard at
+Reads the keyword search set from `news_hunter_keywords` (union of every
+authenticated user's personal list). The SectorData dashboard at
 `ibbaoilandgasdata.vercel.app/news-hunter` reads the same `news_articles`
 table with row-level security applied per user.
-
-## Setup
-
-```bash
-# 1. Install flyctl
-iwr https://fly.io/install.ps1 -useb | iex    # Windows PowerShell
-# or: winget install Fly.Flyctl
-
-# 2. Log in
-flyctl auth login
-
-# 3. Create app
-flyctl apps create news-hunter-scanner
-
-# 4. Set secrets
-flyctl secrets set \
-  SUPABASE_URL="https://<project>.supabase.co" \
-  SUPABASE_SERVICE_KEY="<service-role-key>"
-
-# 5. Deploy
-flyctl deploy
-
-# 6. Tail logs
-flyctl logs
-```
-
-## Local dev
-
-```bash
-python -m venv venv
-source venv/bin/activate     # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
-cp .env.example .env         # fill in SUPABASE_URL / SUPABASE_SERVICE_KEY
-python news_hunter_service.py
-```
-
-## Knobs
-
-- `SCAN_INTERVAL_SECONDS` (default 30) — sweep cadence. Raise to 60/90 if
-  sources start rate-limiting Fly.io's IPs.
 
 ## Architecture
 
@@ -63,4 +23,28 @@ Articles
 Supabase news_articles
         ↓ anon + RLS
 Dashboard /news-hunter
+```
+
+## Deploy
+
+Runs entirely on GitHub Actions — no infra needed. The workflow at
+`.github/workflows/scan.yml` triggers `python news_hunter_service.py --once`
+every 5 minutes via cron.
+
+Required repository secrets (set under **Settings → Secrets → Actions**):
+
+- `SUPABASE_URL` — `https://<project>.supabase.co`
+- `SUPABASE_SERVICE_KEY` — Supabase service role key
+
+Manual run: **Actions → News Hunter scan → Run workflow**.
+
+## Local dev
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env         # fill in SUPABASE_URL / SUPABASE_SERVICE_KEY
+python news_hunter_service.py --once    # one scan
+python news_hunter_service.py           # daemon loop (SCAN_INTERVAL_SECONDS=30)
 ```
