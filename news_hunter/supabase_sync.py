@@ -52,24 +52,20 @@ class _SupabaseSink:
             log.warning("Supabase init falhou: %s", e)
 
     def push(self, articles: list["Article"]) -> int:
-        """Faz upsert em lote. Retorna numero de rows enviadas (0 em no-op/erro)."""
+        """Faz upsert em chunks de MAX_BATCH. Retorna total de rows enviadas."""
         if self.client is None or not articles:
             return 0
-        if len(articles) > MAX_BATCH:
-            log.warning(
-                "Cap de batch atingido: %d articles > MAX_BATCH=%d. Enviando primeiros %d.",
-                len(articles), MAX_BATCH, MAX_BATCH,
-            )
-            articles = articles[:MAX_BATCH]
-        rows = [_article_to_row(a) for a in articles]
-        try:
-            self.client.table(self.table).upsert(rows, on_conflict="url").execute()
-            return len(rows)
-        except Exception as e:  # noqa: BLE001
-            # Nunca deixe isso vazar para o pipeline. Vercel offline, chave
-            # revogada, tabela nao criada ainda — tudo cai aqui.
-            log.warning("Supabase push falhou (%d rows): %s", len(rows), e)
-            return 0
+        total = 0
+        for i in range(0, len(articles), MAX_BATCH):
+            chunk = articles[i:i + MAX_BATCH]
+            rows = [_article_to_row(a) for a in chunk]
+            try:
+                self.client.table(self.table).upsert(rows, on_conflict="url").execute()
+                total += len(rows)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Supabase push falhou (%d rows): %s", len(rows), e)
+                return total
+        return total
 
 
 def _article_to_row(a: "Article") -> dict:
