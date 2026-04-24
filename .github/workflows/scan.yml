@@ -1,16 +1,8 @@
 name: News Hunter scan
 
 on:
-  schedule:
-    # Cron */5 sofre throttle severo no GHA durante picos. Em vez disso,
-    # 6 entradas hourly explicitas (a cada 10 min) — cada uma tem seu proprio
-    # bucket de scheduling, GHA respeita melhor.
-    - cron: '2 * * * *'
-    - cron: '12 * * * *'
-    - cron: '22 * * * *'
-    - cron: '32 * * * *'
-    - cron: '42 * * * *'
-    - cron: '52 * * * *'
+  # Disparado pelo cron-job.org a cada 5 min via workflow_dispatch.
+  # Nao ha cron interno — GHA schedule e não-confiavel em intervalos curtos.
   workflow_dispatch:
 
 concurrency:
