@@ -1,0 +1,15 @@
+app = "news-hunter-scanner"
+primary_region = "gru"
+
+[env]
+SCAN_INTERVAL_SECONDS = "30"
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "256mb"
+
+[processes]
+worker = "python -u news_hunter_service.py"
+
+[deploy]
+strategy = "immediate"
