@@ -212,6 +212,14 @@ HOMEPAGE_SCRAPERS: dict[str, str] = {
     "agencia.petrobras.com.br": "https://agencia.petrobras.com.br/",
 }
 
+# Subconjunto de HOMEPAGE_SCRAPERS cujas URLs apontam para paginas de
+# "ultimas noticias" (so artigos recentes, sem fixados antigos).
+# Quando enrich_item nao consegue extrair published_at (ex.: paywall bloqueia
+# o fetch do artigo), usamos now() como data aproximada em vez de descartar.
+RECENT_ONLY_SCRAPERS: frozenset[str] = frozenset({
+    "www.brasilenergia.com.br",
+})
+
 
 # URLs de sitemap Google News (urlset + news:news) - nao sao RSS mas entram
 # no mesmo pipeline via parser dedicado em fetcher._fetch_one.

@@ -358,9 +358,14 @@ EXTRACTORS: dict[str, Extractor] = {
 
 IMPERSONATE_DOMAINS = {"brasilenergia.com.br", "www.brasilenergia.com.br"}
 
+# Tentamos perfis em ordem decrescente de novidade. curl_cffi >= 0.8 traz
+# chrome136/chrome131; versoes mais antigas so tem ate chrome124. O loop
+# trata ValueError (perfil desconhecido) e erros de rede da mesma forma.
+_IMPERSONATE_PROFILES = ("chrome136", "chrome131", "chrome124")
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
 DEFAULT_HEADERS = {
     "User-Agent": USER_AGENT,
@@ -374,19 +379,29 @@ def _get_domain(url: str) -> str:
     return urlparse(url).netloc.lower()
 
 
+def _cffi_get(url: str, timeout: int) -> "cffi_requests.Response":
+    """Tenta impersonation em ordem decrescente de novidade."""
+    last_exc: Exception = RuntimeError("no profile tried")
+    for profile in _IMPERSONATE_PROFILES:
+        try:
+            resp = cffi_requests.get(
+                url, headers=DEFAULT_HEADERS, timeout=timeout, impersonate=profile,
+            )
+            return resp
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+    raise last_exc
+
+
 def fetch_html(url: str, timeout: int = 25) -> str:
     domain = _get_domain(url)
     if domain in IMPERSONATE_DOMAINS:
-        resp = cffi_requests.get(
-            url, headers=DEFAULT_HEADERS, timeout=timeout, impersonate="chrome124",
-        )
+        resp = _cffi_get(url, timeout)
         resp.raise_for_status()
         return resp.text
     resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
     if resp.status_code == 403:
-        resp = cffi_requests.get(
-            url, headers=DEFAULT_HEADERS, timeout=timeout, impersonate="chrome124",
-        )
+        resp = _cffi_get(url, timeout)
     resp.raise_for_status()
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = resp.apparent_encoding or "utf-8"

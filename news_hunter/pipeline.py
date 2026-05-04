@@ -11,7 +11,7 @@ from .enrich import _resolve_google_news_url, enrich_item, source_name_for
 from .fetcher import RawItem, iter_collect
 
 from .filter import matches_keywords, strip_related, within_window
-from .sources import HOMEPAGE_SCRAPERS
+from .sources import HOMEPAGE_SCRAPERS, RECENT_ONLY_SCRAPERS
 from .store import (
     Article,
     finish_run,
@@ -255,11 +255,16 @@ def run_search(
         to_persist: list[Article] = []
         for it, matched, snippet, published, resolved_url, resolved_domain, ext_title in enriched:
             is_topic = it.feed_domain in HOMEPAGE_SCRAPERS
-            # Data real obrigatoria. Homepage scrapers (agencia.petrobras etc)
-            # coletam links "fixados" que podem ser de meses atras — sem data
-            # extraida do <meta>, nao da para confiar na recencia.
+            # Data real obrigatoria para a maioria das fontes.
+            # Excecao: scrapers de paginas "ultimas noticias" (RECENT_ONLY_SCRAPERS,
+            # ex.: brasilenergia.com.br/petroleoegas/ultimasnoticias) so listam
+            # artigos recentes — quando enrich falha por paywall/bot-detection,
+            # usamos now() como aproximacao em vez de descartar.
             if published is None:
-                continue
+                if it.feed_domain in RECENT_ONLY_SCRAPERS:
+                    published = now
+                else:
+                    continue
             if not within_window(published, hours):
                 continue
             # Wrapper Google News nao resolvido = link quebrado, descarta.
