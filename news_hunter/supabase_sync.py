@@ -52,12 +52,24 @@ class _SupabaseSink:
             log.warning("Supabase init falhou: %s", e)
 
     def push(self, articles: list["Article"]) -> int:
-        """Faz upsert em chunks de MAX_BATCH. Retorna total de rows enviadas."""
+        """Faz upsert em chunks de MAX_BATCH. Retorna total de rows enviadas.
+
+        Dedup por URL é obrigatório: Postgres rejeita ON CONFLICT DO UPDATE com
+        erro 21000 quando a mesma constraint key (url) aparece duas vezes no
+        mesmo INSERT — o batch inteiro é abortado. Mantemos o último candidato
+        de cada URL (mais recente em `found_at`).
+        """
         if self.client is None or not articles:
             return 0
+        deduped: dict[str, "Article"] = {}
+        for a in articles:
+            existing = deduped.get(a.url)
+            if existing is None or a.found_at >= existing.found_at:
+                deduped[a.url] = a
+        unique = list(deduped.values())
         total = 0
-        for i in range(0, len(articles), MAX_BATCH):
-            chunk = articles[i:i + MAX_BATCH]
+        for i in range(0, len(unique), MAX_BATCH):
+            chunk = unique[i:i + MAX_BATCH]
             rows = [_article_to_row(a) for a in chunk]
             try:
                 self.client.table(self.table).upsert(rows, on_conflict="url").execute()
