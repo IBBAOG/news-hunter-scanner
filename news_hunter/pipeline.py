@@ -35,12 +35,20 @@ ENRICH_DEADLINE = 18.0
 RESOLVE_EXTRA = 16.0
 
 
-def _keep_candidate(item: RawItem, keywords: list[str], hours: int) -> list[str] | None:
+def _keep_candidate(
+    item: RawItem,
+    keywords: list[str],
+    hours: int,
+    exact_keywords: set[str] | None = None,
+) -> list[str] | None:
     """Filtragem barata pre-enriquecimento.
 
     Retorna a lista de keywords que casaram, ou None se deve descartar.
     Itens sem titulo E sem summary (sitemaps WordPress padrao) recebem
     ["#pending"] — keyword check real ocorre no stage 4 apos enriquecimento.
+
+    `exact_keywords` propagado para `matches_keywords`. Default None (=
+    todas substring), garantindo compat com chamadores antigos.
     """
     # Janela primeiro: filtra a maioria dos itens sem pagar custo de regex.
     if item.published_at is not None and not within_window(item.published_at, hours):
@@ -59,20 +67,20 @@ def _keep_candidate(item: RawItem, keywords: list[str], hours: int) -> list[str]
         if item.published_at is None:
             # Homepage scrapers: usa path inteiro (section + slug) como hint
             path_text = path.replace("-", " ").replace("/", " ")
-            path_match = matches_keywords(path_text, keywords)
+            path_match = matches_keywords(path_text, keywords, exact_keywords)
             return path_match if path_match else None
         # Sitemaps WordPress padrao: usa apenas o slug (ultimo segmento)
         slug = path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ")
-        slug_match = matches_keywords(slug, keywords)
+        slug_match = matches_keywords(slug, keywords, exact_keywords)
         return slug_match if slug_match else None
     # Title-first: titulos sao curtos. Se casou, retorna imediatamente.
-    matched = matches_keywords(item.title, keywords)
+    matched = matches_keywords(item.title, keywords, exact_keywords)
     if matched:
         return matched
     clean_summary = strip_related(item.summary)
     if not clean_summary:
         return None
-    return matches_keywords(clean_summary, keywords) or None
+    return matches_keywords(clean_summary, keywords, exact_keywords) or None
 
 
 def run_search(
@@ -103,6 +111,11 @@ def run_search(
     """
     cfg = get_config()
     keywords: list[str] = cfg["keywords"]
+    # Whole-word match opt-in (added 2026-05-20). Keywords flagged 'exact' in
+    # news_hunter_keywords.match_type are matched with \\b{kw}\\b; the rest are
+    # substring (legacy behaviour). Empty set means "all substring" — same as
+    # before the feature shipped.
+    exact_keywords: set[str] = set(cfg.get("exact_keywords") or set())
     hours: int = (
         hours_override if hours_override is not None else int(cfg["window_hours"])
     )
@@ -149,7 +162,7 @@ def run_search(
                     if key in seen_urls:
                         continue
                     seen_urls.add(key)
-                    matched = _keep_candidate(it, keywords, hours)
+                    matched = _keep_candidate(it, keywords, hours, exact_keywords)
                     if matched is None:
                         continue
                     n_cand += 1
@@ -295,7 +308,7 @@ def run_search(
                 published = now
 
             final_hay = f"{display_title} \n {snippet}"
-            final_match = matches_keywords(final_hay, keywords)
+            final_match = matches_keywords(final_hay, keywords, exact_keywords)
             if is_topic:
                 # Site ja e topico — se nao casou keyword especifica, marca como #topic.
                 if not final_match:
@@ -335,6 +348,7 @@ def run_search(
         "errors": errors,
         "window_hours": hours,
         "keywords_count": len(keywords),
+        "exact_keywords_count": len(exact_keywords),
     }
 
 

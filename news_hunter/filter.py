@@ -70,31 +70,96 @@ def _normalize(s: str) -> str:
 
 
 @lru_cache(maxsize=4)
-def _compile_matcher(keywords_key: tuple[str, ...]) -> tuple[re.Pattern[str], dict[str, str]]:
-    """Compila regex + mapa normalizado->original. Cacheado por tupla de keywords.
+def _compile_matcher(
+    keywords_key: tuple[str, ...],
+    exact_keywords_key: tuple[str, ...] = (),
+) -> tuple[
+    re.Pattern[str] | None,
+    re.Pattern[str] | None,
+    dict[str, str],
+]:
+    """Compila dois regex (substring + exact) + mapa normalizado->original.
 
-    Chamado ~5000x por busca; sem cache era o stage1+2 inteiro.
+    Returns:
+      (substring_pat, exact_pat, normalized_to_original)
+
+    - substring_pat: alternation SEM \\b — para keywords match_type='substring'
+      (default ate o opt-in da feature 2026-05-20).
+    - exact_pat: alternation COM \\b{kw}\\b — para keywords match_type='exact',
+      casa apenas palavra inteira (case-insensitive).
+    - normalized_to_original: dict {form_normalizada: form_original_user_input}
+      para reconstruir o label original ao reportar matches.
+
+    Cacheado por tupla de keywords; chamado ~5000x por busca.
     """
     normalized_to_original: dict[str, str] = {}
     for k in keywords_key:
         normalized_to_original.setdefault(_normalize(k), k)
-    norm_sorted = sorted(
-        (k for k in normalized_to_original if k), key=len, reverse=True
-    )
-    if not norm_sorted:
-        return re.compile(r"(?!x)x"), {}
-    alternation = "|".join(re.escape(k) for k in norm_sorted)
-    pat = re.compile(rf"\b(?:{alternation})\b", re.IGNORECASE)
-    return pat, normalized_to_original
+
+    exact_normalized: set[str] = {_normalize(k) for k in exact_keywords_key if k}
+    sub_only: list[str] = [
+        n for n in normalized_to_original if n and n not in exact_normalized
+    ]
+    ex_only: list[str] = [n for n in exact_normalized if n]
+
+    sub_pat: re.Pattern[str] | None = None
+    if sub_only:
+        # Sort por comprimento desc — alternation eh leftmost-longest; sem
+        # ordenacao, "gas" casaria antes de "gasolina" em hay="gasolina".
+        sub_only.sort(key=len, reverse=True)
+        sub_pat = re.compile(
+            "(?:" + "|".join(re.escape(k) for k in sub_only) + ")",
+            re.IGNORECASE,
+        )
+
+    ex_pat: re.Pattern[str] | None = None
+    if ex_only:
+        ex_only.sort(key=len, reverse=True)
+        ex_pat = re.compile(
+            rf"\b(?:{'|'.join(re.escape(k) for k in ex_only)})\b",
+            re.IGNORECASE,
+        )
+
+    return sub_pat, ex_pat, normalized_to_original
 
 
-def matches_keywords(text: str, keywords: list[str]) -> list[str]:
-    """Retorna a lista de keywords que casam com o texto (vazia se nenhuma)."""
+def matches_keywords(
+    text: str,
+    keywords: list[str],
+    exact_keywords: set[str] | None = None,
+) -> list[str]:
+    """Retorna a lista de keywords que casam com o texto (vazia se nenhuma).
+
+    `keywords`         — lista completa (substring + exact).
+    `exact_keywords`   — subset de `keywords` que devem casar apenas como
+                         palavra inteira (\\b{kw}\\b case-insensitive). As demais
+                         seguem regra de substring case-insensitive.
+
+    Casos especiais:
+    - "ANS" como substring casa "trANSporte" (compat 2026-05-20+).
+    - "ANS" como exact casa "ANS divulga relatorio" mas NAO "trANSporte".
+    - "saude suplementar" multi-token como exact: a alternation contem o
+      espaco interno como literal; `\\b` casa entre word-char e non-word-char
+      nas pontas; texto "Agencia Nacional de Saude Suplementar" matcha.
+    - "pre-sal" com hifen como exact: hifen e non-word; texto "pre-sal" casa,
+      "pre sal" (sem hifen) NAO casa — semantica intencional: "este token
+      exato, com esta pontuacao".
+
+    Compat: chamadas sem `exact_keywords` (codigo antigo) caem na branch
+    substring para todas as keys.
+    """
     if not text:
         return []
-    pat, normalized_to_original = _compile_matcher(tuple(keywords))
+    pat_sub, pat_exact, normalized_to_original = _compile_matcher(
+        tuple(keywords),
+        tuple(sorted(exact_keywords)) if exact_keywords else (),
+    )
     hay = _normalize(text)
-    hits = pat.findall(hay)
+    hits: list[str] = []
+    if pat_sub is not None:
+        hits.extend(pat_sub.findall(hay))
+    if pat_exact is not None:
+        hits.extend(pat_exact.findall(hay))
     if not hits:
         return []
     seen: set[str] = set()
