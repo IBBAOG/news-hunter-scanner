@@ -130,6 +130,17 @@ RSS_FEEDS: dict[str, list[str]] = {
     "diariodopoder.com.br": [
         "https://diariodopoder.com.br/feed",
     ],
+    # Orgaos reguladores (gov.br)
+    # NOTA: a chave "www.gov.br" e multi-tenant (cobre /ans, /anp, /mme, etc.).
+    # Hoje so a ANS esta registrada. Se uma futura fonte gov.br/<outro-orgao>
+    # for adicionada, o mapeamento www.gov.br -> "ANS" em SOURCE_NAMES vira
+    # ambiguo e source_name_for() precisara virar path-aware. Por enquanto,
+    # mantemos o mapeamento simples.
+    "www.gov.br": [
+        # Sitemap Google News (urlset com news:news) da pagina /ans/pt-br/assuntos/noticias
+        # Atualizado em tempo real, mesmo padrao usado por Valor/OGlobo/Estadao
+        "https://www.gov.br/ans/pt-br/assuntos/noticias/sitemap.xml",
+    ],
 
     # Outros
     "timesbrasil.com.br": [
@@ -229,6 +240,9 @@ SITEMAP_URL_MARKERS: tuple[str, ...] = (
     "news-sitemap",
     "sitemap_news",
     "news.xml",
+    # gov.br Plone CMS: paginas /<orgao>/pt-br/assuntos/noticias/sitemap.xml
+    # sao urlsets Google News (news:news), nao sitemaps WordPress padrao.
+    "/noticias/sitemap.xml",
 )
 
 

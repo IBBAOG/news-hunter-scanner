@@ -120,6 +120,13 @@ SOURCE_NAMES: dict[str, str] = {
     "moneytimes.com.br": "Money Times",
     "visnoinvest.com.br": "Visno Invest",
     "www.visnoinvest.com.br": "Visno Invest",
+    # gov.br: hoje so a ANS esta registrada (sources.py: www.gov.br -> sitemap
+    # da pagina /ans/pt-br/assuntos/noticias). source_name_for() faz lookup
+    # por netloc puro, que e "www.gov.br" para qualquer subportal gov.br.
+    # Se uma futura fonte gov.br/<outro-orgao> for adicionada, este mapping
+    # vira ambiguo e o resolver precisara virar path-aware.
+    "www.gov.br": "ANS",
+    "gov.br": "ANS",
 }
 
 
