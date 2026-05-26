@@ -50,6 +50,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     "noticias.uol.com.br": [
         "https://rss.uol.com.br/feed/noticias.xml",
     ],
+    # UOL Economia: own domain, economy-focused feed — most relevant for
+    # oil & gas / fuel / Petrobras coverage. Feed serves ~15 items per poll
+    # with proper published_at timestamps (ISO-8859-1 XML, feedparser handles it).
+    "economia.uol.com.br": [
+        "https://rss.uol.com.br/feed/economia.xml",
+    ],
     "www.terra.com.br": [
         "https://www.terra.com.br/noticias/rss.xml",
     ],

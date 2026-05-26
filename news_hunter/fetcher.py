@@ -60,6 +60,42 @@ class RawItem:
     feed_domain: str    # dominio do feed que trouxe esse item
 
 
+_PT_MONTH_MAP = {
+    "jan": "Jan", "fev": "Feb", "mar": "Mar", "abr": "Apr",
+    "mai": "May", "jun": "Jun", "jul": "Jul", "ago": "Aug",
+    "set": "Sep", "out": "Oct", "nov": "Nov", "dez": "Dec",
+}
+_PT_DAY_MAP = {
+    "seg": "Mon", "ter": "Tue", "qua": "Wed", "qui": "Thu",
+    "sex": "Fri", "sab": "Sat", "dom": "Sun",
+}
+_PT_DATE_RE = re.compile(
+    r"^([A-Za-z]{3}),\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})\s*([+\-]\d{4})$"
+)
+
+
+def _parse_ptbr_date(s: str) -> datetime | None:
+    """Parse RFC 822-style pubDate with Portuguese locale.
+
+    Handles dates like "Ter, 26 Mai 2026 09:50:56 -0300" produced by UOL feeds,
+    which feedparser and dateutil cannot handle because of the pt-BR abbreviations.
+    """
+    if not s:
+        return None
+    m = _PT_DATE_RE.match(s.strip())
+    if not m:
+        return None
+    day_abbr, day_num, month_abbr, year, time_str, tz_str = m.groups()
+    month_en = _PT_MONTH_MAP.get(month_abbr.lower())
+    day_en = _PT_DAY_MAP.get(day_abbr.lower(), day_abbr[:3])
+    if not month_en:
+        return None
+    try:
+        return date_parser.parse(f"{day_en}, {day_num} {month_en} {year} {time_str} {tz_str}")
+    except (ValueError, TypeError):
+        return None
+
+
 def _parse_entry_date(entry) -> datetime | None:
     # feedparser's *_parsed fields are time.struct_time in UTC. calendar.timegm
     # converts UTC struct -> UTC timestamp; time.mktime would treat the struct
@@ -72,6 +108,13 @@ def _parse_entry_date(entry) -> datetime | None:
                 return datetime.fromtimestamp(ts, tz=timezone.utc)
             except (TypeError, ValueError, OverflowError):
                 continue
+    # Fallback: try raw string fields for feeds with pt-BR locale dates (e.g. UOL Economia)
+    for key in ("published", "updated"):
+        raw = entry.get(key) if isinstance(entry, dict) else getattr(entry, key, None)
+        if raw:
+            dt = _parse_ptbr_date(raw)
+            if dt is not None:
+                return dt
     return None
 
 
@@ -378,7 +421,19 @@ def _fetch_one(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | No
         return [], f"{feed_domain}: HTTP {r.status_code}"
 
     try:
-        parsed = feedparser.parse(r.content)
+        # When the HTTP Content-Type declares a non-UTF-8 charset (e.g. ISO-8859-1)
+        # and the XML body has no <?xml?> declaration, feedparser defaults to UTF-8
+        # for XML, mangling accented characters. Pre-decode with the declared charset
+        # so feedparser receives a proper str instead of raw bytes.
+        feed_input: bytes | str = r.content
+        ct = r.headers.get("content-type", "")
+        if "charset=" in ct.lower() and "utf-8" not in ct.lower() and not r.content.lstrip()[:5].startswith(b"<?xml"):
+            charset = ct.lower().split("charset=")[-1].split(";")[0].strip()
+            try:
+                feed_input = r.content.decode(charset)
+            except (LookupError, UnicodeDecodeError):
+                feed_input = r.content
+        parsed = feedparser.parse(feed_input)
     except Exception as e:  # noqa: BLE001
         return [], f"{feed_domain}: {e!s}"
 
