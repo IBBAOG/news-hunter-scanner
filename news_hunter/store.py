@@ -1,12 +1,13 @@
 """Stateless shim sobre Supabase. Substitui o SQLite local do Clipinator.
 
-O scanner cloud e efemero — nenhum estado persistido localmente. Toda a
+O scanner cloud e efemero - nenhum estado persistido localmente. Toda a
 dedup e cache vem do Supabase:
 
   - news_articles.url (PRIMARY KEY)      -> dedupe automatico via UPSERT
-  - news_hunter_keywords (UNION de users) -> lista de keywords para scanear
+  - news_hunter_default_keywords          -> keywords-padrao globais (com match_type)
+  - news_hunter_keywords (UNION de users) -> keywords per-user (com match_type)
 
-Mantemos as mesmas exports que `pipeline.py` importa para nao precisar
+Mantemos as mesmas exports que pipeline.py importa para nao precisar
 refatorar a pipeline: Article, normalize_url, get_config, start_run,
 finish_run, get_cached_snippets, upsert_articles.
 """
@@ -61,29 +62,83 @@ class Article:
         return self.published_at.isoformat() if self.published_at else None
 
 
+def _fetch_default_keywords(sink) -> dict:
+    """Fetch global default keywords with match_type from Supabase.
+
+    Calls RPC get_default_news_keywords_with_flags() which returns rows of
+    (keyword text, match_type text).  Falls back to direct table SELECT if the
+    RPC call fails (e.g. scanner deployed before the RPC was created).
+
+    Returns a dict mapping keyword -> match_type ('substring' | 'exact').
+    Empty dict on any failure (caller merges with per-user keywords).
+    """
+    if sink.client is None:
+        return {}
+    try:
+        res = sink.client.rpc("get_default_news_keywords_with_flags").execute()
+        rows = res.data or []
+        result: dict = {}
+        for r in rows:
+            kw = r.get("keyword")
+            mt = r.get("match_type") or "substring"
+            if kw:
+                result[kw] = mt
+        log.info("default keywords loaded via RPC: %d entries", len(result))
+        return result
+    except Exception as rpc_err:  # noqa: BLE001
+        log.info(
+            "get_default_news_keywords_with_flags RPC failed (%s) -- falling back to direct table SELECT",
+            rpc_err,
+        )
+    try:
+        res = sink.client.table("news_hunter_default_keywords").select(
+            "keyword, match_type"
+        ).execute()
+        rows = res.data or []
+        result = {}
+        for r in rows:
+            kw = r.get("keyword")
+            mt = r.get("match_type") or "substring"
+            if kw:
+                result[kw] = mt
+        log.info("default keywords loaded via direct table: %d entries", len(result))
+        return result
+    except Exception as tbl_err:  # noqa: BLE001
+        log.warning("default keywords table SELECT also failed: %s", tbl_err)
+        return {}
+
+
 def get_config() -> dict:
     """Returns {'keywords': [...], 'exact_keywords': {...}, 'window_hours': 24}.
 
-    Keywords sao a UNION de todos os usuarios autenticados (SELECT keyword,
-    match_type FROM news_hunter_keywords). Cada linha pode marcar a keyword
-    como:
-      - 'substring' (default): match substring case-insensitive (comportamento
-        legado). Fica em `keywords` mas NAO em `exact_keywords`.
-      - 'exact': match whole-word, regex `\\b{kw}\\b` case-insensitive. Fica em
-        ambos os sets para que o filter compile uma alternation \\b-bounded.
+    Keywords are the UNION of:
+      1. Global defaults from news_hunter_default_keywords (via RPC
+         get_default_news_keywords_with_flags, with match_type per row).
+      2. Per-user keywords from news_hunter_keywords (UNION of all users,
+         with match_type per row).
 
-    Se a mesma keyword aparece em multiplos users com match_types diferentes
-    (ex: user A 'ANS' substring, user B 'ANS' exact), o agregado promove para
-    'exact' (regra "qualquer usuario pediu exact -> respeita"). Isso e
-    conservador: produz menos artigos do que se promovesse para substring.
+    match_type aggregation rule: if the same keyword appears in multiple
+    sources/users with different match_types, the result is promoted to
+    'exact' (conservative: fewer false positives).
 
-    Fallback para DEFAULT_KEYWORDS (todas substring) quando:
-      - Supabase nao configurado (dev local)
-      - Query falha
-      - Tabela vazia (nenhum usuario fez login ainda)
-    Coluna `match_type` pode nao existir ainda (scanner deployado antes da
-    migration) — neste caso `r.get('match_type')` retorna None e tratamos
-    como 'substring' (zero impacto pre-migration).
+    The exact_keywords set contains every keyword whose effective
+    match_type is 'exact'.  The keywords list contains all keywords
+    regardless of match_type (consumed by the filter as the full set).
+
+    Fallback to DEFAULT_KEYWORDS (all substring, hardcoded in config.py) when:
+      - Supabase is not configured (local dev)
+      - Both default-keyword fetches fail
+      - Both tables are empty
+
+    Accent handling (critical fix -- 2026-05-26):
+    Keywords are stored in the DB with their canonical form (accents
+    preserved).  The scanner must NOT strip diacritics before matching
+    because that turns the Iran keyword (with tilde-n) into 'ira', causing it
+    to hit 'diretoria', 'irma-with-tilde', etc. -- generating thousands of
+    false positives.  filter.py now applies re.IGNORECASE directly on the
+    original text without any NFD normalisation.  The DB ships BOTH
+    'petroleo' and 'petroleo-accented' as separate entries for sources that
+    omit accents.
     """
     sink = supabase_sync.get_sink()
     if sink.client is None:
@@ -93,43 +148,61 @@ def get_config() -> dict:
             "window_hours": DEFAULT_WINDOW_HOURS,
         }
 
-    kws: list[str]
-    exact: set[str] = set()
+    # Aggregated map: keyword -> effective match_type ('substring' | 'exact').
+    # 'exact' wins over 'substring' when the same keyword appears in both.
+    aggregated: dict = {}
+
+    # --- Source 1: global default keywords ---
+    for kw, mt in _fetch_default_keywords(sink).items():
+        if mt == "exact":
+            aggregated[kw] = "exact"
+        else:
+            aggregated.setdefault(kw, "substring")
+
+    # --- Source 2: per-user keywords (UNION of all authenticated users) ---
     try:
-        # Supabase-py nao tem DISTINCT nativo; pega tudo e dedup aqui.
-        # Volume esperado: <100 usuarios * ~30 keywords = <3000 rows.
-        # A cada scan e ~50ms; aceitavel para o loop de 30s.
         try:
             res = sink.client.table("news_hunter_keywords").select(
                 "keyword, match_type"
             ).execute()
         except Exception as col_err:  # noqa: BLE001
-            # Provavel `column "match_type" does not exist` se o scanner subir
-            # antes da migration. Cai para o SELECT antigo (so keyword).
+            # Likely column "match_type" does not exist if scanner deployed before
+            # the migration that added the column. Fall back to keyword-only SELECT.
             log.info(
-                "select(keyword,match_type) falhou (%s) — caindo para select(keyword)",
+                "select(keyword,match_type) failed (%s) -- falling back to select(keyword)",
                 col_err,
             )
             res = sink.client.table("news_hunter_keywords").select("keyword").execute()
         rows = res.data or []
-        kw_set: set[str] = set()
         for r in rows:
             kw = r.get("keyword")
             if not kw:
                 continue
-            kw_set.add(kw)
-            if r.get("match_type") == "exact":
-                exact.add(kw)
-        kws = sorted(kw_set)
-        if not kws:
-            log.info("news_hunter_keywords vazio — usando DEFAULT_KEYWORDS")
-            kws = list(DEFAULT_KEYWORDS)
-            exact = set()
+            mt = r.get("match_type") or "substring"
+            if mt == "exact":
+                aggregated[kw] = "exact"
+            else:
+                aggregated.setdefault(kw, "substring")
     except Exception as e:  # noqa: BLE001
-        log.warning("get_config falhou, caindo em DEFAULT_KEYWORDS: %s", e)
-        kws = list(DEFAULT_KEYWORDS)
-        exact = set()
+        log.warning("per-user keywords fetch failed: %s", e)
 
+    if not aggregated:
+        log.info("All keyword sources empty -- using DEFAULT_KEYWORDS (all substring)")
+        return {
+            "keywords": list(DEFAULT_KEYWORDS),
+            "exact_keywords": set(),
+            "window_hours": DEFAULT_WINDOW_HOURS,
+        }
+
+    kws = sorted(aggregated)
+    exact: set = {kw for kw, mt in aggregated.items() if mt == "exact"}
+
+    log.info(
+        "keywords loaded: total=%d exact=%d substring=%d",
+        len(kws),
+        len(exact),
+        len(kws) - len(exact),
+    )
     return {
         "keywords": kws,
         "exact_keywords": exact,
@@ -137,37 +210,38 @@ def get_config() -> dict:
     }
 
 
-def get_cached_snippets(urls: Iterable[str]) -> dict[str, tuple[str, datetime | None, str, str]]:
-    """Stateless: sempre vazio.
+def get_cached_snippets(urls) -> dict:
+    """Stateless: always returns empty dict.
 
-    O container cloud nao persiste — cada scan re-enriquece todos os candidatos.
-    Custo: fetch_html em ate ~50 URLs/scan (cap ENRICH_CAP). Com 30s de
-    intervalo e 24 workers, fica bem dentro do orcamento.
+    The cloud container does not persist state -- each scan re-enriches all
+    candidates.  Cost: fetch_html on up to ~50 URLs/scan (ENRICH_CAP).
+    With a 30 s interval and 24 workers this stays well within budget.
     """
     return {}
 
 
 def start_run() -> int:
-    """No-op: sem tabela `runs` no Supabase. Retorna 0 como placeholder."""
+    """No-op: no runs table in Supabase.  Returns 0 as a placeholder."""
     return 0
 
 
-def finish_run(run_id: int, n_found: int, errors: list[str]) -> None:
-    """No-op: sem tabela `runs`. Estatisticas sao emitidas via stdout no service."""
+def finish_run(run_id: int, n_found: int, errors) -> None:
+    """No-op: no runs table.  Stats are emitted to stdout by the service."""
     return
 
 
-def upsert_articles(articles: list[Article]) -> int:
-    """Push em lote para Supabase. Retorna numero de rows enviadas.
+def upsert_articles(articles) -> int:
+    """Batch-push to Supabase.  Returns number of rows sent.
 
-    Diferente do original SQLite que retornava `n_new` (row que nao existia):
-    aqui retornamos `n_pushed` porque em modo stateless nao sabemos o que ja
-    existe antes do UPSERT. Operacionalmente equivalente para monitoring.
+    Unlike the original SQLite implementation that returned n_new (rows that
+    did not previously exist), we return n_pushed because in stateless mode
+    we do not know what already exists before the UPSERT.  Operationally
+    equivalent for monitoring purposes.
     """
     if not articles:
         return 0
     try:
         return supabase_sync.push_new(articles)
     except Exception as e:  # noqa: BLE001
-        log.warning("upsert_articles falhou: %s", e)
+        log.warning("upsert_articles failed: %s", e)
         return 0

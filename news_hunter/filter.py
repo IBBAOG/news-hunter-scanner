@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
@@ -62,13 +61,6 @@ def strip_related(text: str) -> str:
     return text
 
 
-def _normalize(s: str) -> str:
-    """Lowercase + remove acentos para comparacao."""
-    nfkd = unicodedata.normalize("NFKD", s)
-    stripped = "".join(c for c in nfkd if not unicodedata.combining(c))
-    return stripped.lower()
-
-
 @lru_cache(maxsize=4)
 def _compile_matcher(
     keywords_key: tuple[str, ...],
@@ -78,34 +70,36 @@ def _compile_matcher(
     re.Pattern[str] | None,
     dict[str, str],
 ]:
-    """Compila dois regex (substring + exact) + mapa normalizado->original.
+    """Compile two regex patterns (substring + exact) and a lowercased->original map.
+
+    IMPORTANT — no NFD/diacritic stripping here or in the match phase.
+    Accents are meaningful in Portuguese: 'Irã' must NOT match 'diretoria'
+    (which would happen if both were stripped to 'ira').  Case folding is
+    handled by re.IGNORECASE so 'petróleo' matches 'PETRÓLEO' but not
+    'petroleo' (a separate keyword entry for that variant).
 
     Returns:
-      (substring_pat, exact_pat, normalized_to_original)
+        (substring_pat, exact_pat, lower_to_original)
 
-    - substring_pat: alternation SEM \\b — para keywords match_type='substring'
-      (default ate o opt-in da feature 2026-05-20).
-    - exact_pat: alternation COM \\b{kw}\\b — para keywords match_type='exact',
-      casa apenas palavra inteira (case-insensitive).
-    - normalized_to_original: dict {form_normalizada: form_original_user_input}
-      para reconstruir o label original ao reportar matches.
-
-    Cacheado por tupla de keywords; chamado ~5000x por busca.
+    - substring_pat: plain alternation (no \b) for match_type='substring'.
+    - exact_pat: \b-bounded alternation for match_type='exact'.
+    - lower_to_original: maps keyword.lower() → original user-supplied form
+      for label reconstruction after a match.
     """
-    normalized_to_original: dict[str, str] = {}
+    lower_to_original: dict[str, str] = {}
     for k in keywords_key:
-        normalized_to_original.setdefault(_normalize(k), k)
+        lower_to_original.setdefault(k.lower(), k)
 
-    exact_normalized: set[str] = {_normalize(k) for k in exact_keywords_key if k}
+    exact_lower: set[str] = {k.lower() for k in exact_keywords_key if k}
     sub_only: list[str] = [
-        n for n in normalized_to_original if n and n not in exact_normalized
+        lo for lo in lower_to_original if lo and lo not in exact_lower
     ]
-    ex_only: list[str] = [n for n in exact_normalized if n]
+    ex_only: list[str] = [lo for lo in exact_lower if lo]
 
     sub_pat: re.Pattern[str] | None = None
     if sub_only:
-        # Sort por comprimento desc — alternation eh leftmost-longest; sem
-        # ordenacao, "gas" casaria antes de "gasolina" em hay="gasolina".
+        # Sort longest-first so 'gasolina' takes priority over 'gas' in
+        # an alternation (leftmost-longest in Python re).
         sub_only.sort(key=len, reverse=True)
         sub_pat = re.compile(
             "(?:" + "|".join(re.escape(k) for k in sub_only) + ")",
@@ -120,7 +114,7 @@ def _compile_matcher(
             re.IGNORECASE,
         )
 
-    return sub_pat, ex_pat, normalized_to_original
+    return sub_pat, ex_pat, lower_to_original
 
 
 def matches_keywords(
@@ -128,44 +122,42 @@ def matches_keywords(
     keywords: list[str],
     exact_keywords: set[str] | None = None,
 ) -> list[str]:
-    """Retorna a lista de keywords que casam com o texto (vazia se nenhuma).
+    """Return list of keywords matching the text (empty if none match).
 
-    `keywords`         — lista completa (substring + exact).
-    `exact_keywords`   — subset de `keywords` que devem casar apenas como
-                         palavra inteira (\\b{kw}\\b case-insensitive). As demais
-                         seguem regra de substring case-insensitive.
+    `keywords`        — full list (substring + exact combined).
+    `exact_keywords`  — subset of `keywords` that must match as whole words
+                        (\b{kw}\b, case-insensitive).  The rest use plain
+                        substring case-insensitive matching.
 
-    Casos especiais:
-    - "ANS" como substring casa "trANSporte" (compat 2026-05-20+).
-    - "ANS" como exact casa "ANS divulga relatorio" mas NAO "trANSporte".
-    - "saude suplementar" multi-token como exact: a alternation contem o
-      espaco interno como literal; `\\b` casa entre word-char e non-word-char
-      nas pontas; texto "Agencia Nacional de Saude Suplementar" matcha.
-    - "pre-sal" com hifen como exact: hifen e non-word; texto "pre-sal" casa,
-      "pre sal" (sem hifen) NAO casa — semantica intencional: "este token
-      exato, com esta pontuacao".
+    Accent preservation (critical for Portuguese):
+    - 'Irã' (substring) matches only text that contains 'irã' / 'IRÃ',
+      NOT 'diretoria' (which the old NFD-strip approach would hit).
+    - 'petroleo' (no accent) matches only 'petroleo', not 'petróleo'.
+      The default-keywords table ships BOTH variants intentionally.
+    - Case is folded via re.IGNORECASE; diacritics are preserved as-is.
 
-    Compat: chamadas sem `exact_keywords` (codigo antigo) caem na branch
-    substring para todas as keys.
+    Compatibility: callers that omit `exact_keywords` get all-substring
+    behaviour (same as before the match_type feature shipped).
     """
     if not text:
         return []
-    pat_sub, pat_exact, normalized_to_original = _compile_matcher(
+    pat_sub, pat_exact, lower_to_original = _compile_matcher(
         tuple(keywords),
         tuple(sorted(exact_keywords)) if exact_keywords else (),
     )
-    hay = _normalize(text)
+    # Match directly on the original text — NO NFD stripping.
+    # re.IGNORECASE handles case folding without destroying diacritics.
     hits: list[str] = []
     if pat_sub is not None:
-        hits.extend(pat_sub.findall(hay))
+        hits.extend(pat_sub.findall(text))
     if pat_exact is not None:
-        hits.extend(pat_exact.findall(hay))
+        hits.extend(pat_exact.findall(text))
     if not hits:
         return []
     seen: set[str] = set()
     out: list[str] = []
     for h in hits:
-        orig = normalized_to_original.get(h, h)
+        orig = lower_to_original.get(h.lower(), h)
         if orig not in seen:
             seen.add(orig)
             out.append(orig)
@@ -173,7 +165,7 @@ def matches_keywords(
 
 
 def within_window(published_at: datetime | None, hours: int) -> bool:
-    """True se published_at esta dentro da janela (default: 24h)."""
+    """True if published_at is within the given window (default: 24 h)."""
     if published_at is None:
         return False
     if published_at.tzinfo is None:
