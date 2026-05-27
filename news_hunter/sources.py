@@ -97,8 +97,14 @@ RSS_FEEDS: dict[str, list[str]] = {
     "neofeed.com.br": [
         "https://neofeed.com.br/feed/",
     ],
+    # exame.com is a Next.js site whose WordPress-style /feed/ only emits ~25
+    # latest items from a curated subset of sections — Revista Exame and other
+    # editorial verticals are NOT included. The Google News sitemap at
+    # /noticias/sitemap.xml carries ~370 items including /revista-exame/* and
+    # is the canonical discovery surface (see Compass biometano gap, 2026-05-27).
     "exame.com": [
         "https://exame.com/feed/",
+        "https://exame.com/noticias/sitemap.xml",
     ],
     "www.moneytimes.com.br": [
         "https://www.moneytimes.com.br/feed/",
@@ -235,6 +241,12 @@ SITEMAP_URL_MARKERS: tuple[str, ...] = (
     "news-sitemap",
     "sitemap_news",
     "news.xml",
+    # Next.js-style sites (Exame, etc.) host the Google News sitemap at
+    # /<section>/sitemap.xml — e.g. https://exame.com/noticias/sitemap.xml.
+    # Matches /noticias/, /news/, /noticia/ + sitemap.xml.
+    "/noticias/sitemap.xml",
+    "/noticia/sitemap.xml",
+    "/news/sitemap.xml",
 )
 
 

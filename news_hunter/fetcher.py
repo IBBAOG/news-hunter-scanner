@@ -502,24 +502,54 @@ def iter_collect(
         ex.submit(_make_fetcher(is_std, is_home), url, dom): (dom, url)
         for dom, url, is_std, is_home in all_tasks
     }
+    # Per-feed observability: count items returned by (domain, feed_url) so
+    # silent gaps (HTTP 200 + zero items, e.g. exame.com /feed/ dropping the
+    # Revista Exame section) surface in logs instead of failing silently.
+    # Aggregated and logged at INFO once iter_collect finishes draining.
+    _feed_counts: dict[tuple[str, str], int] = {}
+    _feed_errors: dict[tuple[str, str], str] = {}
     try:
         for fut in as_completed(futs.keys(), timeout=dl):
             dom, _url = futs[fut]
             try:
                 got, err = fut.result()
             except Exception as e:  # noqa: BLE001
+                _feed_errors[(dom, _url)] = str(e)
                 yield dom, [], f"{dom}: {e!s}"
                 continue
+            _feed_counts[(dom, _url)] = len(got or [])
+            if err:
+                _feed_errors[(dom, _url)] = err
             yield dom, got, err
             if _time.time() - t_start >= dl:
                 break
     except (FuturesTimeout, TimeoutError):
         pass
     finally:
-        for fut in futs:
+        # Mark feeds that never completed (deadline hit) as -1 for visibility.
+        for fut, (dom, url) in futs.items():
             if not fut.done():
                 fut.cancel()
+                _feed_counts.setdefault((dom, url), -1)
         ex.shutdown(wait=False, cancel_futures=True)
+        if _feed_counts or _feed_errors:
+            total = sum(c for c in _feed_counts.values() if c > 0)
+            zero_feeds = [
+                f"{d}:{u.rsplit('/', 1)[-1] or u}"
+                for (d, u), c in _feed_counts.items() if c == 0
+            ]
+            timed_out = [
+                f"{d}:{u.rsplit('/', 1)[-1] or u}"
+                for (d, u), c in _feed_counts.items() if c == -1
+            ]
+            log.info(
+                "feed summary: %d items total, %d feeds returned 0, %d feeds timed out",
+                total, len(zero_feeds), len(timed_out),
+            )
+            if zero_feeds:
+                log.debug("feeds returning 0 items: %s", ", ".join(sorted(zero_feeds)))
+            if timed_out:
+                log.debug("feeds timed out (deadline %.1fs): %s", dl, ", ".join(sorted(timed_out)))
 
 
 def collect(
