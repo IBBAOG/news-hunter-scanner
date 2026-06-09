@@ -34,12 +34,36 @@ ENRICH_DEADLINE = 18.0
 # 56 itens / 6 workers * 1.75s/item ≈ 16s para cobrir quase tudo.
 RESOLVE_EXTRA = 16.0
 
+# --- Lede rescue (added 2026-06-09) -----------------------------------------
+# Em fast_mode (o unico modo do scanner cloud) so casavamos keyword contra
+# titulo + summary do RSS. Fontes editoriais (ex.: eixos "Comece seu dia")
+# trazem titulos espertos e descriptions curtas (< SNIPPET_MIN_RSS_CHARS) cujo
+# texto nao contem a keyword, mesmo quando o LEDE do corpo e claramente sobre
+# petroleo/gas. Resultado: artigos relevantes sumiam silenciosamente.
+#
+# A correcao: para itens de RSS (titulo+data ja presentes) que passaram a
+# janela mas NAO casaram no titulo nem no summary, buscamos o corpo (lede,
+# primeiros paragrafos) de um subconjunto LIMITADO por scan e re-validamos a
+# keyword. Mantem o caminho rapido rapido: so paga fetch_html nos near-miss,
+# com cap global + por dominio + deadline proprio.
+LEDE_RESCUE_WORKERS = 12
+LEDE_RESCUE_DEADLINE = 14.0   # teto para a fase de lede (fetch_html = 6s/item)
+LEDE_RESCUE_CAP = 40          # max fetches de lede por scan (global)
+LEDE_RESCUE_CAP_DOMAIN = 8    # max fetches de lede por dominio por scan
+
+
+# Sentinela: item de RSS que passou a janela mas nao casou keyword no titulo
+# nem no summary. Candidato a "lede rescue" (fetch do corpo + re-check).
+LEDE_RESCUE_MARKER = "#lede"
+
 
 def _keep_candidate(
     item: RawItem,
     keywords: list[str],
     hours: int,
     exact_keywords: set[str] | None = None,
+    *,
+    allow_lede_rescue: bool = False,
 ) -> list[str] | None:
     """Filtragem barata pre-enriquecimento.
 
@@ -49,6 +73,12 @@ def _keep_candidate(
 
     `exact_keywords` propagado para `matches_keywords`. Default None (=
     todas substring), garantindo compat com chamadores antigos.
+
+    `allow_lede_rescue`: quando True, itens de RSS bem-formados (titulo +
+    data) que NAO casaram no titulo nem no summary retornam o sentinela
+    [LEDE_RESCUE_MARKER] em vez de None. O pipeline busca o corpo de um
+    subconjunto limitado desses itens e re-valida a keyword contra o lede.
+    Sem esse flag o comportamento e identico ao anterior (descarta).
     """
     # Janela primeiro: filtra a maioria dos itens sem pagar custo de regex.
     if item.published_at is not None and not within_window(item.published_at, hours):
@@ -78,9 +108,104 @@ def _keep_candidate(
     if matched:
         return matched
     clean_summary = strip_related(item.summary)
-    if not clean_summary:
-        return None
-    return matches_keywords(clean_summary, keywords, exact_keywords) or None
+    summary_match = (
+        matches_keywords(clean_summary, keywords, exact_keywords)
+        if clean_summary
+        else None
+    )
+    if summary_match:
+        return summary_match
+    # Near-miss: titulo + summary nao casaram. Item de RSS bem-formado
+    # (titulo + data presentes) vira candidato a lede rescue; o resto descarta.
+    if allow_lede_rescue and item.title and item.published_at is not None:
+        return [LEDE_RESCUE_MARKER]
+    return None
+
+
+def _run_lede_rescue(
+    candidates: list[RawItem],
+    keywords: list[str],
+    exact_keywords: set[str],
+    enriched: list,
+    errors: list[str],
+) -> int:
+    """Busca o corpo (lede) de near-miss de RSS e re-valida keyword.
+
+    Para cada item near-miss (titulo + data presentes, mas keyword nem no
+    titulo nem no summary), busca a pagina via enrich_item(need_snippet=True)
+    — que roda fetch_html + extractor do dominio + meta description — e
+    re-checa keyword contra titulo + snippet (lede). Os que casam sao
+    anexados a `enriched` com os keywords reais; o stage 4 segue normalmente.
+
+    Capado em tres niveis para nao estourar o orcamento do scan (~5 min,
+    8 min de timeout GHA):
+      - LEDE_RESCUE_CAP        : max total de fetches por scan
+      - LEDE_RESCUE_CAP_DOMAIN : max por dominio (evita martelar uma fonte)
+      - LEDE_RESCUE_DEADLINE   : teto de tempo da fase inteira
+
+    Retorna o numero de itens resgatados (keyword casou no lede).
+    """
+    # Aplica caps ANTES de submeter (nao paga fetch alem do orcamento).
+    selected: list[RawItem] = []
+    per_domain: dict[str, int] = {}
+    for it in candidates:
+        if len(selected) >= LEDE_RESCUE_CAP:
+            break
+        dom = it.source_domain
+        cnt = per_domain.get(dom, 0)
+        if cnt >= LEDE_RESCUE_CAP_DOMAIN:
+            continue
+        per_domain[dom] = cnt + 1
+        selected.append(it)
+
+    if not selected:
+        return 0
+
+    log.info(
+        "lede rescue: %d near-miss, %d selecionados (cap %d/%d-dom)",
+        len(candidates), len(selected), LEDE_RESCUE_CAP, LEDE_RESCUE_CAP_DOMAIN,
+    )
+
+    rescued = 0
+    ex = ThreadPoolExecutor(max_workers=LEDE_RESCUE_WORKERS)
+    try:
+        # need_snippet=True força fetch_html + extractor mesmo com title/published
+        # ja presentes (caminho que o fast_mode normalmente pula).
+        futs = {
+            ex.submit(
+                enrich_item, it,
+                resolve_google_news=False,
+                need_snippet=True,
+            ): it
+            for it in selected
+        }
+        done, not_done = wait(futs.keys(), timeout=LEDE_RESCUE_DEADLINE)
+        for fut in done:
+            it = futs[fut]
+            try:
+                snippet, published, resolved_url, resolved_domain, ext_title = fut.result()
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"lede {it.url}: {e!s}")
+                continue
+            if not snippet:
+                continue
+            # Re-valida keyword contra titulo + lede. So segue se casar de fato.
+            hay = f"{it.title} \n {snippet}"
+            final_match = matches_keywords(hay, keywords, exact_keywords)
+            if not final_match:
+                continue
+            rescued += 1
+            enriched.append((
+                it, final_match, snippet,
+                published or it.published_at,
+                resolved_url, resolved_domain, ext_title,
+            ))
+        for fut in not_done:
+            fut.cancel()
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    log.info("lede rescue: %d artigos resgatados", rescued)
+    return rescued
 
 
 def run_search(
@@ -124,6 +249,7 @@ def run_search(
     errors: list[str] = []
     n_new = 0
     n_upserted = 0
+    n_lede_ok = 0
 
     try:
         t0 = time.time()
@@ -132,6 +258,8 @@ def run_search(
         seen_urls: set[str] = set()
         pending: dict = {}          # future -> (item, matched)  — enrich_ex
         pending_resolve: dict = {}  # future -> (item, matched)  — resolve_ex
+        # Itens near-miss (titulo+summary nao casaram) candidatos a lede rescue.
+        lede_candidates: list[RawItem] = []
 
         enrich_ex = ThreadPoolExecutor(max_workers=ENRICH_WORKERS)
         resolve_ex = ThreadPoolExecutor(max_workers=RESOLVE_WORKERS)
@@ -162,8 +290,16 @@ def run_search(
                     if key in seen_urls:
                         continue
                     seen_urls.add(key)
-                    matched = _keep_candidate(it, keywords, hours, exact_keywords)
+                    matched = _keep_candidate(
+                        it, keywords, hours, exact_keywords,
+                        allow_lede_rescue=True,
+                    )
                     if matched is None:
+                        continue
+                    # Near-miss: nao casou titulo/summary mas e RSS bem-formado.
+                    # Desviado para a fase de lede rescue (capada) mais abaixo.
+                    if matched == [LEDE_RESCUE_MARKER]:
+                        lede_candidates.append(it)
                         continue
                     n_cand += 1
                     batch_keys.append(key)
@@ -257,6 +393,20 @@ def run_search(
             # (fixados em secoes) aparecerem como "agora".
             for fut in not_done:
                 fut.cancel()
+
+            # --- Fase 3b: lede rescue (added 2026-06-09) -----------------
+            # Near-miss de RSS (titulo + summary nao casaram). Busca o corpo
+            # (lede) de um subconjunto CAPADO e re-valida keyword. Capta
+            # artigos cuja keyword vive so no primeiro paragrafo — caso eixos
+            # "Comece seu dia", titulo editorial + description < 150 chars.
+            if lede_candidates:
+                n_lede_ok = _run_lede_rescue(
+                    lede_candidates,
+                    keywords,
+                    exact_keywords,
+                    enriched,
+                    errors,
+                )
         finally:
             resolve_ex.shutdown(wait=False, cancel_futures=True)
             enrich_ex.shutdown(wait=False, cancel_futures=True)
@@ -349,6 +499,7 @@ def run_search(
         "window_hours": hours,
         "keywords_count": len(keywords),
         "exact_keywords_count": len(exact_keywords),
+        "lede_rescued": n_lede_ok,
     }
 
 
