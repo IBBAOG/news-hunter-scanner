@@ -27,3 +27,5 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
+          BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}

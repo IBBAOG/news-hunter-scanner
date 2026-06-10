@@ -358,6 +358,10 @@ EXTRACTORS: dict[str, Extractor] = {
 # Scraper (sem cookies locais — container nao tem cookies/)
 # =============================================================================
 
+# Domains handled by a non-default HTTP path in fetch_html. Brasil Energia is
+# routed through the authenticated session (brasilenergia_auth) which renews the
+# be-auth cookie on expiry; if creds are absent it falls back to curl_cffi
+# impersonation (anonymous, paywalled teasers only).
 IMPERSONATE_DOMAINS = {"brasilenergia.com.br", "www.brasilenergia.com.br"}
 
 # Tentamos perfis em ordem decrescente de novidade. curl_cffi >= 0.8 traz
@@ -397,7 +401,21 @@ def _cffi_get(url: str, timeout: int) -> "cffi_requests.Response":
 
 def fetch_html(url: str, timeout: int = 25) -> str:
     domain = _get_domain(url)
+    # Brasil Energia is a subscriber paywall: fetch it through the authenticated
+    # session, which auto-renews the be-auth cookie on expiry. If credentials are
+    # absent or login fails, get() returns None and we raise so the caller's
+    # try/except skips this URL gracefully (the rest of the scan keeps running).
     if domain in IMPERSONATE_DOMAINS:
+        from .brasilenergia_auth import get_auth
+        auth = get_auth()
+        if auth is not None:
+            resp = auth.get(url, timeout=timeout)
+            if resp is None:
+                raise RuntimeError(f"Brasil Energia: no authenticated response for {url}")
+            resp.raise_for_status()
+            return resp.text
+        # No credentials configured — fall back to impersonation (anonymous,
+        # paywalled, but better than nothing for public teasers).
         resp = _cffi_get(url, timeout)
         resp.raise_for_status()
         return resp.text

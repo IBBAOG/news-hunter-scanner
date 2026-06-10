@@ -118,7 +118,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # "www.reuters.com": [],
 
     # Energia / Oil & Gas
-    # Brasil Energia bloqueia acesso automatizado (403) — coberto via Google News
+    # Brasil Energia: subscriber paywall (ASP.NET Core). No public RSS; covered
+    # by the authenticated homepage scraper (HOMEPAGE_SCRAPERS below), which logs
+    # in via news_hunter.brasilenergia_auth and fetches full article bodies.
     # "www.brasilenergia.com.br": [],
     "eixos.com.br": [
         "https://eixos.com.br/feed/",
@@ -193,7 +195,7 @@ NO_RSS_DOMAINS: list[str] = [
     "agenciainfra.com",
     "noticias.r7.com",           # removeu feed RSS publico
     "agencia.petrobras.com.br",  # CMS Liferay sem feed publico
-    "www.brasilenergia.com.br",  # bloqueia acesso automatizado (403)
+    "www.brasilenergia.com.br",  # paywall — primary path is the authenticated homepage scraper; GNews kept as a redundant net
     "visnoinvest.com.br",        # recusa conexoes de servidor
 ]
 
@@ -219,7 +221,10 @@ STANDARD_SITEMAPS: dict[str, list[str]] = {
 # O scraper pega links de artigos da homepage; enrich_item busca cada um.
 # Chave = dominio, valor = URL da pagina de noticias.
 HOMEPAGE_SCRAPERS: dict[str, str] = {
-    # Pagina especifica de oleo & gas — 30+ artigos listados, todos do setor
+    # Oil & gas section — 30+ recent articles, all sector. Fetched through the
+    # authenticated session (news_hunter.brasilenergia_auth): the listing and
+    # each article page are requested with the be-auth cookie so we get full
+    # bodies behind the subscriber paywall.
     "www.brasilenergia.com.br": "https://brasilenergia.com.br/petroleoegas/ultimasnoticias",
     "agencia.petrobras.com.br": "https://agencia.petrobras.com.br/",
 }
