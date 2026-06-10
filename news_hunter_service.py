@@ -11,6 +11,19 @@ import signal
 import sys
 import time
 
+# Load a local .env for local runs (`python news_hunter_service.py --once`).
+# In CI/cloud (GitHub Actions) no .env exists, so this is a no-op and the
+# variables come from the workflow `env:` block instead. Brings SUPABASE_* and
+# BRASIL_ENERGIA_USER/PASS into os.environ when a local .env file is present —
+# without it, a local run has no credentials and Brasil Energia silently falls
+# back to anonymous (paywalled) fetching.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
