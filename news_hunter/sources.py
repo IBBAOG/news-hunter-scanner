@@ -138,6 +138,16 @@ RSS_FEEDS: dict[str, list[str]] = {
     ],
 
     # Setor publico / infra
+    # Camara dos Deputados (Agencia Camara de Noticias): public gov site, no
+    # auth. The "ultimas noticias" page (/noticias/ultimas) has no <link> feed
+    # tag, but /noticias/rss lists subscribable feeds — the all-areas one is
+    # /noticias/rss/ultimas-noticias (classic RSS 2.0, ~20 items, full
+    # title/link/pubDate/content:encoded). The global keyword set narrows it to
+    # oil & gas / fuel-distribution items (Petrobras, diesel, ANP, etc.).
+    # Served gzip (feedparser handles it); we do NOT advertise br (Pegadinha #12).
+    "www.camara.leg.br": [
+        "https://www.camara.leg.br/noticias/rss/ultimas-noticias",
+    ],
     "www.poder360.com.br": [
         "https://www.poder360.com.br/feed/",
     ],
