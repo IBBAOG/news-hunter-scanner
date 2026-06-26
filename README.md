@@ -38,6 +38,27 @@ Required repository secrets (set under **Settings → Secrets → Actions**):
 
 Manual run: **Actions → News Hunter scan → Run workflow**.
 
+## Brasil Energia cookie refresh
+
+Brasil Energia's `be-auth` session cookie expires roughly every 14 days. The
+SectorData clipping generator reads the cookie body from the shared
+`public.clipping_cookies` table (in the SectorData Supabase project); a stale
+cookie causes silent fallback to public/teaser article bodies.
+
+Workflow `.github/workflows/refresh_brasil_energia_cookie.yml` logs in via
+`news_hunter/brasilenergia_auth.py`, dumps the live cookie jar to the Netscape
+format and UPDATEs the `brasilenergia.com.br` row twice a week (Mon + Thu
+06:00 UTC) — ~4x safety margin over the 14-day TTL.
+
+Manual refresh:
+
+```bash
+gh workflow run refresh_brasil_energia_cookie.yml --repo IBBAOG/news-hunter-scanner
+```
+
+Required secrets (in addition to those above): `BRASIL_ENERGIA_USER`,
+`BRASIL_ENERGIA_PASS`.
+
 ## Local dev
 
 ```bash

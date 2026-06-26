@@ -1,0 +1,38 @@
+name: Refresh Brasil Energia cookie
+
+# Brasil Energia's be-auth cookie expires ~every 14 days. Refresh it twice a
+# week so the SectorData clipping generator never falls back to public/teaser
+# bodies silently. See scripts/refresh_brasil_energia_cookie.py for context.
+
+on:
+  schedule:
+    # Mon + Thu 06:00 UTC. 3-4 days between refreshes, ~4x safety margin over
+    # the 14-day TTL. Pre-business-hours UTC keeps it off the high-load window.
+    - cron: '0 6 * * 1,4'
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-brasil-energia-cookie
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Refresh cookie
+        run: python -m scripts.refresh_brasil_energia_cookie
+        env:
+          BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
+          BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
