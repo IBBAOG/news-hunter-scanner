@@ -67,6 +67,17 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.correiobraziliense.com.br": [
         "https://www.correiobraziliense.com.br/sitemap-news.xml",
     ],
+    # Correio do Povo (Porto Alegre/RS). Atex Polopoly CMS: no RSS at all
+    # (/rss, /feed, /rss.xml all 404) but it publishes a proper Google News
+    # sitemap at /sitemap_news.xml (urlset + news:news with title and
+    # publication_date), ~245 items covering the last ~3 days. The generic
+    # /sitemap.xml is a sitemapindex of MONTHLY polopoly_fs files whose URLs
+    # carry a rotating asset id — not stable enough to hardcode; the news
+    # sitemap path is stable. Caveat: <loc> carries a RAW accented path
+    # segment ("/notícias/..."), which requests percent-encodes on fetch.
+    "www.correiodopovo.com.br": [
+        "https://www.correiodopovo.com.br/sitemap_news.xml",
+    ],
     "veja.abril.com.br": [
         "https://veja.abril.com.br/feed",
     ],
@@ -207,6 +218,11 @@ NO_RSS_DOMAINS: list[str] = [
     "agencia.petrobras.com.br",  # CMS Liferay sem feed publico
     "www.brasilenergia.com.br",  # paywall — primary path is the authenticated homepage scraper; GNews kept as a redundant net
     "visnoinvest.com.br",        # recusa conexoes de servidor
+    # A Tribuna (Santos): no RSS (WAF 403 on /rss) and sitemap generation is
+    # off since 2026-07-01. Primary path is the "Últimas Notícias" scraper in
+    # HOMEPAGE_SCRAPERS; GNews site: query is a redundant net in case the
+    # listing markup changes.
+    "www.atribuna.com.br",
 ]
 
 # Dominios que publicam em ingles — consultados com hl=en-US para aparecer no GNews.
@@ -237,6 +253,16 @@ HOMEPAGE_SCRAPERS: dict[str, str] = {
     # bodies behind the subscriber paywall.
     "www.brasilenergia.com.br": "https://brasilenergia.com.br/petroleoegas/ultimasnoticias",
     "agencia.petrobras.com.br": "https://agencia.petrobras.com.br/",
+    # A Tribuna (Santos/SP — the Port of Santos daily). No feed of any kind:
+    # /rss and /rss/ answer 403 "Acesso Bloqueado" (WAF), every other RSS path
+    # 404s, and the CMS config embedded in the page carries "feeds":[]. Its
+    # sitemaps exist but are FROZEN — /sitemap/sitemap_1.xml and
+    # /sitemap/sitemap_news.xml both stop at 2026-07-01 while the site keeps
+    # publishing, and the same page config shows "featureToggleSitemap":false,
+    # i.e. sitemap regeneration was switched off server-side. So the only live
+    # discovery surface is the server-rendered "Últimas Notícias" listing
+    # (~21 article links per fetch, plenty for a 5-minute poll).
+    "www.atribuna.com.br": "https://www.atribuna.com.br/noticias/ultimas-noticias",
 }
 
 # Subconjunto de HOMEPAGE_SCRAPERS cujas URLs apontam para paginas de
@@ -245,6 +271,7 @@ HOMEPAGE_SCRAPERS: dict[str, str] = {
 # o fetch do artigo), usamos now() como data aproximada em vez de descartar.
 RECENT_ONLY_SCRAPERS: frozenset[str] = frozenset({
     "www.brasilenergia.com.br",
+    "www.atribuna.com.br",
 })
 
 
