@@ -38,6 +38,37 @@ Required repository secrets (set under **Settings → Secrets → Actions**):
 
 Manual run: **Actions → News Hunter scan → Run workflow**.
 
+## Diagnosing a dead source
+
+A source can stop producing while every run stays green. Each scan logs, at
+INFO, the feeds that returned zero items, the ones that timed out, and the
+per-feed HTTP errors — start there:
+
+```bash
+gh run view <run-id> --repo IBBAOG/news-hunter-scanner --log \
+  | grep -E "feed summary|feeds returning|feed errors"
+```
+
+Note that a Google News `site:` query returning zero is routine (no keyword hit
+in the window) and is counted separately from the named list; a **registered
+feed** returning zero is always anomalous.
+
+If a feed looks healthy from your machine but produces nothing in production,
+the difference is the IP: several Brazilian sites sit behind WAFs that
+challenge datacenter ranges only. `.github/workflows/diagnose_feed.yml` runs
+`scripts/diagnose_feed.py` on the same runner image the scanner uses and prints
+status, latency, headers and body for four probes (scanner-equivalent timeout,
+generous timeout, `curl_cffi` browser impersonation, end-to-end `_fetch_one`):
+
+```bash
+gh workflow run diagnose_feed.yml --repo IBBAOG/news-hunter-scanner \
+  -f url=https://example.com/feed/
+```
+
+`cf-mitigated: challenge` + HTTP 403 there but 200 locally means the source
+needs the Google News `site:` route (`NO_RSS_DOMAINS` in `sources.py`) — see
+the Monitor Mercantil entry for a worked example.
+
 ## Brasil Energia cookie refresh
 
 Brasil Energia's `be-auth` session cookie expires roughly every 14 days. The
