@@ -88,9 +88,24 @@ RSS_FEEDS: dict[str, list[str]] = {
     "operamundi.uol.com.br": [
         "https://operamundi.uol.com.br/feed",
     ],
-    "www.conjur.com.br": [
-        "https://www.conjur.com.br/rss.xml",
-    ],
+    # Conjur (Consultor Juridico): the RSS feed was healthy and productive for
+    # months (~25 articles/week, full snippets) until 2026-07-27 ~21:50 UTC,
+    # when Cloudflare started serving a Managed Challenge ("Just a moment...",
+    # HTTP 403, cf-mitigated: challenge) to this feed. The block is ZONE-WIDE —
+    # /rss.xml, /feed, /rss, /atom.xml, /sitemap.xml, /sitemap_news.xml and the
+    # bare homepage all answer the same 403, on the apex and on www alike — so
+    # article bodies are unreachable too and there is no alternate feed URL to
+    # move to. Unlike Monitor Mercantil, this one is NOT a datacenter-IP
+    # reputation gate: a residential connection is challenged exactly the same,
+    # and curl_cffi browser impersonation fails from both, so nothing short of a
+    # JS-executing browser clears it (neither HOMEPAGE_SCRAPERS nor a
+    # residential runner would help). Covered via Google News site: below.
+    # Re-test any time with:
+    #   gh workflow run diagnose_feed.yml -f url=https://www.conjur.com.br/rss.xml
+    # and uncomment this if it ever answers 200 again.
+    # "www.conjur.com.br": [
+    #     "https://www.conjur.com.br/rss.xml",
+    # ],
 
     # Economia / Mercado
     "www.infomoney.com.br": [
@@ -239,6 +254,18 @@ NO_RSS_DOMAINS: list[str] = [
     # article. Article bodies stay unreachable, so these land with an empty
     # snippet — same shape as r7 / agencia.petrobras.
     "monitormercantil.com.br",
+    # Conjur: zone-wide Cloudflare Managed Challenge (403) since 2026-07-27,
+    # from residential IPs too and through curl_cffi impersonation — see the
+    # commented-out RSS entry above. APEX form on purpose: Google News indexes
+    # the canonical apex (article URLs are https://conjur.com.br/...), and a
+    # site: query with the keyword set returns ~9 items over the last week
+    # against 2 for the www form. That is well below the ~25/week the feed used
+    # to deliver, but the global per-keyword Google News queries surface ZERO
+    # Conjur items (a legal outlet is outranked by the mainstream press on
+    # "Petrobras" / "gas" / "ANP"), so without this the domain is fully dark.
+    # Bodies stay unreachable, so these land with an empty snippet — same shape
+    # as monitormercantil / r7 / agencia.petrobras.
+    "conjur.com.br",
     # A Tribuna (Santos): no RSS (WAF 403 on /rss) and sitemap generation is
     # off since 2026-07-01. Primary path is the "Últimas Notícias" scraper in
     # HOMEPAGE_SCRAPERS; GNews site: query is a redundant net in case the
