@@ -1,0 +1,34 @@
+name: Diagnose feed
+
+# Manual-only. Runs scripts/diagnose_feed.py on the SAME runner image the
+# scanner uses, so we can see how a feed behaves from a datacenter IP
+# (WAF challenge / 403 / CDN cache-miss latency) instead of guessing from a
+# residential connection. No schedule, no secrets — costs nothing at rest.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Feed URL to diagnose
+        required: true
+        default: https://monitormercantil.com.br/feed/
+      timeout:
+        description: Generous timeout (seconds) for the second attempt
+        required: false
+        default: '20'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - run: python -m scripts.diagnose_feed "${{ inputs.url }}" --timeout "${{ inputs.timeout }}"
