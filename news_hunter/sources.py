@@ -257,14 +257,30 @@ NO_RSS_DOMAINS: list[str] = [
     # Conjur: zone-wide Cloudflare Managed Challenge (403) since 2026-07-27,
     # from residential IPs too and through curl_cffi impersonation — see the
     # commented-out RSS entry above. APEX form on purpose: Google News indexes
-    # the canonical apex (article URLs are https://conjur.com.br/...), and a
-    # site: query with the keyword set returns ~9 items over the last week
-    # against 2 for the www form. That is well below the ~25/week the feed used
-    # to deliver, but the global per-keyword Google News queries surface ZERO
-    # Conjur items (a legal outlet is outranked by the mainstream press on
-    # "Petrobras" / "gas" / "ANP"), so without this the domain is fully dark.
-    # Bodies stay unreachable, so these land with an empty snippet — same shape
-    # as monitormercantil / r7 / agencia.petrobras.
+    # the canonical apex (article URLs are https://conjur.com.br/...); a site:
+    # query returns ~9 items over the last week against 2 for the www form.
+    # This is a partial recovery, not a replacement, and the reason is worth
+    # recording. Googlebot still crawls the site fine (a bare site: query shows
+    # ~55 items in the last 7 days, including articles published today), but two
+    # things cut the yield:
+    #   1. Bodies are unreachable, so keyword matching is TITLE-ONLY. Of the 233
+    #      Conjur articles captured in the 60 days before the block, only 26.6%
+    #      carry a keyword in the title — the other ~73% matched on the article
+    #      lede that enrich_item used to fetch. That caps this route at roughly
+    #      a quarter of the ~25/week the feed delivered.
+    #   2. AND-ing site: with the 50+ keyword OR-block makes Google rank
+    #      tag/archive pages ("Arquivo de Braskem", "Arquivo de
+    #      Cide-Combustiveis") above real articles, because those pages are
+    #      literally made of the keyword. They will be persisted like any other
+    #      item; the pollution is bounded because news_articles is keyed by url,
+    #      so each archive page lands at most once.
+    # Kept anyway because the alternative is zero: the global per-keyword Google
+    # News queries surface NO Conjur items at all (a legal outlet is outranked
+    # by the mainstream press on "Petrobras" / "gas" / "ANP"), and the query does
+    # find the high-value sector pieces when they exist — the Refit/STJ and
+    # gas-pipeline-tariff articles both showed up in it. Bodies stay unreachable,
+    # so these land with an empty snippet — same shape as monitormercantil / r7 /
+    # agencia.petrobras.
     "conjur.com.br",
     # A Tribuna (Santos): no RSS (WAF 403 on /rss) and sitemap generation is
     # off since 2026-07-01. Primary path is the "Últimas Notícias" scraper in
