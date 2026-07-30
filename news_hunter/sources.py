@@ -170,9 +170,22 @@ RSS_FEEDS: dict[str, list[str]] = {
     "timesbrasil.com.br": [
         "https://timesbrasil.com.br/feed/",
     ],
-    "monitormercantil.com.br": [
-        "https://monitormercantil.com.br/feed/",
-    ],
+    # Monitor Mercantil: the WordPress /feed/ is fine, but Cloudflare serves a
+    # Managed Challenge ("Just a moment...", HTTP 403, cf-mitigated: challenge)
+    # to datacenter IPs — which is every IP the scanner ever runs from. From a
+    # residential connection the SAME request answers 200 with 12 entries, which
+    # is why this looked healthy for three months while producing nothing: the
+    # last article landed 2026-04-29. The challenge covers the WHOLE domain, feed
+    # and article pages alike, and curl_cffi browser impersonation does NOT get
+    # through (Cloudflare is gating on IP reputation, not TLS fingerprint), so
+    # the HOMEPAGE_SCRAPERS route is unavailable too. Covered via Google News
+    # site: below. Re-test any time with:
+    #   gh workflow run diagnose_feed.yml -f url=https://monitormercantil.com.br/feed/
+    # and uncomment this if it ever answers 200 from the runner (e.g. if the
+    # scanner moves to a self-hosted/residential runner).
+    # "monitormercantil.com.br": [
+    #     "https://monitormercantil.com.br/feed/",
+    # ],
     "veronoticias.com": [
         "https://veronoticias.com/feed/",
     ],
@@ -218,6 +231,14 @@ NO_RSS_DOMAINS: list[str] = [
     "agencia.petrobras.com.br",  # CMS Liferay sem feed publico
     "www.brasilenergia.com.br",  # paywall — primary path is the authenticated homepage scraper; GNews kept as a redundant net
     "visnoinvest.com.br",        # recusa conexoes de servidor
+    # Monitor Mercantil: Cloudflare Managed Challenge (403) on every datacenter
+    # IP, whole domain, curl_cffi impersonation included — see the commented-out
+    # RSS entry above. Google News indexes the domain well (a site: query with
+    # the keyword set returns ~100 items over the last week), and GNews items
+    # carry title + published_at, which is all fast_mode needs to persist an
+    # article. Article bodies stay unreachable, so these land with an empty
+    # snippet — same shape as r7 / agencia.petrobras.
+    "monitormercantil.com.br",
     # A Tribuna (Santos): no RSS (WAF 403 on /rss) and sitemap generation is
     # off since 2026-07-01. Primary path is the "Últimas Notícias" scraper in
     # HOMEPAGE_SCRAPERS; GNews site: query is a redundant net in case the
