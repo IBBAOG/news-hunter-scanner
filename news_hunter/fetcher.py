@@ -397,6 +397,46 @@ def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawIt
 # capturar substring no meio (ex.: "/em-10-anos-algo" nao casa).
 _WP_DUP_SUFFIX_RE = re.compile(r"-\d{1,2}$")
 
+# site: operand inside a quote_plus'd Google News query (site%3Adominio.com).
+_GNEWS_SITE_RE = re.compile(r"site%3A([^\s+&]+)", re.IGNORECASE)
+
+# Max entries rendered in the per-feed observability lines. A mass outage must
+# not turn one log line into 10 KB.
+_LOG_LIST_CAP = 15
+
+
+def feed_label(domain: str, url: str) -> str:
+    """Short, stable identifier for a feed task, for logs.
+
+    A domain can register several feeds (g1, folha, exame), so the domain alone
+    is ambiguous; the full URL is too long, especially for Google News queries.
+    Renders as "domain/last-path-segment", or "gnews:<site operand>" for the
+    Google News site: queries.
+    """
+    if domain == "news.google.com":
+        m = _GNEWS_SITE_RE.search(url)
+        return f"gnews:{m.group(1)}" if m else "gnews:query"
+    try:
+        path = urlparse(url).path.rstrip("/")
+    except ValueError:
+        return domain
+    tail = path.rsplit("/", 1)[-1] if path else ""
+    return f"{domain}/{tail}" if tail else domain
+
+
+def _strip_domain_prefix(domain: str, msg: str) -> str:
+    """Fetchers prefix errors with "<domain>: "; the label already carries it."""
+    prefix = f"{domain}: "
+    return msg[len(prefix):] if msg.startswith(prefix) else msg
+
+
+def _join_capped(labels: list[str]) -> str:
+    ordered = sorted(labels)
+    if len(ordered) <= _LOG_LIST_CAP:
+        return ", ".join(ordered)
+    shown = ", ".join(ordered[:_LOG_LIST_CAP])
+    return f"{shown} (+{len(ordered) - _LOG_LIST_CAP} more)"
+
 
 def _fetch_one(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:
     """Baixa e parseia um feed. Retorna (items, erro_ou_None)."""
@@ -534,22 +574,45 @@ def iter_collect(
         ex.shutdown(wait=False, cancel_futures=True)
         if _feed_counts or _feed_errors:
             total = sum(c for c in _feed_counts.values() if c > 0)
-            zero_feeds = [
-                f"{d}:{u.rsplit('/', 1)[-1] or u}"
-                for (d, u), c in _feed_counts.items() if c == 0
-            ]
-            timed_out = [
-                f"{d}:{u.rsplit('/', 1)[-1] or u}"
-                for (d, u), c in _feed_counts.items() if c == -1
-            ]
+            # A REGISTERED feed returning 0 items is always anomalous: these
+            # sites publish daily and their feeds carry the last N items
+            # regardless of date. A Google News site: query returning 0 is
+            # routine (no article matched the keywords inside the window), so
+            # those are counted apart instead of drowning the real signal.
+            zero_feeds: list[str] = []
+            gnews_zero = 0
+            timed_out: list[str] = []
+            for (d, u), c in _feed_counts.items():
+                if c == 0:
+                    if d == "news.google.com":
+                        gnews_zero += 1
+                    else:
+                        zero_feeds.append(feed_label(d, u))
+                elif c == -1:
+                    timed_out.append(feed_label(d, u))
             log.info(
-                "feed summary: %d items total, %d feeds returned 0, %d feeds timed out",
-                total, len(zero_feeds), len(timed_out),
+                "feed summary: %d items total, %d feeds returned 0 (+%d gnews queries), "
+                "%d feeds timed out, %d feeds errored",
+                total, len(zero_feeds), gnews_zero, len(timed_out), len(_feed_errors),
             )
+            # INFO, not DEBUG: production runs at INFO, so anything below it is
+            # invisible where it matters. A source can die silently for months
+            # while the run stays green and the counters stay plausible — that
+            # is exactly how monitormercantil.com.br went unnoticed from
+            # 2026-04-29 to 2026-07-30 (Cloudflare 403 on every datacenter IP).
+            # Naming the dead feeds is the whole point of the summary.
             if zero_feeds:
-                log.debug("feeds returning 0 items: %s", ", ".join(sorted(zero_feeds)))
+                log.info("feeds returning 0 items: %s", _join_capped(zero_feeds))
             if timed_out:
-                log.debug("feeds timed out (deadline %.1fs): %s", dl, ", ".join(sorted(timed_out)))
+                log.info("feeds timed out (deadline %.1fs): %s", dl, _join_capped(timed_out))
+            if _feed_errors:
+                log.info(
+                    "feed errors: %s",
+                    _join_capped([
+                        f"{feed_label(d, u)}: {_strip_domain_prefix(d, msg)}"
+                        for (d, u), msg in _feed_errors.items()
+                    ]),
+                )
 
 
 def collect(

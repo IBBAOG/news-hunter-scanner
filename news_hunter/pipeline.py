@@ -490,6 +490,15 @@ def run_search(
         errors.append(f"fatal: {e!s}")
     finally:
         finish_run(run_id, n_upserted, errors[:200])  # cap de erros no historico
+        # finish_run is a no-op in cloud mode (no runs table), so without this
+        # the errors list dies here and the service only ever prints its LENGTH
+        # ("errors=2"), which names nothing and is impossible to act on.
+        if errors:
+            head = "; ".join(errors[:10])
+            log.info(
+                "errors (%d): %s%s",
+                len(errors), head, " ..." if len(errors) > 10 else "",
+            )
 
     return {
         "run_id": run_id,
