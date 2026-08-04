@@ -58,6 +58,18 @@ class RawItem:
     published_at: datetime | None
     source_domain: str  # dominio da noticia real (nao do feed)
     feed_domain: str    # dominio do feed que trouxe esse item
+    # --- Hints de listagem (homepage scrapers) -------------------------------
+    # Preenchidos por _scrape_homepage a partir do proprio HTML da listagem:
+    # o texto do link (manchete) e a data impressa ao lado dele.
+    #
+    # Sao HINTS, nao dados canonicos: ficam FORA de `title`/`published_at` de
+    # proposito. Preencher aqueles dois faria `enrich_item(need_snippet=False)`
+    # concluir que o item ja esta completo e pular o fetch da pagina — e com
+    # isso perderiamos snippet e hora exata em toda fonte raspada. Aqui eles
+    # servem so como (a) filtro barato de janela antes de qualquer fetch e
+    # (b) fallback honesto quando o enriquecimento falha.
+    title_hint: str = ""
+    published_hint: datetime | None = None  # granularidade de DIA (00:00 UTC)
 
 
 _PT_MONTH_MAP = {
@@ -230,12 +242,75 @@ def _fetch_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str 
     return items, None
 
 
+# Data impressa ao lado do link numa listagem: "29/07/2026".
+_LISTING_DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
+
+# Textos de link que sao call-to-action, nao manchete ("Ler notícia", "Leia mais").
+_CTA_TEXTS = frozenset({
+    "ler noticia", "ler notícia", "leia mais", "leia", "saiba mais",
+    "veja mais", "continue lendo", "confira", "acesse",
+})
+_LISTING_TITLE_MIN_CHARS = 15
+
+
+def _listing_hints(anchor) -> tuple[str, datetime | None]:
+    """Extrai (manchete, data) do proprio HTML da listagem, se houver.
+
+    Sobe no maximo 2 niveis a partir do <a> procurando UMA data dd/mm/yyyy ou
+    um <time datetime>. O guard `len(matches) == 1` evita pegar a data do
+    vizinho quando subimos para um container que abriga varios artigos.
+
+    Vale ouro: a listagem de "ultimas noticias" do Brasil Energia imprime a
+    data de publicacao junto do link ("Cai oferta de gás da Petrobras
+    29/07/2026"), e as 30 entradas dessa pagina cobrem ~7 DIAS, nao 24h. Sem
+    ler essa data o scanner nao tem como saber que o item do rodape da listagem
+    e velho — e, quando o fetch do artigo falha, acaba carimbando now() nele.
+    """
+    title = ""
+    published: datetime | None = None
+
+    node = anchor
+    for _ in range(3):
+        if node is None or not hasattr(node, "get_text"):
+            break
+        text = node.get_text(" ", strip=True)
+        if published is None:
+            t = node.find("time", attrs={"datetime": True}) if hasattr(node, "find") else None
+            if t is not None:
+                try:
+                    parsed = date_parser.parse(t["datetime"])
+                    published = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError, OverflowError):
+                    published = None
+            if published is None:
+                found = _LISTING_DATE_RE.findall(text)
+                if len(found) == 1:
+                    d, mo, y = (int(g) for g in found[0])
+                    try:
+                        published = datetime(y, mo, d, tzinfo=timezone.utc)
+                    except ValueError:
+                        published = None
+        if not title and node is anchor:
+            candidate = _LISTING_DATE_RE.sub("", text).strip(" -|·–—")
+            candidate = re.sub(r"\s+", " ", candidate)
+            if (
+                len(candidate) >= _LISTING_TITLE_MIN_CHARS
+                and candidate.lower() not in _CTA_TEXTS
+            ):
+                title = candidate[:300]
+        if published is not None:
+            break
+        node = node.parent
+    return title, published
+
+
 def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:
     """Scrapa homepage com curl_cffi e extrai links de artigos.
 
     Usado para sites que bloqueiam RSS mas permitem acesso via browser
-    (Brasil Energia, Agencia Petrobras, etc.). Retorna itens sem titulo/summary;
-    enrich_item busca cada pagina individualmente.
+    (Brasil Energia, Agencia Petrobras, etc.). Retorna itens sem titulo/summary
+    (enrich_item busca cada pagina individualmente) mas COM os hints que a
+    propria listagem exibe — manchete e data — quando existem.
     """
     try:
         from ._clipinator_shim import fetch_html
@@ -250,9 +325,10 @@ def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], st
         return [], f"{feed_domain}: parse {e!s}"
 
     base = page_url.rstrip("/")
-    # Coleta todos os hrefs e guarda os que parecem artigos (path com 2+ segmentos)
-    seen: set[str] = set()
-    items: list[RawItem] = []
+    # Coleta todos os hrefs e guarda os que parecem artigos (path com 2+ segmentos).
+    # Um mesmo artigo costuma aparecer em 2 <a> (a imagem e a manchete); em vez de
+    # ficar so com o primeiro, fundimos os hints — o <a> da imagem vem sem texto.
+    by_url: dict[str, RawItem] = {}
     for a in soup.find_all("a", href=True):
         href: str = a["href"].strip()
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
@@ -281,18 +357,26 @@ def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], st
         if slug.count("-") < 4:
             continue
         link = normalize_url(href)
-        if link in seen:
+        title_hint, published_hint = _listing_hints(a)
+        existing = by_url.get(link)
+        if existing is not None:
+            # Segundo <a> para o mesmo artigo: completa o que faltava.
+            if not existing.title_hint and title_hint:
+                existing.title_hint = title_hint
+            if existing.published_hint is None and published_hint is not None:
+                existing.published_hint = published_hint
             continue
-        seen.add(link)
-        items.append(RawItem(
+        by_url[link] = RawItem(
             url=link,
             title="",       # preenchido pelo enrich_item
             summary="",     # preenchido pelo enrich_item
             published_at=None,  # preenchido pelo enrich_item
             source_domain=parsed.netloc.lower(),
             feed_domain=feed_domain,
-        ))
-    return items, None
+            title_hint=title_hint,
+            published_hint=published_hint,
+        )
+    return list(by_url.values()), None
 
 
 def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:

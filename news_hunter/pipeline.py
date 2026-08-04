@@ -56,6 +56,13 @@ LEDE_RESCUE_CAP_DOMAIN = 8    # max fetches de lede por dominio por scan
 # nem no summary. Candidato a "lede rescue" (fetch do corpo + re-check).
 LEDE_RESCUE_MARKER = "#lede"
 
+# Folga aplicada a janela quando filtramos por `published_hint` (a data que a
+# LISTAGEM imprime ao lado do link). O hint tem granularidade de DIA: um artigo
+# publicado 23:00 vira 00:00 do mesmo dia, ou seja, ate 24h MAIS VELHO do que a
+# realidade. Somamos 24h para nunca descartar um item que de fato esta dentro
+# da janela — o filtro definitivo continua sendo o do stage 4, com a data real.
+HINT_WINDOW_SLACK_HOURS = 24
+
 
 def _keep_candidate(
     item: RawItem,
@@ -82,6 +89,17 @@ def _keep_candidate(
     """
     # Janela primeiro: filtra a maioria dos itens sem pagar custo de regex.
     if item.published_at is not None and not within_window(item.published_at, hours):
+        return None
+    # Sem data propria, mas a listagem imprimiu uma: usa como filtro barato.
+    # Isto e o que impede o rodape de uma listagem de arquivo (a de
+    # "ultimas noticias" do Brasil Energia cobre ~7 DIAS, nao 24h) de ser
+    # buscado a cada scan e — quando o fetch falha — persistido como se fosse
+    # de agora. Descarta ANTES de qualquer fetch_html.
+    if (
+        item.published_at is None
+        and item.published_hint is not None
+        and not within_window(item.published_hint, hours + HINT_WINDOW_SLACK_HOURS)
+    ):
         return None
     # Homepage scrapers apontam para paginas ja topicas (ex.:
     # brasilenergia.com.br/petroleoegas/ultimasnoticias). Aceita tudo sem
@@ -416,17 +434,41 @@ def run_search(
         # nem re-validacao de keyword (a pagina em si garante relevancia).
         now = datetime.now(timezone.utc)
         to_persist: list[Article] = []
+        n_dropped_blind = 0
         for it, matched, snippet, published, resolved_url, resolved_domain, ext_title in enriched:
             is_topic = it.feed_domain in HOMEPAGE_SCRAPERS
-            # Data real obrigatoria para a maioria das fontes.
-            # Excecao: scrapers de paginas "ultimas noticias" (RECENT_ONLY_SCRAPERS,
-            # ex.: brasilenergia.com.br/petroleoegas/ultimasnoticias) so listam
-            # artigos recentes — quando enrich falha por paywall/bot-detection,
-            # usamos now() como aproximacao em vez de descartar.
+            # Titulo real, em ordem de confianca: feed > pagina > listagem.
+            # (O fallback de slug NAO conta como titulo real — ver abaixo.)
+            real_title = it.title or ext_title or it.title_hint
+
+            # Itens de scraper de listagem chegam aqui sabendo APENAS que existe
+            # um link numa pagina. Titulo da pagina ou corpo sao a prova de que
+            # o artigo foi de fato alcancado. Sem nenhum dos dois o fetch falhou
+            # (404 de slug-variante, timeout, sessao caida) e nao ha noticia —
+            # so um slug. Descarta; o item segue na listagem e o proximo scan
+            # (~5 min) tenta de novo.
+            if is_topic and not (snippet or ext_title):
+                n_dropped_blind += 1
+                continue
+
+            # Data, em ordem de confianca:
+            #   1. a real (feed ou meta/JSON-LD da pagina)
+            #   2. a que a LISTAGEM imprimiu (dia exato, verificavel, estavel)
+            #   3. now(), so para paginas "ultimas noticias" e so como carimbo
+            #      de PRIMEIRA DESCOBERTA (published_is_approx -> o sink nunca
+            #      re-carimba uma linha que ja existe).
+            published_is_approx = False
             if published is None:
-                if it.feed_domain in RECENT_ONLY_SCRAPERS:
+                if it.published_hint is not None:
+                    published = it.published_hint
+                elif it.feed_domain in RECENT_ONLY_SCRAPERS and real_title:
+                    # Caso legitimo: paywall/bot-detection impediu ler a data,
+                    # mas sabemos o titulo e a pagina so lista material recente.
                     published = now
+                    published_is_approx = True
                 else:
+                    # Sem titulo real e sem data nao ha noticia: o que sobraria
+                    # e um slug carimbado com a hora de agora. Descarta.
                     continue
             if not within_window(published, hours):
                 continue
@@ -440,11 +482,12 @@ def run_search(
             if not snippet and not is_topic and not fast_mode:
                 continue
 
-            # Titulo real: item original > extraido pela pagina > slug da URL
-            if it.title:
-                display_title = it.title
-            elif ext_title:
-                display_title = ext_title
+            # Titulo real (feed > pagina > listagem) ou, em ultimo caso, o slug
+            # da URL. O slug so e aceitavel porque, chegando aqui, a data e
+            # REAL (nao fabricada): e o caso dos sitemaps WordPress, cujo
+            # <lastmod> da a data mesmo quando o fetch da pagina falha.
+            if real_title:
+                display_title = real_title
             else:
                 # Fallback: slug da URL. urldecode percent-escapes (%C3%A1 -> á)
                 # e capitaliza como sentence case — senao fica "projeto cine petrobras...".
@@ -454,8 +497,11 @@ def run_search(
 
             # Clampa published_at no futuro: alguns sites (ex.: agencia.petrobras)
             # publicam metadata com timestamp agendado. Evita "há -51 min".
+            # Tambem e um valor fabricado — marca como aproximado para nao ser
+            # re-carimbado a cada scan numa linha que ja existe.
             if published and published > now + timedelta(minutes=5):
                 published = now
+                published_is_approx = True
 
             final_hay = f"{display_title} \n {snippet}"
             final_match = matches_keywords(final_hay, keywords, exact_keywords)
@@ -480,7 +526,18 @@ def run_search(
                 published_at=published,
                 found_at=now,
                 matched_keywords=final_match,
+                published_is_approx=published_is_approx,
             ))
+
+        if n_dropped_blind:
+            # Observabilidade: um scraper de listagem que passa a falhar por
+            # completo (sessao expirada, WAF novo) agora some do feed em vez de
+            # entupi-lo com slugs. Sem esta linha isso seria silencioso.
+            log.info(
+                "%d itens de listagem descartados sem titulo/corpo/data "
+                "(enrich falhou; serao re-tentados no proximo scan)",
+                n_dropped_blind,
+            )
 
         n_new = upsert_articles(to_persist)
         n_upserted = len(to_persist)

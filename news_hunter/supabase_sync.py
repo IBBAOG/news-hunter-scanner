@@ -51,6 +51,71 @@ class _SupabaseSink:
         except Exception as e:  # noqa: BLE001
             log.warning("Supabase init falhou: %s", e)
 
+    def _existing_published_at(self, urls: list[str]) -> dict[str, str] | None:
+        """Le published_at das linhas que JA existem. None se a consulta falhar.
+
+        Devolve o valor cru (ISO string) — vai direto de volta no payload do
+        upsert, sem round-trip por datetime.
+        """
+        if self.client is None or not urls:
+            return {}
+        out: dict[str, str] = {}
+        for i in range(0, len(urls), 100):
+            chunk = urls[i:i + 100]
+            try:
+                res = (
+                    self.client.table(self.table)
+                    .select("url, published_at")
+                    .in_("url", chunk)
+                    .execute()
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("lookup de published_at falhou (%d urls): %s", len(chunk), e)
+                return None
+            for r in res.data or []:
+                url, pub = r.get("url"), r.get("published_at")
+                if url and pub:
+                    out[url] = pub
+        return out
+
+    def _freeze_approx_dates(
+        self, articles: list["Article"]
+    ) -> tuple[list["Article"], dict[str, str]]:
+        """Write-once para datas fabricadas.
+
+        Um published_at aproximado (now() de primeira descoberta, ou clamp de
+        timestamp futuro) e um CHUTE, nao um fato. Re-aplica-lo a cada scan faz
+        o artigo se auto-renovar para sempre: como a data e sempre "agora", ele
+        nunca sai da janela de 24h, logo continua sendo re-descoberto e
+        re-carimbado — foi assim que noticias do Brasil Energia de 28-29/07
+        apareceram no topo do feed em 04/08 como "13m ago".
+
+        Regra: se a linha ja existe com uma data, ela vence. Se e nova, o
+        carimbo aproximado entra (uma unica vez). Uma data REAL obtida num scan
+        futuro sobrescreve normalmente — o item continua curavel.
+
+        Se o lookup falhar, os aproximados sao deixados de fora deste push (o
+        proximo scan tenta de novo em ~5 min): perder uma insercao e reversivel,
+        re-carimbar nao e.
+        """
+        approx = [a for a in articles if a.published_is_approx]
+        if not approx:
+            return articles, {}
+        known = self._existing_published_at([a.url for a in approx])
+        if known is None:
+            log.warning(
+                "push: %d artigos com data aproximada adiados (lookup indisponivel)",
+                len(approx),
+            )
+            return [a for a in articles if not a.published_is_approx], {}
+        overrides = {a.url: known[a.url] for a in approx if known.get(a.url)}
+        if overrides:
+            log.info(
+                "push: %d/%d datas aproximadas preservadas da linha existente",
+                len(overrides), len(approx),
+            )
+        return articles, overrides
+
     def push(self, articles: list["Article"]) -> int:
         """Faz upsert em chunks de MAX_BATCH. Retorna total de rows enviadas.
 
@@ -66,11 +131,11 @@ class _SupabaseSink:
             existing = deduped.get(a.url)
             if existing is None or a.found_at >= existing.found_at:
                 deduped[a.url] = a
-        unique = list(deduped.values())
+        unique, date_overrides = self._freeze_approx_dates(list(deduped.values()))
         total = 0
         for i in range(0, len(unique), MAX_BATCH):
             chunk = unique[i:i + MAX_BATCH]
-            rows = [_article_to_row(a) for a in chunk]
+            rows = [_article_to_row(a, date_overrides.get(a.url)) for a in chunk]
             try:
                 self.client.table(self.table).upsert(rows, on_conflict="url").execute()
                 total += len(rows)
@@ -80,15 +145,23 @@ class _SupabaseSink:
         return total
 
 
-def _article_to_row(a: "Article") -> dict:
-    """Serializa Article para o schema da tabela `news_articles`."""
+def _article_to_row(a: "Article", published_override: str | None = None) -> dict:
+    """Serializa Article para o schema da tabela `news_articles`.
+
+    `published_override`: data ja gravada na linha existente, usada quando a
+    data do candidato e aproximada (write-once — ver _freeze_approx_dates).
+    """
+    if published_override:
+        published = published_override
+    else:
+        published = a.published_at.isoformat() if a.published_at else None
     return {
         "url": a.url,
         "domain": a.domain,
         "source_name": a.source_name,
         "title": a.title,
         "snippet": a.snippet,
-        "published_at": a.published_at.isoformat() if a.published_at else None,
+        "published_at": published,
         "found_at": a.found_at.isoformat(),
         "matched_keywords": list(a.matched_keywords),
     }

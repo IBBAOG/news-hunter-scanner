@@ -56,6 +56,12 @@ class Article:
     published_at: datetime | None
     found_at: datetime
     matched_keywords: list[str] = field(default_factory=list)
+    # True quando published_at foi FABRICADO (now() como carimbo de primeira
+    # descoberta, ou clamp de timestamp futuro) em vez de lido da fonte.
+    # supabase_sync trata esses como write-once: nunca sobrescrevem a data de
+    # uma linha que ja existe. Re-aplicar um now() a cada scan e exatamente o
+    # que fazia um artigo de 6 dias atras flutuar no topo do feed como "13m ago".
+    published_is_approx: bool = False
 
     @property
     def published_iso(self) -> str | None:

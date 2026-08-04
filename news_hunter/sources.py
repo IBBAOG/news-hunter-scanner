@@ -330,9 +330,22 @@ HOMEPAGE_SCRAPERS: dict[str, str] = {
 }
 
 # Subconjunto de HOMEPAGE_SCRAPERS cujas URLs apontam para paginas de
-# "ultimas noticias" (so artigos recentes, sem fixados antigos).
-# Quando enrich_item nao consegue extrair published_at (ex.: paywall bloqueia
-# o fetch do artigo), usamos now() como data aproximada em vez de descartar.
+# "ultimas noticias" — sem artigos FIXADOS antigos no topo. Quando o item tem
+# titulo mas o enrich nao consegue extrair published_at (ex.: o paywall esconde
+# a data), usamos now() como aproximacao em vez de descartar.
+#
+# ATENCAO — esse now() e um CHUTE DE PRIMEIRA DESCOBERTA, nunca um fato:
+# `Article.published_is_approx` marca a linha e `supabase_sync` garante que ela
+# jamais sobrescreva a data de uma linha que ja existe. Sem essa trava o
+# carimbo se auto-renova a cada scan: como a data e sempre "agora", o item
+# nunca sai da janela de 24h, logo continua sendo re-descoberto e re-carimbado,
+# e um artigo de dias atras flutua eternamente no topo do feed (incidente
+# 2026-08-04, Brasil Energia).
+#
+# E "recente" NAO quer dizer "ultimas 24h": a listagem do Brasil Energia traz
+# 30 links cobrindo ~7 DIAS. Por isso `_scrape_homepage` le a data que a propria
+# listagem imprime ao lado do link (RawItem.published_hint) — e ela, nao o
+# now(), que classifica esses itens.
 RECENT_ONLY_SCRAPERS: frozenset[str] = frozenset({
     "www.brasilenergia.com.br",
     "www.atribuna.com.br",
