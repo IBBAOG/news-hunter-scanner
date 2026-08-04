@@ -286,11 +286,25 @@ def run_search(
         n_cache = 0
         n_resolved_ok = 0
         # Limita enriquecimentos por dominio.
-        # Homepage scrapers (published_at=None) usam cap menor: servidores lentos
-        # podem travar threads por 15s+ em fetchs sem retorno rapido.
+        # Homepage scrapers (published_at=None) usam cap maior: sao paginas ja
+        # topicas, entao vale a pena aceitar muito de cada uma.
         _enrich_count: dict[str, int] = {}
         _ENRICH_CAP = 20           # RSS, GNews, sitemaps
         _ENRICH_CAP_HOMEPAGE = 40  # homepage scrapers (sites topicos, aceita muito)
+        # Contador SEPARADO para a fase 2a (resolucao de wrappers do Google
+        # News). Antes as duas fases dividiam `_enrich_count`, e isso gastava o
+        # cap DUAS VEZES para o mesmo artigo: uma ao submeter a resolucao e
+        # outra ao submeter o enrich da URL ja resolvida. Consequencia: um
+        # dominio coberto SO por Google News que produzisse >= 20 candidatos
+        # esgotava o cap so com resolucoes e nao sobrava nenhuma vaga de enrich
+        # — ou seja, quanto MAIS o dominio rendia, MENOS artigos ele
+        # persistia, ate zero. Medido em 2026-08-04: br.investing.com devolvia
+        # 100 itens frescos por scan e persistia ZERO; www.reuters.com caiu de
+        # 10 para 1 assim que a query passou a devolver 100 frescos em vez de
+        # 20. As duas fases limitam recursos diferentes (chamadas ao
+        # gnewsdecoder vs. fetch_html), entao tem contadores diferentes.
+        _resolve_count: dict[str, int] = {}
+        _RESOLVE_CAP = 20
         try:
             for dom, items, err in iter_collect(
                 keywords, hours, include_google_news=include_google_news
@@ -333,24 +347,28 @@ def run_search(
                         n_cache += 1
                         sn, pub, domres, cached_title = hit
                         enriched.append((it, matched, sn, pub or it.published_at, key, domres, cached_title))
+                    elif it.url.startswith("https://news.google.com/"):
+                        # Fase 2a: resolucao separada (max 6 paralelas → sem rate-limit).
+                        # Cap PROPRIO — ver _resolve_count acima.
+                        _cnt = _resolve_count.get(it.source_domain, 0)
+                        if _cnt >= _RESOLVE_CAP:
+                            continue
+                        _resolve_count[it.source_domain] = _cnt + 1
+                        fut = resolve_ex.submit(_resolve_google_news_url, it.url)
+                        pending_resolve[fut] = (it, matched)
                     else:
+                        # Fase 2b: enrich direto (URL real, sem gnewsdecoder)
                         _cap = _ENRICH_CAP_HOMEPAGE if it.published_at is None else _ENRICH_CAP
                         _cnt = _enrich_count.get(it.source_domain, 0)
                         if _cnt >= _cap:
                             continue
                         _enrich_count[it.source_domain] = _cnt + 1
-                        if it.url.startswith("https://news.google.com/"):
-                            # Fase 2a: resolucao separada (max 6 paralelas → sem rate-limit)
-                            fut = resolve_ex.submit(_resolve_google_news_url, it.url)
-                            pending_resolve[fut] = (it, matched)
-                        else:
-                            # Fase 2b: enrich direto (URL real, sem gnewsdecoder)
-                            fut = enrich_ex.submit(
-                                enrich_item, it,
-                                resolve_google_news=False,
-                                need_snippet=not fast_mode,
-                            )
-                            pending[fut] = (it, matched)
+                        fut = enrich_ex.submit(
+                            enrich_item, it,
+                            resolve_google_news=False,
+                            need_snippet=not fast_mode,
+                        )
+                        pending[fut] = (it, matched)
 
             # --- Fase 2a: aguarda resolucoes restantes ---
             done_resolve, nd_resolve = wait(

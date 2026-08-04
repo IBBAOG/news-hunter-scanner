@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 import feedparser
@@ -34,8 +34,19 @@ log = logging.getLogger(__name__)
 # COLLECT_DEADLINE e o teto GLOBAL - depois disso, feeds ainda em voo sao
 # abandonados para esta busca e ficam para a proxima.
 FEED_TIMEOUT = 4
-STANDARD_SITEMAP_TIMEOUT = 8  # sitemaps WordPress podem ser lentos
-COLLECT_DEADLINE = 12.0  # homepage scrapers via curl_cffi podem levar 6-7s
+# Sitemaps WordPress sao lentos e PESADOS: a pagina de posts do visaoagro tem
+# 484 KB e o Apache dele nao comprime (sem content-encoding), entao o custo e
+# real, nao latencia de handshake. Medido em 2026-08-04, requests em serie:
+# visaoagro 1.9-5.8s no indice + 3.0-4.1s na pagina; istoedinheiro 4.9s + 1.8s.
+STANDARD_SITEMAP_TIMEOUT = 10
+# Teto GLOBAL. Precisa acomodar o pior caso do caminho MAIS LENTO, que e o
+# sitemap WordPress paginado: DOIS requests em serie (indice -> pagina de
+# posts), logo 2 x STANDARD_SITEMAP_TIMEOUT = 20s. Com o deadline antigo de 12s
+# uma coleta fria de visaoagro (9.9s medidos) passava raspando — e trocar um
+# zero silencioso por um zero-por-deadline nao e conserto nenhum.
+# O custo desse teto so e pago quando alguma fonte esta de fato lenta:
+# as_completed drena os feeds a medida que terminam.
+COLLECT_DEADLINE = 22.0  # homepage scrapers via curl_cffi levam 6-7s; sitemap paginado, ate 20s
 
 # Segmentos de path que indicam paginas de listagem/categoria, nao artigos.
 _NON_ARTICLE_SEGMENTS = frozenset({
@@ -379,16 +390,55 @@ def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], st
     return list(by_url.values()), None
 
 
+def _parse_lastmod(el) -> datetime | None:
+    """<lastmod> -> datetime aware, ou None se ausente/ilegivel."""
+    if el is None or not (el.text or "").strip():
+        return None
+    try:
+        d = date_parser.parse(el.text.strip())
+    except (ValueError, TypeError, OverflowError):
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+# Nomenclatura de paginacao de sitemap de POSTS, nas duas convencoes que
+# aparecem na pratica:
+#   WordPress core : wp-sitemap-posts-post-1.xml, wp-sitemap-posts-post-2.xml, ...
+#   Yoast SEO      : post-sitemap.xml (= pagina 1), post-sitemap2.xml, ...
+#
+# Ancorado no NOME DO ARQUIVO inteiro (^...$) de proposito: um `in` solto
+# casaria page-sitemap, post_tag-sitemap, category-sitemap, author-sitemap e
+# tribe_events-sitemap, que sao listagens/arquivos e nao artigos.
+_SITEMAP_POST_PAGE_RE = re.compile(
+    r"^(?:wp-sitemap-posts-post-(?P<wp>\d+)|post-sitemap(?P<yoast>\d*))\.xml$",
+    re.IGNORECASE,
+)
+
+# Folga do cross-check de sanidade da pagina escolhida (ver _fetch_standard_sitemap).
+_SITEMAP_STALE_PAGE_SLACK = timedelta(hours=48)
+
+
+def _post_sitemap_page(loc: str) -> int | None:
+    """Numero da pagina, se `loc` e um sitemap paginado de posts. Senao None."""
+    try:
+        name = urlparse(loc).path.rstrip("/").rsplit("/", 1)[-1]
+    except ValueError:
+        return None
+    m = _SITEMAP_POST_PAGE_RE.match(name)
+    if m is None:
+        return None
+    return int(m.group("wp") or m.group("yoast") or "1")
+
+
 def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:
     """Parseia sitemap WordPress padrao (urlset sem news:news).
 
     Retorna itens com titulo/summary VAZIOS — serao preenchidos pelo enrich.
     Filtra por <lastmod> para nao enriquecer milhares de posts antigos.
 
-    Se feed_url aponta para um sitemapindex (ex.: /wp-sitemap.xml), descobre
-    automaticamente a ultima pagina de posts e usa essa.
+    Se feed_url aponta para um sitemapindex (ex.: /wp-sitemap.xml, Yoast
+    /sitemap_index.xml), descobre a pagina de posts mais recente e usa essa.
     """
-    from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(hours=96)
     _HDR = {"User-Agent": USER_AGENT, "Accept": "application/xml, text/xml, */*"}
     try:
@@ -398,23 +448,66 @@ def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawIt
     except Exception as e:  # noqa: BLE001
         return [], f"{feed_domain}: {e!s}"
 
-    # Detecta sitemapindex: descobre automaticamente a ultima pagina de posts
+    # Detecta sitemapindex: descobre a pagina de posts mais recente.
     _NS_IDX = f"{{{_NS_SITEMAP}}}sitemapindex"
+    index_claim: datetime | None = None
+    chosen_page: str | None = None
     if root.tag == _NS_IDX or root.tag == "sitemapindex":
-        post_urls: list[str] = []
+        pages: list[tuple[int, str]] = []
+        claims: list[datetime] = []
+        others: list[str] = []
         for s in root.findall(f"{{{_NS_SITEMAP}}}sitemap"):
             loc_el = s.find(f"{{{_NS_SITEMAP}}}loc")
-            if loc_el is not None and "posts-post-" in (loc_el.text or ""):
-                post_urls.append(loc_el.text.strip())
-        if not post_urls:
-            return [], None
-        # Ultima pagina tem os posts mais recentes
+            loc = (loc_el.text or "").strip() if loc_el is not None else ""
+            if not loc:
+                continue
+            page_no = _post_sitemap_page(loc)
+            if page_no is None:
+                others.append(loc.rstrip("/").rsplit("/", 1)[-1])
+                continue
+            pages.append((page_no, loc))
+            lm = _parse_lastmod(s.find(f"{{{_NS_SITEMAP}}}lastmod"))
+            if lm is not None:
+                claims.append(lm)
+        if not pages:
+            # ANTES isto era `return [], None`: um zero MUDO. O sitemap de
+            # visaoagro.com.br (Yoast) nunca casou o padrao "posts-post-" do
+            # WordPress core, entao a fonte devolveu 0 itens em 33/33 runs sem
+            # aparecer nem em "feeds returning 0 items" nem em "feed errors".
+            # Um indice de sitemap que nao expoe nenhuma pagina de posts e um
+            # ERRO de configuracao nosso (ou uma mudanca de nomenclatura da
+            # fonte) e precisa ser dito em voz alta.
+            return [], (
+                f"{feed_domain}: sitemapindex sem pagina de posts reconhecida "
+                f"({len(others)} filhos: {', '.join(sorted(others)[:8])})"
+            )
+        # Criterio de escolha: MAIOR NUMERO DE PAGINA.
+        #
+        # Nao e a ordem do documento (o `post_urls[-1]` anterior): hoje o ultimo
+        # elemento calha de ser o certo, e isso quebra em silencio no dia em que
+        # o gerador emitir os filhos fora de ordem, ou emitir a pagina 8 antes
+        # da 7.
+        #
+        # E tambem NAO e o <lastmod> do indice, por dois motivos medidos:
+        #   1. O WordPress core simplesmente nao emite lastmod nos filhos
+        #      (istoedinheiro.com.br: 481 paginas de posts, zero lastmod) — o
+        #      criterio seria indefinido.
+        #   2. O lastmod do indice MENTE. Em visaoagro.com.br o indice anuncia
+        #      post-sitemap.xml com lastmod de hoje, mas o conteudo desse arquivo
+        #      vai de 2022-06-01 a 2023-04-28: e a pagina 1, a dos posts MAIS
+        #      ANTIGOS. Os posts vivos estao na pagina 7.
+        #
+        # As duas convencoes paginam do mais ANTIGO para o mais NOVO, entao o
+        # numero da pagina e o unico sinal que veio verificado. O lastmod do
+        # indice fica so como cross-check de sanidade, abaixo.
+        page_no, chosen_page = max(pages, key=lambda p: p[0])
+        index_claim = max(claims) if claims else None
         try:
-            r2 = requests.get(post_urls[-1], headers=_HDR, timeout=STANDARD_SITEMAP_TIMEOUT)
+            r2 = requests.get(chosen_page, headers=_HDR, timeout=STANDARD_SITEMAP_TIMEOUT)
             r2.raise_for_status()
             root = ET.fromstring(r2.content)
         except Exception as e:  # noqa: BLE001
-            return [], f"{feed_domain}: ultima pagina: {e!s}"
+            return [], f"{feed_domain}: pagina de posts {page_no}: {e!s}"
 
     # Coleta em duas passagens para poder filtrar duplicatas WordPress:
     # quando um editor republica um post, o WordPress resolve o conflito de
@@ -435,6 +528,7 @@ def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawIt
                 continue
 
     items: list[RawItem] = []
+    newest_entry: datetime | None = None
     for url_el in url_elements:
         loc_el = url_el.find(f"{{{_NS_SITEMAP}}}loc")
         if loc_el is None or not (loc_el.text or "").strip():
@@ -451,15 +545,9 @@ def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawIt
             if base_seg.count("-") >= 3 and base_path in all_paths:
                 continue  # pula a variante duplicada
 
-        lastmod_el = url_el.find(f"{{{_NS_SITEMAP}}}lastmod")
-        published: datetime | None = None
-        if lastmod_el is not None and lastmod_el.text:
-            try:
-                published = date_parser.parse(lastmod_el.text.strip())
-                if published.tzinfo is None:
-                    published = published.replace(tzinfo=timezone.utc)
-            except (ValueError, TypeError):
-                pass
+        published = _parse_lastmod(url_el.find(f"{{{_NS_SITEMAP}}}lastmod"))
+        if published is not None and (newest_entry is None or published > newest_entry):
+            newest_entry = published
 
         # Descarta posts antigos para nao sobrecarregar o enriquecimento
         if published is None or published < cutoff:
@@ -474,6 +562,24 @@ def _fetch_standard_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawIt
             source_domain=src_domain,
             feed_domain=feed_domain,
         ))
+
+    # Cross-check de sanidade da pagina escolhida, de graca (sem request extra):
+    # a entrada mais recente que ela REALMENTE contem vs. a data mais recente
+    # que o indice ANUNCIOU para qualquer pagina de posts. Se a pagina escolhida
+    # e muito mais velha do que o indice promete, escolhemos a pagina errada —
+    # exatamente o que acontecia em visaoagro (pagina 1: max 2023-04-28; indice
+    # anunciando hoje). Isso vira log, nao um terceiro fetch: o custo de um
+    # request a mais por scan e maior que o de um aviso que um humano le.
+    if index_claim is not None and chosen_page is not None:
+        if newest_entry is None or newest_entry < index_claim - _SITEMAP_STALE_PAGE_SLACK:
+            log.warning(
+                "%s: pagina de posts escolhida (%s) parece a errada — entrada mais "
+                "recente %s, mas o sitemapindex anuncia %s. A nomenclatura de "
+                "paginacao da fonte mudou?",
+                feed_domain, chosen_page.rsplit("/", 1)[-1],
+                newest_entry.isoformat() if newest_entry else "nenhuma",
+                index_claim.isoformat(),
+            )
     return items, None
 
 

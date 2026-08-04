@@ -40,9 +40,15 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.estadao.com.br": [
         "https://www.estadao.com.br/arc/outboundfeeds/news-sitemap/?outputType=xml",
     ],
-    "einvestidor.estadao.com.br": [
-        "https://einvestidor.estadao.com.br/post/sitemap-news-1.xml",
-    ],
+    # einvestidor.estadao.com.br REMOVIDO em 2026-08-04. O sitemap
+    # /post/sitemap-news-1.xml congelou: 400 entradas, todas entre 2026-05-18 e
+    # 2026-05-27 (o sitemap-news-2.xml e ainda mais velho, entao parou o
+    # gerador, nao a paginacao). O e-Investidor migrou de CMS e hoje publica em
+    # www.estadao.com.br/einvestidor/..., que o news sitemap do Estadao — ja
+    # cadastrado logo acima — cobre: 13 das 100 URLs da ultima coleta estao sob
+    # esse path, 366 artigos nos ultimos 60 dias. Manter a entrada so gastava um
+    # fetch de 254 KB de conteudo de maio a cada 5 min. Nao ha perda de
+    # cobertura; e higiene.
     "www1.folha.uol.com.br": [
         "https://feeds.folha.uol.com.br/mercado/rss091.xml",
         "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml",
@@ -215,7 +221,8 @@ RSS_FEEDS: dict[str, list[str]] = {
     ],
     # Visnoinvest recusa conexoes de servidor (reset) — coberto via Google News
     # "visnoinvest.com.br": [],
-    # Visao Agro: feed retorna XML malformado e post-sitemap nao e news sitemap — Google News
+    # Visao Agro: /feed retorna XML malformado e nao ha news sitemap (urlset com
+    # news:news). Coberto via sitemap WordPress padrao — ver STANDARD_SITEMAPS.
     # "visaoagro.com.br": [],
     "www.theagribiz.com": [
         "https://www.theagribiz.com/feed/",
@@ -227,13 +234,23 @@ RSS_FEEDS: dict[str, list[str]] = {
 # Cobertura feita pelo Google News com site: operator (hl=pt-BR).
 NO_RSS_DOMAINS: list[str] = [
     "br.investing.com",
+    # TradingView: mudo de 2026-07-23 ate 2026-08-04. Causa: o GNews enchia os
+    # 100 slots com as paginas PERENES de cotacao/previsao ("Ação PETR3:
+    # Cotação hoje", "Previsão BRKM3 — Preço Alvo para 2027") em vez de
+    # materias — 37 dos 100 itens eram pre-2026 e ZERO estavam dentro da janela
+    # de 24h. Nao era ranking: era a query perdendo o `when:` por truncagem
+    # (ver o bloco de comentario acima de google_news_queries). Com `when:` na
+    # frente a mesma query devolve 7 itens, 5 deles frescos em 24h — medido
+    # duas vezes, 2026-08-04. Fica cadastrado.
     "br.tradingview.com",
     "www.argusmedia.com",
-    "www.theedgesingapore.com",
     "www12.senado.leg.br",
-    "edition.cnn.com",
-    "www.cnn.com",
-    "estradao.estadao.com.br",
+    # estradao.estadao.com.br REMOVIDO em 2026-08-04: o host responde 301 para
+    # https://www.estadao.com.br/jornal-do-carro/estradao/, ou seja, ja nao e um
+    # dominio proprio. Uma query GNews `site:` NUA (sem keyword, sem janela)
+    # devolve 0 itens — o Google nao indexa mais nada sob esse host. As URLs
+    # /jornal-do-carro/ aparecem no news sitemap do Estadao, que ja esta
+    # cadastrado em RSS_FEEDS. Zero perda de cobertura.
     "aovivo.folha.uol.com.br",
     # RSS seletivo (curado, nao lista todos os artigos) — GNews site: complementa
     "www.bloomberglinea.com.br",
@@ -289,9 +306,30 @@ NO_RSS_DOMAINS: list[str] = [
     "www.atribuna.com.br",
 ]
 
-# Dominios que publicam em ingles — consultados com hl=en-US para aparecer no GNews.
+# Dominios que publicam em ingles — consultados com hl=en-US para aparecer no
+# GNews, e com o subconjunto de keywords em ingles (ver english_keywords).
 ENGLISH_NO_RSS_DOMAINS: list[str] = [
     "www.reuters.com",           # RSS encerrado oficialmente em 2020
+    # CNN e The Edge Singapore estavam em NO_RSS_DOMAINS, ou seja, consultados
+    # com hl=pt-BR&gl=BR — em portugues, para veiculos que publicam em ingles.
+    # Resultado: ZERO itens desde sempre nos tres. Medicao de 2026-08-04, janela
+    # de 24h, itens frescos em 24h:
+    #
+    #     dominio                   pt-BR (antes)   en-US + subset (agora)
+    #     www.theedgesingapore.com        0                  19
+    #     edition.cnn.com                 0                  16
+    #     www.cnn.com                     0                  29
+    #
+    # A CNN nao vinha nem em ingles enquanto o bloco OR tinha 53 keywords: a
+    # truncagem da query (ver comentario acima de google_news_queries) matava o
+    # `when:` e depois o subconjunto util de keywords. Com `when:` na frente e o
+    # bloco em ingles, ela produz. Expectativa honesta de volume: a CNN e uma
+    # fonte de baixa densidade para o setor — 16 itens em 30 dias em
+    # www.cnn.com e 3 em edition.cnn.com casando o bloco COMPLETO —, entao
+    # espere alguns itens por dia, nao dezenas.
+    "edition.cnn.com",
+    "www.cnn.com",
+    "www.theedgesingapore.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
@@ -302,8 +340,21 @@ STANDARD_SITEMAPS: dict[str, list[str]] = {
         # Sitemap index: o fetcher detecta <sitemapindex> e usa a ultima pagina automaticamente
         "https://istoedinheiro.com.br/wp-sitemap.xml",
     ],
+    # Visao Agro roda Yoast, que pagina o sitemap de posts em post-sitemap.xml,
+    # post-sitemap2.xml ... post-sitemap7.xml. Estavamos apontando direto para
+    # post-sitemap.xml, que e a PAGINA 1 — a dos posts mais ANTIGOS (1000 URLs,
+    # de 2022-06-01 a 2023-04-28). Com o corte de 96h do fetcher, isso e zero
+    # item garantido, e foi zero em 33/33 runs. Os posts vivos estao na pagina
+    # 7. Apontamos para o INDICE e deixamos _fetch_standard_sitemap escolher a
+    # pagina (maior numero de pagina — ver a justificativa la, incluindo por que
+    # o <lastmod> do indice nao serve: ele anuncia post-sitemap.xml como
+    # modificado hoje).
+    #
+    # Rendimento perdido enquanto durou, contando SO o que casa keyword no slug
+    # (piso — o match real e no corpo, via enrich_item): 12 posts em 96h, 34 em
+    # 7d, 152 em 30d.
     "visaoagro.com.br": [
-        "https://visaoagro.com.br/post-sitemap.xml",
+        "https://visaoagro.com.br/sitemap_index.xml",
     ],
 }
 
@@ -397,6 +448,104 @@ def all_homepage_scrapers() -> list[tuple[str, str]]:
     return list(HOMEPAGE_SCRAPERS.items())
 
 
+# -----------------------------------------------------------------------------
+# Google News: o operador `when:` vem ANTES do bloco OR. Nao e estetica.
+#
+# O Google TRUNCA a query. Medido em 2026-08-04 contra site:noticias.r7.com,
+# com `when:24h` na frente e o resto preenchido com termos-lixo:
+#
+#     "Petrobras" na posicao 1  ......................  10 itens
+#     "Petrobras" depois de  8 termos-lixo ...........  10 itens
+#     "Petrobras" depois de 12 termos-lixo ...........  10 itens
+#     "Petrobras" depois de 16 termos-lixo ...........   0 itens
+#     "Petrobras" depois de 52 termos-lixo ...........   0 itens
+#
+# Ou seja: tudo depois de ~13 termos do bloco OR e DESCARTADO. Com `when:` no
+# FIM da query (formato anterior), o que era descartado era o proprio `when:` —
+# a query virava um `site:` sem filtro de tempo e o Google enchia os 100 slots
+# com paginas perenes e material de arquivo. Efeito medido nos 21 dominios de
+# NO_RSS_DOMAINS, janela de 24h, mesmo bloco de 53 keywords:
+#
+#     when: no fim (antes) ......  159 itens frescos em 24h, ~1400 itens brutos
+#     when: na frente (agora) ...  313 itens frescos em 24h,  ~330 itens brutos
+#
+# Nenhum dominio regrediu. Os maiores ganhos: br.investing.com 73->100,
+# brasil247 12->47, noticias.r7.com 53->73, agenciainfra 1->15, argusmedia
+# 1->7, conjur 0->7, br.tradingview.com 0->5, monitormercantil 0->2.
+# De quebra, ~1070 itens brutos de arquivo deixam de ser baixados e filtrados a
+# cada scan.
+#
+# NAO reordene isto de volta. E a mesma patologia que ja tinha sido descrita
+# (sem causa-raiz) nos comentarios de conjur.com.br ("arquivo de Braskem"
+# ranqueando acima de artigos) e de br.tradingview.com (paginas de cotacao).
+#
+# Consequencia ainda ABERTA (nao tratada aqui): como so ~13 keywords do
+# bloco sobrevivem e `store.get_config` devolve o conjunto ORDENADO
+# ALFABETICAMENTE, as keywords que efetivamente chegam ao Google hoje sao
+# "ANP, ANS, barril, barris, blau, Brasil Energia, Braskem, Brava, Brent,
+# cogna, combustiveis, combustíveis, combustivel" — "Petrobras", "petróleo",
+# "diesel", "gasolina" e "óleo" caem fora por acidente alfabetico. Corrigir
+# isso muda O QUE o scanner procura em 21 dominios (decisao editorial), entao
+# fica registrado aqui em vez de ser mudado de lado. Quantificacao: quebrar o
+# bloco em 5 chunks de 12 rendeu, em 24h, 19 vs 0 (edition.cnn.com), 36 vs 0
+# (www.cnn.com) e 29 vs 2 (theedgesingapore) — ao custo de 5x mais queries.
+# -----------------------------------------------------------------------------
+
+
+def _when_clause(hours: int) -> str:
+    if hours <= 48:
+        return f"{hours}h"
+    return f"{max(1, hours // 24)}d"
+
+
+def _kw_or(keywords: list[str]) -> str:
+    return " OR ".join(f'"{k}"' for k in keywords)
+
+
+# Keywords que podem aparecer num texto em INGLES, em ordem de prioridade.
+#
+# Como o Google so honra ~13 termos do bloco OR (ver acima), mandar as 53
+# keywords para um site em ingles gasta os slots uteis com termos que nunca vao
+# casar ("combustiveis", "petroleo", "refinaria", "Raízen"...). Medicao de
+# 2026-08-04, janela de 24h, hl=en-US, itens frescos em 24h:
+#
+#     dominio                    bloco completo (53)   subconjunto abaixo (12)
+#     edition.cnn.com                     0                     16
+#     www.cnn.com                         0                     29
+#     www.theedgesingapore.com            2                     19
+#     www.reuters.com                   100 (ja no teto)       100
+#
+# Uma query por dominio nos dois casos — o ganho e de graca. O mesmo bloco
+# quebrado em 5 chunks de 12 (5x mais queries) rendeu 19 / 36 / 29: o
+# subconjunto captura a maior parte do ganho a 1/5 do custo, e o custo importa
+# (o news.google.com ja derrubou TODAS as queries de uma vez em 2 de 33 runs).
+#
+# E um FILTRO sobre o conjunto vivo que vem do Supabase, nao uma lista
+# paralela: keyword apagada no banco some daqui junto. Keyword nova so entra
+# quando alguem a adiciona aqui — de proposito, para o bloco nao voltar a
+# estourar o limite de truncagem em silencio.
+ENGLISH_KEYWORD_PRIORITY: tuple[str, ...] = (
+    "Petrobras", "oil", "gas", "diesel", "Brent", "WTI", "OPEC",
+    "Braskem", "Cosan", "refinery", "Hormuz", "Vibra",
+    # Reservas: so entram se alguma das acima nao estiver no conjunto vivo.
+    "PRIO", "Ultrapar", "Ipiranga", "OceanPact", "refit", "ANP",
+)
+# Teto de termos por query em ingles. 12 termos = 25 "palavras" contando
+# `site:`, `when:` e os OR — abaixo do ponto de truncagem medido (~28).
+ENGLISH_KEYWORD_CAP = 12
+
+
+def english_keywords(keywords: list[str]) -> list[str]:
+    """Subconjunto em ingles do conjunto vivo de keywords, capado e deterministico."""
+    live = {k.casefold(): k for k in keywords}
+    subset = [live[p.casefold()] for p in ENGLISH_KEYWORD_PRIORITY if p.casefold() in live]
+    if not subset:
+        # Conjunto vivo sem nenhuma keyword da allowlist (config exotica):
+        # degrada para o comportamento antigo em vez de emitir "( )".
+        subset = list(keywords)
+    return subset[:ENGLISH_KEYWORD_CAP]
+
+
 def google_news_queries(keywords: list[str], hours: int) -> list[str]:
     """URLs de RSS do Google News, uma por keyword, com janela temporal.
 
@@ -404,14 +553,10 @@ def google_news_queries(keywords: list[str], hours: int) -> list[str]:
     centenas de sites em PT-BR e US, o que serve tanto de fallback para sites
     sem RSS quanto de reforco de cobertura para sites com RSS truncado.
     """
-    if hours <= 48:
-        when = f"{hours}h"
-    else:
-        days = max(1, hours // 24)
-        when = f"{days}d"
+    when = _when_clause(hours)
     out: list[str] = []
     for kw in keywords:
-        q = quote_plus(f'"{kw}" when:{when}')
+        q = quote_plus(f'when:{when} "{kw}"')
         out.append(
             f"https://news.google.com/rss/search?q={q}&hl=pt-BR&gl=BR&ceid=BR:pt"
         )
@@ -420,15 +565,11 @@ def google_news_queries(keywords: list[str], hours: int) -> list[str]:
 
 def google_news_site_queries(domains: list[str], keywords: list[str], hours: int) -> list[str]:
     """Uma query Google News por dominio sem RSS proprio, OR das keywords."""
-    if hours <= 48:
-        when = f"{hours}h"
-    else:
-        days = max(1, hours // 24)
-        when = f"{days}d"
-    kw_or = " OR ".join(f'"{k}"' for k in keywords)
+    when = _when_clause(hours)
+    kw_or = _kw_or(keywords)
     out: list[str] = []
     for domain in domains:
-        q = quote_plus(f"site:{domain} ({kw_or}) when:{when}")
+        q = quote_plus(f"site:{domain} when:{when} ({kw_or})")
         out.append(
             f"https://news.google.com/rss/search?q={q}&hl=pt-BR&gl=BR&ceid=BR:pt"
         )
@@ -436,16 +577,16 @@ def google_news_site_queries(domains: list[str], keywords: list[str], hours: int
 
 
 def google_news_site_queries_en(domains: list[str], keywords: list[str], hours: int) -> list[str]:
-    """Igual a google_news_site_queries mas com hl=en-US para sites em ingles."""
-    if hours <= 48:
-        when = f"{hours}h"
-    else:
-        days = max(1, hours // 24)
-        when = f"{days}d"
-    kw_or = " OR ".join(f'"{k}"' for k in keywords)
+    """Igual a google_news_site_queries mas em ingles (hl=en-US).
+
+    Alem do idioma, restringe o bloco OR ao subconjunto de keywords que faz
+    sentido em ingles — ver ENGLISH_KEYWORD_PRIORITY.
+    """
+    when = _when_clause(hours)
+    kw_or = _kw_or(english_keywords(keywords))
     out: list[str] = []
     for domain in domains:
-        q = quote_plus(f"site:{domain} ({kw_or}) when:{when}")
+        q = quote_plus(f"site:{domain} when:{when} ({kw_or})")
         out.append(
             f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
         )
