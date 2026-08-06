@@ -87,6 +87,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.reuters.com": "Reuters",
     "reuters.com": "Reuters",
     "br.investing.com": "Investing.com",
+    "www.gazetadopovo.com.br": "Gazeta do Povo",
+    "gazetadopovo.com.br": "Gazeta do Povo",
     "www.correiobraziliense.com.br": "Correio Braziliense",
     "correiobraziliense.com.br": "Correio Braziliense",
     "www.correiodopovo.com.br": "Correio do Povo",
@@ -250,6 +252,17 @@ ex_eixos = _make_extractor([
 ex_monitormercantil = _make_extractor(["div.td-post-content", "div.entry-content", "article"])
 ex_timesbrasil = _make_extractor(["div.article-content", "div.entry-content", "article"])
 ex_visaoagro = _make_extractor(["div.entry-content", "div.post-content", "article"])
+# Gazeta do Povo runs Next.js with CSS-module class names, so the body wrapper
+# is `postBody-module-scss-module__<hash>__postBodyContainer` and the hash
+# rotates on every rebuild — hence the substring selector. Without it the
+# domain falls through to the meta-description fallback in enrich, which yields
+# ~140 chars of standfirst; the container gives the 24 real paragraphs (the
+# metered paywall is client-side, so an anonymous fetch gets the whole body).
+# `<article>` is NOT a useful fallback here: the tag exists but holds no <p>.
+ex_gazetadopovo = _make_extractor([
+    'div[class*="postBodyContainer"]', 'div[class*="postBody"]',
+    'div[class*="postContent"]',
+])
 
 ex_auto = _make_extractor([
     'div[itemprop="articleBody"]',
@@ -302,6 +315,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.timesbrasil.com.br": ex_timesbrasil,
     "visaoagro.com.br": ex_visaoagro,
     "www.visaoagro.com.br": ex_visaoagro,
+    "gazetadopovo.com.br": ex_gazetadopovo,
+    "www.gazetadopovo.com.br": ex_gazetadopovo,
     "theagribiz.com": ex_auto,
     "www.theagribiz.com": ex_auto,
     "www.cnnbrasil.com.br": ex_auto,

@@ -84,6 +84,50 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.correiodopovo.com.br": [
         "https://www.correiodopovo.com.br/sitemap_news.xml",
     ],
+    # Gazeta do Povo (Curitiba/PR, national reach). Next.js site served from
+    # S3 + CloudFront — no Cloudflare, no WAF: the feeds, the article pages and
+    # the sitemaps all answer 200 from the GHA runner exactly as they do from a
+    # residential connection (diagnose_feed, 2026-08-06: 0.05s, x-cache HIT,
+    # 24/80/24 entries, _fetch_one err=None; an article page is 307 KB with the
+    # full body). The metered paywall (`cXenseParse:gdp-paywall`) is applied
+    # CLIENT-SIDE by Cxense/Piano — the server ships every paragraph to an
+    # anonymous fetch — so no subscriber cookie is needed and none is used.
+    #
+    # WHICH FEEDS. The site publishes 75 feeds at /rss/, including a general
+    # `ultimas-noticias.xml`. We deliberately register the three closest to the
+    # sector beat instead of the general one. Measured on 2026-08-06 with the
+    # LIVE keyword set, counting a hit as REAL only when a matched keyword
+    # survives a word-boundary check (the substring keyword "gas" fires on
+    # "Gaspar" / "gastos" / "desgaste", which is a global config issue, not a
+    # Gazeta one):
+    #
+    #     feed                items  span  filter-pass  REAL
+    #     ultimas-noticias      269   48h      26          5
+    #     economia               24   76h       3          2
+    #     republica              80   47h      11          2
+    #     agronegocio            24   50d       2          1
+    #     brasil / mundo / opiniao / parana / vida-e-cidadania          0
+    #
+    # economia + republica + agronegocio catch 4 of the 5 real hits the general
+    # feed catches (the 5th was a `vozes` column), for a THIRD of the junk and a
+    # third of the bytes per 5-minute poll. The narrower pool also matters for
+    # the lede rescue: it is capped at LEDE_RESCUE_CAP_DOMAIN=8 fetches per
+    # domain per scan, so drawing those 8 from ~39 near-misses in economia +
+    # republica is far likelier to rescue a sector story than drawing them from
+    # ~120 near-misses dominated by politics, world and opinion.
+    #   - economia    : the beat itself — fuel prices, GLP, Petrobras, Raízen.
+    #   - republica   : where fuel POLICY lands ("PL da Gasolina" ×2 in 48h).
+    #                   Also carries /eleicoes/ URLs, i.e. it is the politics
+    #                   feed; it is the noisiest of the three.
+    #   - agronegocio : ethanol / biofuel trade. Barely moves (24 items span 50
+    #                   days), so it is nearly free; 1 real hit in that window.
+    # Re-measure any time and drop republica if the political noise outweighs
+    # the 2-per-48h policy hits — that is the marginal one.
+    "www.gazetadopovo.com.br": [
+        "https://www.gazetadopovo.com.br/feed/rss/economia.xml",
+        "https://www.gazetadopovo.com.br/feed/rss/republica.xml",
+        "https://www.gazetadopovo.com.br/feed/rss/agronegocio.xml",
+    ],
     "veja.abril.com.br": [
         "https://veja.abril.com.br/feed",
     ],
