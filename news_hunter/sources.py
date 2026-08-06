@@ -95,34 +95,45 @@ RSS_FEEDS: dict[str, list[str]] = {
     #
     # WHICH FEEDS. The site publishes 75 feeds at /rss/, including a general
     # `ultimas-noticias.xml`. We deliberately register the three closest to the
-    # sector beat instead of the general one. Measured on 2026-08-06 with the
-    # LIVE keyword set, counting a hit as REAL only when a matched keyword
-    # survives a word-boundary check (the substring keyword "gas" fires on
-    # "Gaspar" / "gastos" / "desgaste", which is a global config issue, not a
-    # Gazeta one):
+    # sector beat instead of the general one. Measured 2026-08-06 by running the
+    # real fetcher + filter over each feed:
     #
-    #     feed                items  span  filter-pass  REAL
-    #     ultimas-noticias      269   48h      26          5
-    #     economia               24   76h       3          2
-    #     republica              80   47h      11          2
-    #     agronegocio            24   50d       2          1
-    #     brasil / mundo / opiniao / parana / vida-e-cidadania          0
+    #     feed                items  span  filter-pass  of which SECTOR
+    #     ultimas-noticias      270   48h      23             5
+    #     economia               24   71h       3             2
+    #     republica              80   47h       4             2
+    #     agronegocio            24   50d       4             2
+    #     mundo                  85   48h       6             0
+    #     vida-e-cidadania       24  148h       4             0
+    #     brasil / opiniao / parana                            0
     #
-    # economia + republica + agronegocio catch 4 of the 5 real hits the general
-    # feed catches (the 5th was a `vozes` column), for a THIRD of the junk and a
-    # third of the bytes per 5-minute poll. The narrower pool also matters for
-    # the lede rescue: it is capped at LEDE_RESCUE_CAP_DOMAIN=8 fetches per
-    # domain per scan, so drawing those 8 from ~39 near-misses in economia +
-    # republica is far likelier to rescue a sector story than drawing them from
-    # ~120 near-misses dominated by politics, world and opinion.
+    # The trio returns 11 passes for 6 sector stories; the general feed returns
+    # 23 passes for 5, i.e. the SAME stories plus ~15 off-beat items, at three
+    # times the bytes on a 5-minute poll. The narrow pool also protects the lede
+    # rescue, capped at LEDE_RESCUE_CAP_DOMAIN=8 fetches per domain per scan:
+    # drawing those 8 from ~40 near-misses that are already economy/politics/agro
+    # is likelier to rescue a body-only mention than drawing them from ~120
+    # dominated by world, religion and culture.
     #   - economia    : the beat itself — fuel prices, GLP, Petrobras, Raízen.
     #   - republica   : where fuel POLICY lands ("PL da Gasolina" ×2 in 48h).
-    #                   Also carries /eleicoes/ URLs, i.e. it is the politics
-    #                   feed; it is the noisiest of the three.
-    #   - agronegocio : ethanol / biofuel trade. Barely moves (24 items span 50
-    #                   days), so it is nearly free; 1 real hit in that window.
-    # Re-measure any time and drop republica if the political noise outweighs
-    # the 2-per-48h policy hits — that is the marginal one.
+    #                   Also carries /eleicoes/ URLs — it is the politics feed.
+    #   - agronegocio : ethanol / biofuel trade. Barely moves (24 items spanning
+    #                   50 days), so it is nearly free.
+    # The one sector story the general feed caught and the trio missed was a
+    # `vozes` column (opinion). Not worth 270 items a poll; revisit if columns
+    # start carrying sector news.
+    #
+    # MEASUREMENT TRAP, worth more than the table above: `store.get_config()`
+    # falls back to the 25 hardcoded DEFAULT_KEYWORDS (all substring) whenever
+    # the Supabase service key is not reachable — which is the normal state of a
+    # dev machine. The first pass of this analysis was run that way and produced
+    # a plausible, wrong table: it showed "gas" hitting "Gaspar" / "gastos" /
+    # "desgaste" everywhere, because in production `gas` and `gás` are EXACT
+    # (54 keywords, 15 exact). Pin the live keyword set explicitly before
+    # measuring a candidate feed, or you will tune against a keyword set the
+    # scanner does not use. (Under the real set the dominant off-beat match is
+    # the substring keyword "ANS", which fires inside "trANSformar" / "mANSão";
+    # that is a global keyword-config matter, not a Gazeta one.)
     "www.gazetadopovo.com.br": [
         "https://www.gazetadopovo.com.br/feed/rss/economia.xml",
         "https://www.gazetadopovo.com.br/feed/rss/republica.xml",
