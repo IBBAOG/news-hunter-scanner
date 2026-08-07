@@ -89,6 +89,11 @@ SOURCE_NAMES: dict[str, str] = {
     "br.investing.com": "Investing.com",
     "www.gazetadopovo.com.br": "Gazeta do Povo",
     "gazetadopovo.com.br": "Gazeta do Povo",
+    # Apex first and foremost: the /rss/all item links are apex-form, so the
+    # apex key is the one that actually resolves at display time. www is here
+    # only for completeness (the feed URL itself lives on www).
+    "themoscowtimes.com": "The Moscow Times",
+    "www.themoscowtimes.com": "The Moscow Times",
     "www.correiobraziliense.com.br": "Correio Braziliense",
     "correiobraziliense.com.br": "Correio Braziliense",
     "www.correiodopovo.com.br": "Correio do Povo",

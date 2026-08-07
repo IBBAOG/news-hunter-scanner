@@ -220,6 +220,56 @@ RSS_FEEDS: dict[str, list[str]] = {
     "megawhat.uol.com.br": [
         "https://megawhat.uol.com.br/feed/",
     ],
+    # The Moscow Times (English edition). Registered for the geopolitical beat
+    # no Brazilian outlet covers at this granularity: Russian refinery throughput
+    # under drone strikes, the gasoline/diesel export ban, Urals, OPEC+, shadow
+    # fleet sanctions. Verified from the GHA runner via diagnose_feed on
+    # 2026-08-06: HTTP 200 in 0.5-1.1s, 274 KB gzip, Cloudflare origin with
+    # cf-cache-status DYNAMIC and NO cf-mitigated header (no challenge),
+    # feedparser 50 entries bozo=False, _fetch_one 50 items err=None. No paywall:
+    # an article page returns its full 23-paragraph body anonymously.
+    #
+    # WHY /rss/all AND NOT THE NARROWER FEEDS — the opposite call from Gazeta do
+    # Povo above, on purpose. Three feeds exist (/rss/news, /rss/opinion,
+    # /rss/all; there is no /rss/business, it 404s) and all cap at 50 items.
+    # Measured 2026-08-06 against the live 47-keyword set:
+    #
+    #     feed          items  span    pass   ~/day   note
+    #     /rss/news        50   195h      5     0.6   all on-beat, but see below
+    #     /rss/opinion     50  2041h      1     0.0   dead — 1 hit in 85 days
+    #     /rss/all         50   168h     17     2.4   ~8 on-beat, ~9 off-beat
+    #
+    # Two things make the general feed the right one HERE, where it was the wrong
+    # one for Gazeta:
+    #   1. /rss/all is the only feed carrying the BUSINESS section. A coverage
+    #      diff found 4 items in /rss/all present in neither other feed, one of
+    #      them "Russian Oil Refining Falls to 24-Year Low After Ukrainian Drone
+    #      Strikes — Bloomberg" — the single most on-beat item in the window.
+    #      /rss/news structurally misses that whole class of story.
+    #   2. /rss/all embeds FULL ARTICLE BODIES (~9.5 KB summaries), so keyword
+    #      matching is full-text with no fetch at all — it never touches the
+    #      lede-rescue budget, and no extractor is needed. That matters a lot for
+    #      an English outlet, where only 9 of our 47 keywords can ever match
+    #      (oil / gas / Brent / WTI / OPEC exact + diesel / refinery / Hormuz /
+    #      refit substring): full-text is what caught the shadow-fleet sanctions
+    #      story, whose title carries no keyword.
+    # The price is ~1 off-beat row/day (a war story that says "oil" once) and
+    # 274 KB per 5-minute poll. If egress ever matters, /rss/news is the cheap
+    # fallback at 31 KB — at the cost of the business section. /rss/opinion is
+    # deliberately NOT registered.
+    #
+    # Item links use the APEX (https://themoscowtimes.com/...) while the feed
+    # lives on www — so SOURCE_NAMES must be keyed on the apex, or every article
+    # renders as the bare domain instead of "The Moscow Times". Verified: all 50
+    # items come back with source_domain='themoscowtimes.com'.
+    #
+    # No Russian edition: moscowtimes.ru does not resolve (apex and www both
+    # fail to connect), and independently of that, zero of our keywords are in
+    # Cyrillic — a Russian-language feed could only match Latin tokens like
+    # Brent/OPEC/WTI. Not registered rather than presumed.
+    "www.themoscowtimes.com": [
+        "https://www.themoscowtimes.com/rss/all",
+    ],
     "ineep.org.br": [
         "https://ineep.org.br/feed/",
     ],
