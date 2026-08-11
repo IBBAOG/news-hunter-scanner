@@ -84,6 +84,64 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.correiodopovo.com.br": [
         "https://www.correiodopovo.com.br/sitemap_news.xml",
     ],
+    # Jornal do Comercio (Porto Alegre/RS) — the RS economy-and-business daily,
+    # jornaldocomercio.com. NOT the Recife paper of the same name
+    # (jc.ne10.uol.com.br), which is a different outlet and is not registered.
+    #
+    # Infrastructure: a STATIC site on S3 (`x-host:
+    # jornaldocomercio.com.s3-website-us-west-2.amazonaws.com`) behind Varnish
+    # and Cloudflare. No WAF challenge anywhere: the feeds, /sitemap.xml and the
+    # article pages all answer 200 from the GHA runner (diagnose_feed,
+    # 2026-08-11: 0.08-0.27s, cf-cache-status HIT, no cf-mitigated header; an
+    # article page is 128 KB gzip).
+    #
+    # THE PRIMARY SURFACE IS THE SITEMAP, NOT THESE FEEDS — see the
+    # jornaldocomercio entry in STANDARD_SITEMAPS below for the full table. The
+    # short version: /sitemap.xml is a rolling ~5-day window of every section
+    # (361 URLs) while each RSS feed holds 5-10 items that rotate out within
+    # hours, so the sitemap catches twice as much of the beat.
+    #
+    # SO WHY REGISTER TWO FEEDS THAT PASS ZERO ITEMS ON THEIR OWN? Because
+    # sitemap items arrive TITLE-LESS. The pipeline can only pre-filter those on
+    # the URL slug, and — the part that matters — a title-less item can never
+    # become a lede-rescue candidate (_keep_candidate only offers the rescue to
+    # items that already have a title and a date). An article whose keyword
+    # lives only in the body is therefore invisible through the sitemap, and
+    # those are exactly the RS-local stories no other registered source carries.
+    # Measured case, 2026-08-11: "Plataforma P-33 já está em Rio Grande, mas
+    # tempo adia entrada no canal" — no keyword in the title or the slug, while
+    # the body opens "A plataforma P-33, da Petrobras". It was rescued through
+    # the economia feed and missed entirely through the sitemap.
+    #   - economia    : the beat itself, and the feed that carried the P-33 story.
+    #   - jc-logistica: freight/road transport — diesel, fuel costs. Rescued
+    #                   "Nova lei do frete mínimo" on the keyword "combustível".
+    # Both are ~5-7 items per poll, so their near-misses are almost all on-beat
+    # and the LEDE_RESCUE_CAP_DOMAIN=8 budget is spent well.
+    #
+    # /_conteudo/home/rss.xml is deliberately NOT registered even though it is
+    # the richest feed (30 items, 14h). Measured against the live 47-keyword
+    # set: its 5 passes are a strict SUBSET of the sitemap's 10, and of its 25
+    # near-misses ZERO rescued — they are sports, culture and city items. It
+    # would burn the whole 8-fetch rescue budget on off-beat items and crowd out
+    # the two feeds above, which rescued 2.
+    #
+    # KNOWN INTERACTION, looks like a bug if you watch a single scan: the
+    # pipeline dedupes by normalized URL and FIRST COLLECTED WINS, so when the
+    # sitemap's title-less copy of an article beats the RSS copy, that scan
+    # loses the rescue path for it. It is not fatal — the race re-runs every
+    # ~5 min and news_articles is keyed by url, so one win persists the article
+    # for good — but do not conclude the feeds are useless from one scan's log.
+    #
+    # Paywall: metered, and many economia items are outright
+    # `isAccessibleForFree: False`. Irrelevant to us — the server still ships
+    # the 150-200 char LEDE anonymously, and the keyword is usually in it (the
+    # Ormuz story carries "petróleo" only there). Body extraction needs the
+    # dedicated ex_jornaldocomercio: the body is in `section.paywall-carregando`
+    # and has NO <p> at all. See _clipinator_shim.
+    "www.jornaldocomercio.com": [
+        "https://www.jornaldocomercio.com/_conteudo/economia/rss.xml",
+        "https://www.jornaldocomercio.com/_conteudo/cadernos/jc-logistica/rss.xml",
+    ],
     # Gazeta do Povo (Curitiba/PR, national reach). Next.js site served from
     # S3 + CloudFront — no Cloudflare, no WAF: the feeds, the article pages and
     # the sitemaps all answer 200 from the GHA runner exactly as they do from a
@@ -460,6 +518,60 @@ STANDARD_SITEMAPS: dict[str, list[str]] = {
     # 7d, 152 em 30d.
     "visaoagro.com.br": [
         "https://visaoagro.com.br/sitemap_index.xml",
+    ],
+    # Jornal do Comercio (Porto Alegre/RS) — PRIMARY surface for this source.
+    # Read the RSS_FEEDS entry above first; it explains why two of its RSS feeds
+    # are ALSO registered.
+    #
+    # /sitemap.xml is a single <urlset> with NO news:news namespace (only <loc>,
+    # <lastmod>, <image:image>), so this is the STANDARD_SITEMAPS slot, not a
+    # Google News sitemap — and is_sitemap_url() does not match the bare
+    # "/sitemap.xml" path either, so putting it in RSS_FEEDS would hand it to
+    # feedparser and yield zero. It carries a rolling ~5-DAY window of every
+    # section (361 URLs on 2026-08-11, 87 of them /economia/), which is what
+    # makes it worth the bytes: the per-editoria RSS feeds hold 5-10 items each
+    # and rotate within hours, so by the time a scan runs they have already
+    # dropped most of the day.
+    #
+    # Measured 2026-08-11 on the runner, 48h window, against the LIVE keyword
+    # set from Supabase (47 keywords, 15 of them exact — NOT the 25 hardcoded
+    # fallback; see the measurement trap in the Gazeta do Povo comment, and
+    # scripts/measure_source.py, which now refuses to measure against it):
+    #
+    #     feed                       items  span  fresh  pass  near  rescued
+    #     sitemap.xml                  237   96h    154    10     0     n/a
+    #     home                          30   14h     30     5    25       0
+    #     economia                       7     -      5     0     5       1
+    #     cadernos/jc-logistica          5   99h      3     0     3       1
+    #     internacional                  5   27h      5     1     4       0
+    #     politica / geral / jornal-cidades / empresas-e-negocios /
+    #       opiniao / cultura / esportes                0             0
+    #     ultimas-noticias               0     -      0     0     0       0
+    #
+    # The sitemap's 10 passes contain every one of home's 5 plus five the feeds
+    # had already rotated out ("Petróleo fecha em alta", "Gasolina com 32% de
+    # etanol", "Quando o risco marítimo chega à bomba de combustível", ...).
+    # Precision is unusually high — all 10 are on-beat or beat-adjacent, zero
+    # junk — because JC slugs are the headline and the live keyword set is
+    # tuned; `near` is structurally 0 because title-less items are never offered
+    # the rescue.
+    #
+    # TRAP WORTH THE LINE: /_conteudo/ultimas-noticias/rss.xml, the obvious
+    # "latest news" feed, answers HTTP 200 with a well-formed but EMPTY channel
+    # (497 bytes, zero <item>). Registering it would have produced a source that
+    # looks healthy forever and publishes nothing — the monitormercantil failure
+    # mode with no Cloudflare to blame. The live general feed is
+    # /_conteudo/home/rss.xml; it is not registered for the reasons above.
+    #
+    # COST: this is the only JC surface that pays a fetch per item. Title-less
+    # items that clear the slug filter are enriched every scan (~8 within the
+    # 24h production window, ~128 KB each); the two RSS feeds are free in
+    # fast_mode (title + date present ⇒ no fetch_html) apart from the capped
+    # lede rescue. Slugs are ASCII with no accents, so the ACCENTED keywords
+    # never fire on them — "petroleo"/"combustivel" match, "petróleo" does not.
+    # That is why the unaccented variants in the keyword table earn their keep.
+    "www.jornaldocomercio.com": [
+        "https://www.jornaldocomercio.com/sitemap.xml",
     ],
 }
 
