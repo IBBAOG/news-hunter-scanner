@@ -165,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             matched_rows.append((it, verdict))
 
         rescued = 0
+        no_body = 0
         rescued_rows: list[tuple[RawItem, list[str], str]] = []
         if args.lede and near_items:
             for it in near_items[: args.lede_cap]:
@@ -176,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  lede error {it.url}: {e}", flush=True)
                     continue
                 if not snippet:
+                    # enrich_item swallows fetch_html failures and returns an
+                    # empty snippet, so a source that 403s every article page
+                    # would otherwise look exactly like a source with no keyword
+                    # in any body. Count it and say so.
+                    no_body += 1
                     continue
                 hit = matches_keywords(f"{it.title} \n {snippet}", keywords, exact)
                 if hit:
@@ -187,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n### {label}  ({url})", flush=True)
         print(
             f"items={len(items)} span={span} fresh={fresh} pass={passed} "
-            f"near={near} rescued={rescued} fetch={elapsed:.2f}s",
+            f"near={near} rescued={rescued} no_body={no_body} fetch={elapsed:.2f}s",
             flush=True,
         )
         for it, kws in matched_rows:

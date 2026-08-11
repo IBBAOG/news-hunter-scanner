@@ -98,6 +98,8 @@ SOURCE_NAMES: dict[str, str] = {
     "correiobraziliense.com.br": "Correio Braziliense",
     "www.correiodopovo.com.br": "Correio do Povo",
     "correiodopovo.com.br": "Correio do Povo",
+    "www.jornaldocomercio.com": "Jornal do Comércio",
+    "jornaldocomercio.com": "Jornal do Comércio",
     "www.atribuna.com.br": "A Tribuna",
     "atribuna.com.br": "A Tribuna",
     "veronoticias.com": "Vero Notícias",
@@ -269,6 +271,46 @@ ex_gazetadopovo = _make_extractor([
     'div[class*="postContent"]',
 ])
 
+def _br_paragraphs(container: Tag | None) -> list[str]:
+    """Split a <br>-separated body into paragraphs.
+
+    _paragraphs_from collects <p> tags, which is the near-universal shape. Some
+    CMSs ship the whole article as ONE <div> whose paragraph breaks are <br>,
+    so <p>-collection returns an empty list on a page that visibly has a body.
+    """
+    if container is None:
+        return []
+    _strip_noise(container)
+    for br in container.find_all("br"):
+        br.replace_with("\n")
+    return [seg.strip() for seg in container.get_text(" ").split("\n") if seg.strip()]
+
+
+def ex_jornaldocomercio(soup: BeautifulSoup) -> tuple[str, list[str]]:
+    """Jornal do Comercio (Porto Alegre/RS).
+
+    Two reasons this cannot be ex_auto:
+      1. The body lives in `section.paywall-carregando` — none of ex_auto's
+         selectors match it, and its `article` fallback is useless here because
+         the tag exists but holds no <p> (same trap as Gazeta do Povo).
+      2. Inside that section the article is a single <div> with <br> separators
+         and NO <p> at all, so even the right container yields zero paragraphs
+         through the normal path. Hence _br_paragraphs.
+    Without this, enrich falls through to the meta description, which on JC is
+    often the SECTION boilerplate ("Noticias sobre negocios e os principais
+    setores da economia") rather than the article's own standfirst.
+    The class name is matched by SUBSTRING so a Tailwind sibling class or a
+    rename to `paywall-*` does not silently break extraction.
+    """
+    title = _title_from_meta(soup)
+    container = _first_matching(soup, [
+        'section[class*="paywall-carregando"]',
+        'section[class*="paywall"]',
+        'div[class*="paywall-carregando"]',
+    ])
+    return title, _br_paragraphs(container)
+
+
 ex_auto = _make_extractor([
     'div[itemprop="articleBody"]',
     "div.article-content", "div.article-body", "div.article__content",
@@ -322,6 +364,10 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.visaoagro.com.br": ex_visaoagro,
     "gazetadopovo.com.br": ex_gazetadopovo,
     "www.gazetadopovo.com.br": ex_gazetadopovo,
+    # Apex first: sitemap <loc> and feed links are www, but normalize_url strips
+    # it, so the domain the enricher looks up is the apex.
+    "jornaldocomercio.com": ex_jornaldocomercio,
+    "www.jornaldocomercio.com": ex_jornaldocomercio,
     "theagribiz.com": ex_auto,
     "www.theagribiz.com": ex_auto,
     "www.cnnbrasil.com.br": ex_auto,
