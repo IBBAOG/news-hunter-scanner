@@ -1,0 +1,57 @@
+name: Measure source
+
+# Manual-only companion to diagnose_feed.yml. diagnose_feed answers "does this
+# feed answer 200 from a datacenter IP?"; this one answers "how much would it
+# actually yield?" — it runs the real fetcher + the real filter over one or more
+# candidate feeds, against the LIVE keyword set from Supabase.
+#
+# The Supabase secrets are the whole point: measured on a machine without them,
+# store.get_config() falls back to the ~25 hardcoded DEFAULT_KEYWORDS (all
+# substring) and the resulting table describes a keyword set the scanner does not
+# use. The script refuses to print numbers in that case.
+#
+# Read-only: it never upserts anything into news_articles.
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: Space-separated feed/sitemap URLs to measure
+        required: true
+      hours:
+        description: Window in hours
+        required: false
+        default: '48'
+      standard_sitemap:
+        description: Treat the URLs as plain sitemaps (STANDARD_SITEMAPS slot)
+        type: boolean
+        required: false
+        default: false
+      lede:
+        description: Also fetch bodies of near-miss items (slower, measures lede rescue)
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - run: |
+          python -m scripts.measure_source ${{ inputs.urls }} \
+            --hours "${{ inputs.hours }}" \
+            ${{ inputs.standard_sitemap && '--standard-sitemap' || '' }} \
+            ${{ inputs.lede && '--lede' || '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
