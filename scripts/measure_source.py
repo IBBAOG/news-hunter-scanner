@@ -75,6 +75,43 @@ def _fetch(url: str, *, standard_sitemap: bool) -> tuple[list[RawItem], str | No
     return items, err, time.time() - t0
 
 
+def _report_persisted(domain: str, limit: int = 15) -> None:
+    """What news_articles already holds for a domain.
+
+    A request to "register source X" is often really "X went silent": the rows
+    stop while the workflow stays green. Checking the table first tells the two
+    cases apart, and after a registration it is the only end-to-end proof that
+    articles actually landed.
+    """
+    from news_hunter import supabase_sync
+
+    sink = supabase_sync.get_sink()
+    if sink.client is None:
+        print(f"\npersisted     : cannot check {domain} (no Supabase client)", flush=True)
+        return
+    try:
+        res = (
+            sink.client.table(sink.table)
+            .select("url, title, published_at, matched_keywords")
+            .eq("domain", domain)
+            .order("published_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = res.data or []
+    except Exception as e:  # noqa: BLE001
+        print(f"\npersisted     : query failed for {domain}: {e}", flush=True)
+        return
+    print(f"\npersisted     : {len(rows)} most recent rows for {domain}", flush=True)
+    for r in rows:
+        kws = r.get("matched_keywords") or []
+        print(
+            f"  {str(r.get('published_at'))[:19]}  {','.join(kws)[:26]:26} "
+            f"{(r.get('title') or '')[:80]}",
+            flush=True,
+        )
+
+
 def _label(url: str) -> str:
     path = urlparse(url).path.rstrip("/")
     parts = [p for p in path.split("/") if p and p not in ("rss.xml", "feed", "rss")]
@@ -104,6 +141,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print the table even when the keyword set is the hardcoded fallback",
     )
+    ap.add_argument(
+        "--persisted",
+        metavar="DOMAIN",
+        help="also list what news_articles already holds for DOMAIN — answers "
+             "'is this source already registered and merely silent?' before a "
+             "registration, and 'did the registration actually land?' after one",
+    )
     args = ap.parse_args(argv)
 
     cfg = get_config()
@@ -130,6 +174,9 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
         return 2
+
+    if args.persisted:
+        _report_persisted(args.persisted)
 
     now = datetime.now(timezone.utc)
     rows: list[tuple[str, int, str, int, int, int, int, int]] = []

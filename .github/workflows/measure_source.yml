@@ -32,6 +32,10 @@ on:
         type: boolean
         required: false
         default: false
+      persisted:
+        description: Domain to list existing news_articles rows for (optional)
+        required: false
+        default: ''
 
 jobs:
   measure:
@@ -51,7 +55,8 @@ jobs:
           python -m scripts.measure_source ${{ inputs.urls }} \
             --hours "${{ inputs.hours }}" \
             ${{ inputs.standard_sitemap && '--standard-sitemap' || '' }} \
-            ${{ inputs.lede && '--lede' || '' }}
+            ${{ inputs.lede && '--lede' || '' }} \
+            ${{ inputs.persisted && format('--persisted {0}', inputs.persisted) || '' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
