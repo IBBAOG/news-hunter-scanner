@@ -69,6 +69,34 @@ gh workflow run diagnose_feed.yml --repo IBBAOG/news-hunter-scanner \
 needs the Google News `site:` route (`NO_RSS_DOMAINS` in `sources.py`) — see
 the Monitor Mercantil entry for a worked example.
 
+### When the feed answers 200 and has simply stopped moving
+
+The harder failure is a feed that keeps working and keeps returning the *same*
+items. Every counter stays green — right status, right item count, real dates —
+and the source quietly leaves the product. Poder360 spent six days like this in
+2026-08: Cloudflare pinned its `/feed/` object at 2026-08-07 19:55 UTC while the
+same URL answered fresh from a residential IP and, on demand, from a runner.
+
+Two checks name it:
+
+```bash
+# 1. the run log: each scan compares every feed's newest item against a
+#    per-domain budget (FEED_STALE_HOURS in sources.py, default 48h)
+gh run view <run-id> --repo IBBAOG/news-hunter-scanner --log | grep "feeds stale"
+
+# 2. the CDN: `age` far past the origin's own max-age means served-stale
+curl -sSI https://www.poder360.com.br/feed/ | grep -Ei "^(age|cache-control|cf-cache-status)"
+```
+
+In `news_articles` the fingerprint is a row whose `found_at` sits at exactly
+`published_at` + the scan window: the scanner kept re-seeing that item until the
+window filter dropped it, which a feed with a ~1.5h span cannot do honestly.
+
+A cache buster does not necessarily help — Poder360's zone ignores the query
+string in its cache key, and a client `Cache-Control: no-cache` with it. What
+works is a **second path**, since each path is its own cache object: that domain
+registers `/feed/` and `/feed/atom/`, deduped by normalized URL.
+
 ## Listing scrapers: never fabricate a publication date twice
 
 Sources without a feed are covered by `HOMEPAGE_SCRAPERS`, which harvests
