@@ -21,6 +21,7 @@ from .sources import (
     all_homepage_scrapers,
     all_rss_feeds,
     all_standard_sitemaps,
+    feed_stale_hours,
     google_news_queries,
     google_news_site_queries,
     google_news_site_queries_en,
@@ -628,6 +629,49 @@ def _join_capped(labels: list[str]) -> str:
     return f"{shown} (+{len(ordered) - _LOG_LIST_CAP} more)"
 
 
+def _newest_published(items: list[RawItem]) -> datetime | None:
+    """Most recent real publication date among a feed's items, if any.
+
+    Only `published_at` counts — the date the SOURCE stated. Listing hints and
+    fabricated stamps are exactly what a staleness check must not trust.
+    """
+    dates = [it.published_at for it in items if it.published_at is not None]
+    return max(dates) if dates else None
+
+
+def _stale_feeds(
+    newest: dict[tuple[str, str], datetime],
+    now: datetime,
+) -> list[tuple[str, float, float]]:
+    """Feeds whose newest item is older than the domain's staleness budget.
+
+    Returns (label, age_hours, budget_hours), stalest first. A feed that returned
+    no dated item at all is NOT reported here: that is either a zero (already
+    named in the summary) or a source whose dates only exist after enrichment.
+    """
+    out: list[tuple[str, float, float]] = []
+    for (dom, url), ts in newest.items():
+        # Google News queries carry their own `when:` window, so their recency
+        # says nothing about the health of a feed we registered.
+        if dom == "news.google.com":
+            continue
+        budget = feed_stale_hours(dom)
+        age_h = (now - ts).total_seconds() / 3600.0
+        if age_h > budget:
+            out.append((feed_label(dom, url), age_h, budget))
+    out.sort(key=lambda t: t[1], reverse=True)
+    return out
+
+
+def _render_stale(stale: list[tuple[str, float, float]]) -> str:
+    rendered = [
+        f"{label} (newest item {age / 24:.1f}d ago, budget {budget / 24:.0f}d)"
+        for label, age, budget in stale[:_LOG_LIST_CAP]
+    ]
+    extra = len(stale) - len(rendered)
+    return ", ".join(rendered) + (f" (+{extra} more)" if extra > 0 else "")
+
+
 def _fetch_one(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:
     """Baixa e parseia um feed. Retorna (items, erro_ou_None)."""
     if is_sitemap_url(feed_url):
@@ -738,6 +782,9 @@ def iter_collect(
     # Aggregated and logged at INFO once iter_collect finishes draining.
     _feed_counts: dict[tuple[str, str], int] = {}
     _feed_errors: dict[tuple[str, str], str] = {}
+    # Newest item date per feed. A feed that answers 200 with the SAME items
+    # forever is as dead as one returning zero, and nothing above notices it.
+    _feed_newest: dict[tuple[str, str], datetime] = {}
     try:
         for fut in as_completed(futs.keys(), timeout=dl):
             dom, _url = futs[fut]
@@ -748,6 +795,9 @@ def iter_collect(
                 yield dom, [], f"{dom}: {e!s}"
                 continue
             _feed_counts[(dom, _url)] = len(got or [])
+            newest = _newest_published(got or [])
+            if newest is not None:
+                _feed_newest[(dom, _url)] = newest
             if err:
                 _feed_errors[(dom, _url)] = err
             yield dom, got, err
@@ -795,6 +845,15 @@ def iter_collect(
                 log.info("feeds returning 0 items: %s", _join_capped(zero_feeds))
             if timed_out:
                 log.info("feeds timed out (deadline %.1fs): %s", dl, _join_capped(timed_out))
+            # Same argument one step further: a feed can keep answering 200 with
+            # a full set of dated entries and still have stopped moving. That is
+            # how www.poder360.com.br disappeared from the feed for six days in
+            # 2026-08 — Cloudflare pinned its /feed/ object at 2026-08-07 19:55
+            # UTC and every counter above stayed green. An item count says the
+            # feed answered; only the date of its newest item says it is alive.
+            stale = _stale_feeds(_feed_newest, datetime.now(timezone.utc))
+            if stale:
+                log.info("feeds stale (no new item): %s", _render_stale(stale))
             if _feed_errors:
                 log.info(
                     "feed errors: %s",

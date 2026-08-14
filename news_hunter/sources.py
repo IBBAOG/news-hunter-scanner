@@ -343,8 +343,30 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.camara.leg.br": [
         "https://www.camara.leg.br/noticias/rss/ultimas-noticias",
     ],
+    # Poder360 publishes ~100 articles/day, but Cloudflare fronts each feed
+    # PATH as its own cache object and hands it out well past the origin's
+    # `cache-control: max-age=300`. Measured 2026-08-14: /feed/ answered with
+    # `age: 1023` and a newest item 28 min behind /feed/atom/, which answered
+    # with `age: 206`. The two objects drift independently.
+    #
+    # Between 2026-08-07 19:55 UTC and 2026-08-14 the /feed/ object was pinned
+    # outright. The scanner kept re-seeing the SAME 2026-08-07 items for a full
+    # 24h — their `found_at` in news_articles advanced to exactly published+24h,
+    # the moment the window filter finally dropped them — and then ingested
+    # NOTHING from this domain for six days, while the same URL answered fresh
+    # from a residential IP and from a GHA runner on demand. HTTP 200, valid
+    # RSS, 10 dated entries: invisible to every "returned 0 items" check.
+    #
+    # A query-string cache buster does NOT help: the zone ignores the query in
+    # its cache key (`/feed/?nhcb=<epoch>` still answered HIT with the same
+    # age), and neither does `Cache-Control: no-cache` from the client. The fix
+    # is a SECOND, independently cached path. Atom carries the same posts with
+    # the same canonical links, and the pipeline dedupes by normalized URL, so
+    # the overlap costs nothing. The staleness check in fetcher.py now names
+    # either one out loud if it freezes again.
     "www.poder360.com.br": [
         "https://www.poder360.com.br/feed/",
+        "https://www.poder360.com.br/feed/atom/",
     ],
     "diariodopoder.com.br": [
         "https://diariodopoder.com.br/feed",
@@ -618,6 +640,43 @@ RECENT_ONLY_SCRAPERS: frozenset[str] = frozenset({
     "www.brasilenergia.com.br",
     "www.atribuna.com.br",
 })
+
+
+# -----------------------------------------------------------------------------
+# Staleness thresholds — "this feed answers 200 but has stopped moving".
+#
+# A feed that returns ZERO items is already named in the run summary. The nastier
+# failure is the one that keeps returning items and never any NEW ones: a CDN
+# pinning a cached copy (Poder360, 2026-08-07 -> 2026-08-14), a WordPress cache
+# plugin stuck writing the same /feed/ output, an editorial section quietly
+# archived. Every counter stays plausible and the source is simply gone.
+#
+# So we also measure, per feed, the age of its NEWEST item and say it out loud
+# once it crosses a threshold. The default is deliberately generous: it exists to
+# catch a source that publishes several times a day and froze, not to nag about
+# slow ones. Feeds that are legitimately slow declare their own budget below —
+# measured 2026-08-14 over one collect of all 47 registered feeds, whose stalest
+# healthy entries were jornaldocomercio 95h, ineep 64h and gazeta/agronegocio 48h.
+# A source that starts nagging every run is a source whose entry here is wrong,
+# or one that really did die; either way it wants a human, not a bigger number.
+# -----------------------------------------------------------------------------
+
+FEED_STALE_HOURS_DEFAULT = 48.0
+
+FEED_STALE_HOURS: dict[str, float] = {
+    # Research institute — publishes analyses, not news.
+    "ineep.org.br": 14 * 24.0,
+    # Regional dailies / weekly sections: measured multi-day gaps while healthy.
+    "www.jornaldocomercio.com": 10 * 24.0,
+    "www.gazetadopovo.com.br": 7 * 24.0,
+    "obastidor.com.br": 5 * 24.0,
+    "www.theagribiz.com": 5 * 24.0,
+}
+
+
+def feed_stale_hours(domain: str) -> float:
+    """Hours a feed may go without a new item before it is called out."""
+    return FEED_STALE_HOURS.get(domain, FEED_STALE_HOURS_DEFAULT)
 
 
 # URLs de sitemap Google News (urlset + news:news) - nao sao RSS mas entram
