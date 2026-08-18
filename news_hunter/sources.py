@@ -797,6 +797,23 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # path scope would have silently zeroed the source. Bare apex is the query;
     # articles resolve to www.bloomberg.com.
     "bloomberg.com",
+    # S&P Global Commodity Insights (Platts). GNews pass=44/7d on the BARE apex
+    # (site:spglobal.com) — which is the ONLY queryable surface: site:spglobal.
+    # com/commodityinsights returned 3 items, and site:spglobal.com/commodity-
+    # insights and site:platts.com both returned 0. Google News does not honour
+    # S&P's path filter, so the Rigzone /news path-scope trick is unavailable
+    # here. The bare pass set splits ~half/half: the high-value Platts /
+    # Commodity Insights beat (Platts price assessments, Hormuz shipping
+    # traffic, crude routing, LNG netbacks, shadow-fleet premiums — content no
+    # other registered source carries) and S&P Global RATINGS press releases
+    # ("... Ratings Affirmed", "... Senior Notes"), a few of them archived
+    # actions resurfacing with a fresh crawl date. Kept anyway, Conjur-style:
+    # the ratings pollution is BOUNDED (news_articles is keyed by url, so each
+    # lands at most once) and title-only, while the Platts pieces are exactly
+    # the premium market intelligence this wave targets. If GNews ever honours
+    # -site:spglobal.com/ratings, scope it out. Articles resolve to
+    # www.spglobal.com.
+    "spglobal.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

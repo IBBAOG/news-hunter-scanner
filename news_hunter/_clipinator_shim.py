@@ -179,6 +179,8 @@ SOURCE_NAMES: dict[str, str] = {
     # never rely on it — both keys are exact matches.
     "bloomberg.com": "Bloomberg",
     "www.bloomberg.com": "Bloomberg",
+    "spglobal.com": "S&P Global Commodity Insights",
+    "www.spglobal.com": "S&P Global Commodity Insights",
 }
 
 
@@ -536,6 +538,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # consistency and for the lede-rescue path where a body fetch can succeed.
     "bloomberg.com": ex_auto,
     "www.bloomberg.com": ex_auto,
+    "spglobal.com": ex_auto,
+    "www.spglobal.com": ex_auto,
 }
 
 
