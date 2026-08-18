@@ -214,6 +214,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.gulfnews.com": "Gulf News",
     "aljazeera.com": "Al Jazeera",
     "www.aljazeera.com": "Al Jazeera",
+    "zawya.com": "Zawya",
+    "www.zawya.com": "Zawya",
 }
 
 
@@ -604,6 +606,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.gulfnews.com": ex_auto,
     "aljazeera.com": ex_auto,
     "www.aljazeera.com": ex_auto,
+    "zawya.com": ex_auto,
+    "www.zawya.com": ex_auto,
 }
 
 

@@ -940,6 +940,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # surface. pass=17/7d (items=100 near=83): Hormuz, Iran oil, Gulf oil
     # spill, LNG, sanctions. Articles resolve to www.aljazeera.com.
     "aljazeera.com",
+    # Zawya (zawya.com) -- MENA business / markets aggregator (LSEG /
+    # Refinitiv). The single richest source in this wave: GNews pass=38/7d
+    # (items=100 near=60), pass set ~100% on-beat -- UAE trade, oil-price
+    # moves, Russian ice-class LNG carriers, Hormuz oil routing, ADNOC,
+    # IEA / OPEC demand forecasts, Aramco crude, ExxonMobil Mozambique LNG,
+    # Egypt bid rounds. No path scope needed. Articles resolve to
+    # www.zawya.com.
+    "zawya.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
