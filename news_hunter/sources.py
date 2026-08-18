@@ -957,6 +957,20 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # nothing else covers. Kept at the paywall-source floor. Articles resolve
     # to www.iraqoilreport.com.
     "iraqoilreport.com",
+    # --- Wave 2 REJECTED (measured 2026-08-18 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # Neftegaz.RU (neftegaz.ru): no viable surface from the runner. Its RSS
+    # and homepage fail TLS (SSLCertVerificationError -- the cert chain does
+    # not verify from a US datacenter; DNS resolves, so not a geo-block) AND
+    # site:neftegaz.ru returns 0 GNews items (not indexed under en-US).
+    # Both routes 0.
+    # "neftegaz.ru",
+    # OPEC (opec.org): no RSS (SPA; /rss and /feed serve HTML). site:opec.org
+    # GNews pass=4/7d but all four are the SAME OPEC Award for Research press
+    # release (every opec.org page trivially matches OPEC) -- ~1 distinct
+    # story, press-release-only, very low frequency. OPEC+ output / MOMR news
+    # is already carried by TASS / Interfax / Zawya / MEES. Below bar.
+    # "opec.org",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
