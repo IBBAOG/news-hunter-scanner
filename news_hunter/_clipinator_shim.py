@@ -239,6 +239,13 @@ SOURCE_NAMES: dict[str, str] = {
     "www.montelnews.com": "Montel News",
     "globalenergynetwork.net": "Global Energy Network",
     "www.globalenergynetwork.net": "Global Energy Network",
+    # India oil & gas / business press (English) -- Wave 4 (2026-08-18). ET
+    # EnergyWorld / Mint / BusinessLine are RSS (see RSS_FEEDS); Moneycontrol is
+    # GNews-covered (see ENGLISH_NO_RSS_DOMAINS). RSS item links are
+    # normalize_url'd (www stripped) so the resolved source_domain is the apex
+    # (or the energy subdomain for ET, which has no www); GNews resolves to the
+    # article's real netloc (www kept). Both keyed for completeness.
+    "energy.economictimes.indiatimes.com": "ET EnergyWorld",
 }
 
 
@@ -651,6 +658,11 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.montelnews.com": ex_auto,
     "globalenergynetwork.net": ex_auto,
     "www.globalenergynetwork.net": ex_auto,
+    # India oil & gas / business press (English) -- Wave 4 (2026-08-18). ET
+    # EnergyWorld / Mint / BusinessLine RSS matches land on title+summary;
+    # Moneycontrol is GNews title-only. ex_auto registered for the lede-rescue
+    # path + consistency.
+    "energy.economictimes.indiatimes.com": ex_auto,
 }
 
 

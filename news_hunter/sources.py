@@ -650,6 +650,30 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.naturalgasintel.com": [
         "https://www.naturalgasintel.com/feed/",
     ],
+    # =========================================================================
+    # India oil & gas / business press (English) -- Wave 4 (2026-08-18). India
+    # is the world's third-largest oil importer, so its trade press carries the
+    # crude-sourcing / refining / Hormuz-exposure beat at a granularity no
+    # Brazilian or Gulf source matches (Russian-crude discounts, ONGC / Reliance,
+    # LPG allocation, India's own import parity). The three below have a
+    # runner-reachable, dated RSS feed and are registered here; Moneycontrol
+    # (feed WAF-blocked) is GNews-covered in ENGLISH_NO_RSS_DOMAINS. Yields
+    # measured on the runner (measure_source.yml, live 91-keyword set, 7d window,
+    # --lede) 2026-08-18.
+    # =========================================================================
+    # ET EnergyWorld (energy.economictimes.indiatimes.com) -- the Economic Times
+    # energy vertical, a PURE oil & gas / power section and the anchor of this
+    # wave. items=20 span=56h fresh=20 pass=14 near=6 rescued=1 -- fourteen of
+    # twenty items in a 56h window match on title/summary alone, every one
+    # on-beat (ONGC gas, India tanker exports, Saudi Hormuz loadings, US refiners,
+    # Brent/crude, Russia-India gasoline, BPCL diesel, offshore West Asia). Feed
+    # and article links are on the energy subdomain (no www), so the resolved
+    # source_domain is energy.economictimes.indiatimes.com -- keyed there in
+    # SOURCE_NAMES. Deliberately NOT the bare economictimes.indiatimes.com apex,
+    # which would mislabel generic ET business copy as ET EnergyWorld.
+    "energy.economictimes.indiatimes.com": [
+        "https://energy.economictimes.indiatimes.com/rss/oil-and-gas",
+    ],
 }
 
 
