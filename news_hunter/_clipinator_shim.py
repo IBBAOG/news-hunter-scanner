@@ -252,6 +252,11 @@ SOURCE_NAMES: dict[str, str] = {
     "www.thehindubusinessline.com": "BusinessLine",
     "moneycontrol.com": "Moneycontrol",
     "www.moneycontrol.com": "Moneycontrol",
+    # China state / regional wires (English) -- Wave 4, all GNews-covered (see
+    # ENGLISH_NO_RSS_DOMAINS). GNews resolves items to the article's real netloc
+    # (www / subdomain kept); apex kept for completeness. Xinhua's English site
+    # is the english.news.cn subdomain (no www).
+    "english.news.cn": "Xinhua",
 }
 
 
@@ -675,6 +680,9 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.thehindubusinessline.com": ex_auto,
     "moneycontrol.com": ex_auto,
     "www.moneycontrol.com": ex_auto,
+    # China state / regional wires (English) -- Wave 4, GNews title-only;
+    # ex_auto registered for consistency + the lede-rescue path.
+    "english.news.cn": ex_auto,
 }
 
 

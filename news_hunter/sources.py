@@ -1170,6 +1170,29 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # named as a market driver rather than the subject. Articles resolve to
     # www.moneycontrol.com.
     "moneycontrol.com",
+    # -----------------------------------------------------------------------
+    # China state / regional oil & gas press (English). No usable RSS on any of
+    # these -- all GNews en-US. They carry the China-domestic O&G buildout
+    # (PipeChina, the 2030 oil/gas supply targets) plus a Chinese-wire read on
+    # the global crude / OPEC / Hormuz beat. Heavy syndication: the same wire
+    # story recurs across Xinhua / China Daily / Global Times and, url-keyed,
+    # each copy lands at most once -- so the secondary wires are largely a
+    # duplicate of Xinhua and are kept only because each clears the >=3/7d
+    # on-beat bar in its own right (numbers per entry). Recurring false-positive
+    # class to watch: coal-mine "gas outburst" / gas-explosion ACCIDENT stories
+    # and "non-oil exports" on the exact `gas` / substring `oil` keywords.
+    # -----------------------------------------------------------------------
+    # Xinhua (english.news.cn) -- the Chinese state wire, English edition, and
+    # the anchor of the China set. GNews pass=43/7d (items=100 fresh=100
+    # near=57). After discounting ~7 gas-accident / "non-oil exports" false
+    # positives and the wire's heavy same-title syndication (OPEC demand x3,
+    # "Crude futures settle" x4, Aramco-refinery-drone x3), ~26 DISTINCT on-beat
+    # remain: Hormuz tanker attacks, OPEC / IEA demand cuts, Houthi strikes on
+    # the Aramco Jazan refinery, China's 440 Mt 2030 oil / gas target, Novatek,
+    # Libya oil revenues, Australia jet-fuel / diesel reserves -- a genuinely
+    # additive Chinese-wire read on the global beat. English articles resolve to
+    # english.news.cn (a subdomain, no www) -- keyed there in SOURCE_NAMES.
+    "english.news.cn",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
