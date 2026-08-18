@@ -872,6 +872,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # (keyword-scoped) is preferred over the firehose. Articles resolve to
     # tass.com.
     "tass.com",
+    # Interfax (interfax.com) -- Russian / CIS business & energy wire, English
+    # edition. GNews pass=11/7d (items=27 near=16), high precision: Kazakh oil
+    # via CPC, Novak fuel-supply controls, Lukoil sanctions license, Sinopec /
+    # Uzbekneftegaz, Orsk refinery drone shutdown, Nostrum Oil & Gas,
+    # Azerbaijan gasoline / diesel output. No RSS (/rss.asp and /rss/ 404).
+    # Articles resolve to interfax.com.
+    "interfax.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
