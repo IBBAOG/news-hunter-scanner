@@ -203,6 +203,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.interfax.com": "Interfax",
     "mees.com": "MEES",
     "www.mees.com": "MEES",
+    "arabnews.com": "Arab News",
+    "www.arabnews.com": "Arab News",
 }
 
 
@@ -582,6 +584,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.interfax.com": ex_auto,
     "mees.com": ex_auto,
     "www.mees.com": ex_auto,
+    "arabnews.com": ex_auto,
+    "www.arabnews.com": ex_auto,
 }
 
 

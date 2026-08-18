@@ -887,6 +887,16 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # paywall-source ~2/7d floor -- this is the premium ME intelligence this
     # wave targets. Articles resolve to www.mees.com.
     "mees.com",
+    # Arab News (arabnews.com) -- Saudi / Gulf English daily. Its business RSS
+    # (/cat/4/rss.xml, Business & Economy) works from a browser but 403s from
+    # the runner (WAF), so GNews. pass=79/7d (items=100 near=21) -- but ~30 of
+    # the 79 are bare section / tag titles (Oil, OPEC) that Google ranks up
+    # when the keyword OR-block AND-s the site: operator; those are BOUNDED
+    # pollution (news_articles keyed by url, each lands once), Conjur / S&P
+    # style. The other ~49 are substantial on-beat stories: Oman tanker oil
+    # spill, Hormuz vessel strikes, Pakistan fuel prices, IEA demand cuts,
+    # Russian refinery drone. Articles resolve to www.arabnews.com.
+    "arabnews.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
