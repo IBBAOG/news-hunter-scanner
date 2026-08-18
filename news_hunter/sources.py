@@ -932,6 +932,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # (items=98 near=74): Hormuz shipping, US sanctions, ADNOC, Gulf war /
     # oil, tanker incidents. Articles resolve to gulfnews.com.
     "gulfnews.com",
+    # Al Jazeera (aljazeera.com) -- Qatar-based global news. Its all.xml feed
+    # IS runner-reachable but very low precision (1 pass / 25 items in 6h,
+    # rescued=0 across 24 near-miss body fetches -- a general world-news
+    # firehose with no energy / economy RSS scope; /economy/rss and
+    # /tag/energy/rss are 404), so GNews site: (keyword-scoped) is the right
+    # surface. pass=17/7d (items=100 near=83): Hormuz, Iran oil, Gulf oil
+    # spill, LNG, sanctions. Articles resolve to www.aljazeera.com.
+    "aljazeera.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
