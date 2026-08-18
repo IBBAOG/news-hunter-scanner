@@ -250,6 +250,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.livemint.com": "Mint",
     "thehindubusinessline.com": "BusinessLine",
     "www.thehindubusinessline.com": "BusinessLine",
+    "moneycontrol.com": "Moneycontrol",
+    "www.moneycontrol.com": "Moneycontrol",
 }
 
 
@@ -671,6 +673,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.livemint.com": ex_auto,
     "thehindubusinessline.com": ex_auto,
     "www.thehindubusinessline.com": ex_auto,
+    "moneycontrol.com": ex_auto,
+    "www.moneycontrol.com": ex_auto,
 }
 
 

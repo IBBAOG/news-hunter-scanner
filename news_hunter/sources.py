@@ -1148,6 +1148,28 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # sources carry (Rovuma LNG, Petrobras Equatorial Margin). Google indexes
     # few of a technical monthly. Below bar.
     # "jpt.spe.org",
+    # =======================================================================
+    # India + China oil & gas / business press (English) -- Wave 4 (2026-08-18).
+    # Same shape as the Wave 1/2/3 GNews blocks above: English-only publishers
+    # reached via Google News site: (hl=en-US) + the 12-term english_keywords()
+    # subset, because their own feed is WAF-blocked (Moneycontrol) or absent
+    # (the Chinese state / regional wires have no usable RSS). Bodies stay
+    # unreachable, so items land title-only (empty snippet). Each yield is the
+    # GNews title-pass count over 7d, measured on the runner (measure_source.yml)
+    # against the live 91-keyword set on 2026-08-18.
+    # -----------------------------------------------------------------------
+    # Moneycontrol (moneycontrol.com) -- India's dominant markets / business
+    # portal (Network18). The richest India surface of this wave: GNews
+    # pass=57/7d (items=100 fresh=95 near=38), pass set heavily on-beat --
+    # crude / Brent / oil-price moves, Hormuz risk, Petronet LNG, ONGC Venezuela
+    # after US sanctions, diesel, refiner LPG allocation, India crude basket. RSS
+    # is WAF-blocked (403 from the runner), hence GNews. Two bounded noise
+    # classes, both title-only + url-keyed so each lands at most once: ~2
+    # coconut-oil / skincare items on the substring `oil`, and a handful of
+    # index-wrap headlines ("GIFT Nifty ... rising oil prices") where oil is
+    # named as a market driver rather than the subject. Articles resolve to
+    # www.moneycontrol.com.
+    "moneycontrol.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
