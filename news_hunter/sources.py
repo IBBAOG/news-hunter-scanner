@@ -1205,6 +1205,15 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # mentions a keyword in passing and never passes on the title. Articles
     # resolve to www.chinadaily.com.cn.
     "chinadaily.com.cn",
+    # Global Times (globaltimes.cn) -- CPC-affiliated English tabloid. GNews
+    # pass=7/7d (items=26 near=19), ~5 distinct on-beat after dropping a
+    # coal-mine gas-outburst accident and an "offshore" marine-bunkering false
+    # positive: China's 440 Mt 2030 oil / gas supply plan, the East-China
+    # 18 Mt/yr crude pipeline, OPEC oil demand, and two Hormuz tanker items.
+    # Clears the >=3/7d on-beat bar; like China Daily it is largely a Xinhua
+    # duplicate on the same China-buildout + Hormuz stories and is kept per the
+    # numeric bar. Articles resolve to www.globaltimes.cn.
+    "globaltimes.cn",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
