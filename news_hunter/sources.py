@@ -594,6 +594,26 @@ RSS_FEEDS: dict[str, list[str]] = {
     # carries no machine-readable date either, so it cannot be dated through the
     # scanner's feed path — it is covered via Google News instead. See the
     # worldoil entry in ENGLISH_NO_RSS_DOMAINS for the full autopsy.)
+    # =========================================================================
+    # International oil & gas / regional business press (English) -- Wave 2.
+    #
+    # The National (thenationalnews.com) -- UAE (Abu Dhabi) business daily. The
+    # ONLY Wave 2 candidate with a runner-reachable, dated RSS feed; every
+    # other Russia/CIS + Middle East source this wave is WAF-blocked,
+    # paywalled, dateless, TLS-broken or geo-unindexed and lives in
+    # ENGLISH_NO_RSS_DOMAINS.
+    #
+    # Arc Publishing CMS. The generic /rss redirects to a 404; the real
+    # surface is the Arc outbound feed, PATH-SCOPED to the business category
+    # on purpose (the site-wide feed is general news). Measured on the runner
+    # (measure_source.yml, live 91-keyword set, 7d, --lede) 2026-08-18:
+    # items=57 fresh=16 pass=6 near=10 rescued=2 -- six title/summary passes
+    # plus two lede rescues, all on-beat (oil pipeline, Aramco, Libya oil &
+    # gas, Hormuz, offshore, Iran crude). Item links are www, so normalize_url
+    # strips to the apex thenationalnews.com -- where SOURCE_NAMES is keyed.
+    "www.thenationalnews.com": [
+        "https://www.thenationalnews.com/arc/outboundfeeds/rss/category/business/?outputType=xml",
+    ],
 }
 
 
