@@ -814,6 +814,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # -site:spglobal.com/ratings, scope it out. Articles resolve to
     # www.spglobal.com.
     "spglobal.com",
+    # Upstream Online (upstreamonline.com) — pure-play upstream E&P wire. GNews
+    # pass=60/7d, and the pass set is essentially 100% on-beat: offshore, FPSO,
+    # LNG, exploration wells, Petrobras / Foz do Amazonas, bid rounds, subsea
+    # contracts. near=0 — every headline carries an upstream term — so there is
+    # nothing for the lede rescue to recover. Articles resolve to
+    # www.upstreamonline.com.
+    "upstreamonline.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
