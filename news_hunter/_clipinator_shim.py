@@ -218,6 +218,14 @@ SOURCE_NAMES: dict[str, str] = {
     "www.zawya.com": "Zawya",
     "iraqoilreport.com": "Iraq Oil Report",
     "www.iraqoilreport.com": "Iraq Oil Report",
+    # US + Europe oil & gas trade press (English) -- Wave 3 (2026-08-18).
+    # oilandgas360 / offshore-energy / naturalgasintel are RSS (see RSS_FEEDS);
+    # eenews / montelnews / globalenergynetwork are GNews-covered (see
+    # ENGLISH_NO_RSS_DOMAINS). RSS item links are normalize_url'd (www stripped)
+    # so the resolved source_domain is the apex; GNews resolves to the article's
+    # real netloc (www kept). Both keyed for completeness.
+    "oilandgas360.com": "Oil & Gas 360",
+    "www.oilandgas360.com": "Oil & Gas 360",
 }
 
 
@@ -612,6 +620,12 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.zawya.com": ex_auto,
     "iraqoilreport.com": ex_auto,
     "www.iraqoilreport.com": ex_auto,
+    # US + Europe oil & gas trade press (English) -- Wave 3 (2026-08-18).
+    # ex_auto covers all: RSS matches land on title+summary so no extractor runs
+    # on the main scan path; the extractor only powers the lede rescue (body
+    # fetch of a near-miss), and GNews bodies are paywalled/WAF-blocked.
+    "oilandgas360.com": ex_auto,
+    "www.oilandgas360.com": ex_auto,
 }
 
 

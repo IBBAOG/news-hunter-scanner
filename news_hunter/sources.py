@@ -614,6 +614,22 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.thenationalnews.com": [
         "https://www.thenationalnews.com/arc/outboundfeeds/rss/category/business/?outputType=xml",
     ],
+    # =========================================================================
+    # US + Europe oil & gas trade press (English) -- Wave 3 (2026-08-18). These
+    # have a runner-reachable, dated RSS feed and are registered here; the rest
+    # of the wave (E&E News, Montel, Global Energy Network) is WAF-blocked,
+    # paywalled or feed-too-slow and lives in ENGLISH_NO_RSS_DOMAINS. Yields
+    # measured on the runner (measure_source.yml, live 91-keyword set, 7d,
+    # --lede) 2026-08-18.
+    # =========================================================================
+    # Oil & Gas 360 (oilandgas360.com) -- US E&P / energy-markets wire, the
+    # highest-density RSS surface of this wave. 2026-08-18: items=15 span=99h
+    # fresh=15 pass=14 near=1 rescued=1 -- fourteen of fifteen items match on
+    # title/summary alone (Hormuz, Brent, shale, diesel, Permian gas pipeline,
+    # Chevron Angola, Alaska LNG, Petro-Victory Brazil). Article links are apex.
+    "oilandgas360.com": [
+        "https://oilandgas360.com/feed/",
+    ],
 }
 
 
