@@ -237,6 +237,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.eenews.net": "E&E News",
     "montelnews.com": "Montel News",
     "www.montelnews.com": "Montel News",
+    "globalenergynetwork.net": "Global Energy Network",
+    "www.globalenergynetwork.net": "Global Energy Network",
 }
 
 
@@ -647,6 +649,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.eenews.net": ex_auto,
     "montelnews.com": ex_auto,
     "www.montelnews.com": ex_auto,
+    "globalenergynetwork.net": ex_auto,
+    "www.globalenergynetwork.net": ex_auto,
 }
 
 

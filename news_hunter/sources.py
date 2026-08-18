@@ -1019,6 +1019,22 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # pipeline. Feed WAF-blocked from the runner. Articles resolve to
     # www.montelnews.com.
     "montelnews.com",
+    # Global Energy Network (globalenergynetwork.net) -- international upstream
+    # oil & gas wire (the rebranded/expanded home of OGV Energy; the ogv.energy
+    # domain redirects here). The single richest source of this wave: GNews
+    # pass=18/7d (items=26 near=8), pass set ~100% on-beat -- Petrobras
+    # Equatorial Margin / Amapa discoveries, Chevron Angola CABGOC, ConocoPhillips
+    # appointments, Venezuela gas licenses (bp/XRG), ExxonMobil Mozambique,
+    # Technip Malaysia LNG, Oando / Predator / Bass Oil E&P, US Gulf subsea
+    # tie-back. NOTE its "offshore" hits are offshore OIL (e.g. deepwater Amapa,
+    # US Gulf tie-back), not wind -- so unlike Recharge (rejected below) the pass
+    # set is genuinely O&G. Its RSS (ogv.energy/feed/ -> globalenergynetwork.net/
+    # feed/) IS runner-reachable and dated but is 6.8 MB / 1000 entries and takes
+    # ~6.6s, so it TIMES OUT against the scanner's 4s FEED_TIMEOUT (same class as
+    # intellinews), and site:ogv.energy returns 0 GNews items (content is indexed
+    # under the new domain), so this apex is the reliable surface. Articles
+    # resolve to www.globalenergynetwork.net.
+    "globalenergynetwork.net",
     # --- Wave 2 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
     # Neftegaz.RU (neftegaz.ru): no viable surface from the runner. Its RSS
