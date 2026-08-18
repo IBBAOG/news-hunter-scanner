@@ -189,6 +189,14 @@ SOURCE_NAMES: dict[str, str] = {
     "www.energyintel.com": "Energy Intelligence",
     "hartenergy.com": "Hart Energy",
     "www.hartenergy.com": "Hart Energy",
+    # Russia / CIS + Middle East oil & gas press (English) -- Wave 2
+    # (2026-08-18). All GNews-covered except The National (RSS,
+    # business-scoped -- see RSS_FEEDS in sources.py). GNews resolves items
+    # to the article's real netloc (NOT normalize_url'd), so the www /
+    # subdomain key renders the name; apex kept for completeness. The
+    # National's RSS links are www, which normalize_url strips to the apex.
+    "intellinews.com": "bne IntelliNews",
+    "www.intellinews.com": "bne IntelliNews",
 }
 
 
@@ -556,6 +564,12 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.energyintel.com": ex_auto,
     "hartenergy.com": ex_auto,
     "www.hartenergy.com": ex_auto,
+    # Russia / CIS + Middle East oil & gas press (English) -- Wave 2
+    # (2026-08-18). ex_auto covers all: GNews / paywalled bodies are
+    # title-only so no extractor runs on the main scan path; kept for the
+    # lede-rescue path and for The National's dated business RSS.
+    "intellinews.com": ex_auto,
+    "www.intellinews.com": ex_auto,
 }
 
 

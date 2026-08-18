@@ -841,6 +841,27 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # pass=23/7d, pass set all on-beat: Permian / shale, gas power & pipelines,
     # LNG, rig counts, upstream M&A. Articles resolve to www.hartenergy.com.
     "hartenergy.com",
+    # =======================================================================
+    # Russia / CIS + Middle East oil & gas press (English) -- Wave 2
+    # (2026-08-18). Same shape as the Wave 1 GNews blocks above: English-only
+    # publishers reached via Google News site: (hl=en-US) + the 12-term
+    # english_keywords() subset, because their own feed is WAF-blocked,
+    # paywalled, TLS-broken from the runner, or only dated by Google. Bodies
+    # stay unreachable, so items land title-only (empty snippet) -- same
+    # shape as Argus / Reuters / OGJ. Each yield is the GNews title-pass
+    # count over 7d, measured on the runner (measure_source.yml) against the
+    # live 91-keyword set on 2026-08-18. Targets the crude / sanctions /
+    # shadow-fleet / Urals beats no Brazilian or Wave 1 source carries.
+    # -----------------------------------------------------------------------
+    # bne IntelliNews (intellinews.com) -- CIS / emerging-markets energy &
+    # sanctions wire. GNews pass=11/7d (items=100 near=89), pass set on-beat:
+    # Russian LNG to the EU, Chevron Peru offshore exit, Iraq Kirkuk-Ceyhan
+    # pipeline, Russian refinery drone strikes, EU gas storage, Armenia
+    # sanctions evasion. HAS a real Atom feed (www.intellinews.com/feed/) but
+    # it TIMES OUT against the scanner's 4s FEED_TIMEOUT from the runner (Read
+    # timed out, 2026-08-18) -- not WAF, just slow -- so GNews is the reliable
+    # surface. Articles resolve to www.intellinews.com.
+    "intellinews.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
