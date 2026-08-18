@@ -630,6 +630,16 @@ RSS_FEEDS: dict[str, list[str]] = {
     "oilandgas360.com": [
         "https://oilandgas360.com/feed/",
     ],
+    # Offshore Energy (offshore-energy.biz) -- Dutch (Navingo) offshore E&P /
+    # energy wire; heavy FPSO / offshore-drilling / North Sea coverage. WordPress
+    # /feed/, only ~10 items deep but every one on-beat: 2026-08-18 items=10
+    # span=24h fresh=10 pass=10 near=0 (Brava/Ecopetrol Brazil, FPSO deck
+    # machinery, SLB/Shell, Chevron Angola discovery, North Sea oil & gas
+    # project). Feed and article links are www, so normalize_url strips to the
+    # apex offshore-energy.biz -- where SOURCE_NAMES is keyed.
+    "www.offshore-energy.biz": [
+        "https://www.offshore-energy.biz/feed/",
+    ],
 }
 
 

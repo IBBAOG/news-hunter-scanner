@@ -226,6 +226,8 @@ SOURCE_NAMES: dict[str, str] = {
     # real netloc (www kept). Both keyed for completeness.
     "oilandgas360.com": "Oil & Gas 360",
     "www.oilandgas360.com": "Oil & Gas 360",
+    "offshore-energy.biz": "Offshore Energy",
+    "www.offshore-energy.biz": "Offshore Energy",
 }
 
 
@@ -626,6 +628,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # fetch of a near-miss), and GNews bodies are paywalled/WAF-blocked.
     "oilandgas360.com": ex_auto,
     "www.oilandgas360.com": ex_auto,
+    "offshore-energy.biz": ex_auto,
+    "www.offshore-energy.biz": ex_auto,
 }
 
 
