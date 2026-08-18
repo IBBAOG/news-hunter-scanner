@@ -51,12 +51,23 @@ jobs:
 
       - run: pip install --no-cache-dir -r requirements.txt
 
+      # URLS goes through the environment, NOT through `${{ }}` inside the
+      # command. Interpolating it inline pastes the raw URL into the script, so
+      # the shell reads the FIRST `&` of a query string as "background this" —
+      # a Google News query measured that way silently loses everything from
+      # `&hl=` onward (i.e. the locale, which is exactly what one measures a
+      # GNews query for) and the second URL is executed as a command. Measured
+      # 2026-08-18: 1 item, exit 127, plausible-looking table. A variable
+      # expansion is not re-parsed for metacharacters, so `$URLS` unquoted still
+      # word-splits on spaces (which is what we want for several URLs) without
+      # ever seeing `&` as syntax.
       - run: |
-          python -m scripts.measure_source ${{ inputs.urls }} \
+          python -m scripts.measure_source $URLS \
             --hours "${{ inputs.hours }}" \
             ${{ inputs.standard_sitemap && '--standard-sitemap' || '' }} \
             ${{ inputs.lede && '--lede' || '' }} \
             ${{ inputs.persisted && format('--persisted {0}', inputs.persisted) || '' }}
         env:
+          URLS: ${{ inputs.urls }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
