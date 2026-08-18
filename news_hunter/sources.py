@@ -879,6 +879,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # Azerbaijan gasoline / diesel output. No RSS (/rss.asp and /rss/ 404).
     # Articles resolve to interfax.com.
     "interfax.com",
+    # MEES -- Middle East Economic Survey (mees.com). THE Middle East oil &
+    # gas reference; hard paywall (no /feed, 404). GNews pass=10/7d (items=15
+    # near=4), ~100% on-beat: Saudi Yanbu crude exports, XRG Venezuela
+    # upstream, Egypt bid rounds, Iraq export pipelines, ADNOC Gas, Leviathan
+    # gas record, Libya upstream, Iran gasoline shortage. Kept well above the
+    # paywall-source ~2/7d floor -- this is the premium ME intelligence this
+    # wave targets. Articles resolve to www.mees.com.
+    "mees.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
