@@ -834,6 +834,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # sanctions, Hormuz, Petrobras / Foz do Amazonas. Articles resolve to
     # www.energyintel.com.
     "energyintel.com",
+    # Hart Energy (hartenergy.com) — US shale / Permian / midstream E&P daily.
+    # Tried RSS FIRST (the preferred surface): /feed, /rss and /rss.xml on
+    # www.hartenergy.com ALL return HTTP 403 (WAF) from the runner, so no
+    # fetchable feed exists on the scanner's path — hence GNews. GNews
+    # pass=23/7d, pass set all on-beat: Permian / shale, gas power & pipelines,
+    # LNG, rig counts, upstream M&A. Articles resolve to www.hartenergy.com.
+    "hartenergy.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
