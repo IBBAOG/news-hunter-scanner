@@ -727,6 +727,51 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # Volume expectation: ~1 item/day, not dozens. Most of what Argus files is
     # petchems/fertilizer/metals, which our keyword set correctly ignores.
     "www.argusmedia.com",
+    # -----------------------------------------------------------------------
+    # International oil & gas trade press — Wave 1a (2026-08-18). These four
+    # HAVE a real RSS feed, but it is unreachable from the scanner's feed path:
+    # the feed fetch in fetcher._fetch_one is plain `requests` at FEED_TIMEOUT
+    # with NO curl_cffi fallback, so a WAF challenge on the feed URL yields 0
+    # items. Diagnosed on the runner (diagnose_feed.yml) 2026-08-18; covered via
+    # Google News site: (hl=en-US) with the 12-term English subset instead.
+    # Bodies are behind the same WAF, so items land title-only (empty snippet) —
+    # same shape as Argus / Reuters above. Each yield below is the GNews
+    # title-pass count over 7d, measured on the runner against the live set.
+    # -----------------------------------------------------------------------
+    # OGJ (Oil & Gas Journal). GNews pass=24/7d. Feed: residential gets a
+    # Cloudflare Managed Challenge (403, cf-mitigated: challenge); the runner
+    # gets HTTP 200 but an HTML interstitial (Dynatrace/Cloudflare, brotli), not
+    # RSS, so feedparser / _fetch_one return 0 items. Zone-wide, no usable feed.
+    "www.ogj.com",
+    # Energy Voice (Aberdeen — North Sea / UK upstream). GNews pass=4/7d, but
+    # near=96: Google returns ~100 items/wk mentioning the keywords in the BODY,
+    # of which only ~4 carry one in the TITLE, and the bodies are unreachable, so
+    # the effective yield is those 4 title-passes. Registered for the North Sea
+    # beat no other source covers. Feed: zone-wide Cloudflare Managed Challenge
+    # (403, cf-mitigated: challenge) from the runner on plain requests AND
+    # curl_cffi impersonation alike (runner diag 2026-08-18) — nothing short of a
+    # JS browser clears it, like Conjur.
+    "www.energyvoice.com",
+    # Offshore Technology (GlobalData). GNews pass=21/7d. Feed: DataDome (403,
+    # x-datadome: protected, Server: Varnish) on plain requests. NOTE for a
+    # future enhancement: curl_cffi impersonation DID clear it on the runner
+    # (200, application/rss+xml, feedparser 10 entries bozo=False, 2026-08-18) —
+    # but fetcher._fetch_one fetches FEEDS with plain requests only (the
+    # curl_cffi fallback lives solely in fetch_html, for article bodies), so
+    # end-to-end _fetch_one still returns 0 items / HTTP 403. If the feed path
+    # ever grows a curl_cffi fallback this could move to RSS_FEEDS.
+    "www.offshore-technology.com",
+    # Rigzone — jobs board + news wire. PATH-SCOPED on /news on purpose: the bare
+    # site:www.rigzone.com query is ~59% job listings ("Gas Process Engineer
+    # Jobs...", the perennial "Career Center for Oil & Gas Professionals"), while
+    # site:www.rigzone.com/news is essentially all articles. Measured 2026-08-18
+    # on the runner: bare pass=32/7d (~half jobs) vs /news pass=31/7d with ONE
+    # job title in the pass set. Feed: AWS WAF JS challenge (202,
+    # x-amzn-waf-action: challenge) on the feed AND the homepage, zone-wide, from
+    # residential and datacenter alike — curl cannot run the JS. A path in the
+    # site: slot is honoured by Google and only affects the query; the resolved
+    # article domain is still www.rigzone.com (where SOURCE_NAMES is keyed).
+    "www.rigzone.com/news",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

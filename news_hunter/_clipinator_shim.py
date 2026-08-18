@@ -158,6 +158,19 @@ SOURCE_NAMES: dict[str, str] = {
     "www.splash247.com": "Splash247",
     "worldoil.com": "World Oil",
     "www.worldoil.com": "World Oil",
+    # International oil & gas trade press covered via Google News (WAF-blocked
+    # feeds) — Wave 1a. GNews resolves items to the www article netloc (NOT
+    # normalize_url'd), so the www key is the one that renders the name; apex is
+    # kept for completeness. Rigzone's ENGLISH_NO_RSS entry is the path-scoped
+    # www.rigzone.com/news, but resolved articles are www.rigzone.com.
+    "ogj.com": "Oil & Gas Journal",
+    "www.ogj.com": "Oil & Gas Journal",
+    "energyvoice.com": "Energy Voice",
+    "www.energyvoice.com": "Energy Voice",
+    "offshore-technology.com": "Offshore Technology",
+    "www.offshore-technology.com": "Offshore Technology",
+    "rigzone.com": "Rigzone",
+    "www.rigzone.com": "Rigzone",
 }
 
 
@@ -495,6 +508,20 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.splash247.com": ex_auto,
     "worldoil.com": ex_auto,
     "www.worldoil.com": ex_auto,
+    # International oil & gas trade press covered via Google News — Wave 1a.
+    # Bodies are WAF-blocked for OGJ / Energy Voice / Rigzone, so ex_auto never
+    # gets a body to parse (items are title-only) — it is registered for
+    # consistency and for the offshore-technology case, whose article pages DO
+    # clear via the curl_cffi fallback in fetch_html even though its feed does
+    # not, so a lede-rescue body fetch can actually succeed there.
+    "ogj.com": ex_auto,
+    "www.ogj.com": ex_auto,
+    "energyvoice.com": ex_auto,
+    "www.energyvoice.com": ex_auto,
+    "offshore-technology.com": ex_auto,
+    "www.offshore-technology.com": ex_auto,
+    "rigzone.com": ex_auto,
+    "www.rigzone.com": ex_auto,
 }
 
 
