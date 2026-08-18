@@ -1011,6 +1011,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # pipeline policy, offshore fracking, EU Rosatom sanctions. No RSS reachable
     # from the runner (403). Articles resolve to www.eenews.net.
     "eenews.net",
+    # Montel News (montelnews.com) -- European power & gas market wire; the EU
+    # gas / power beat no other source carries. GNews pass=8/7d (items=62
+    # fresh=57 near=49), pass set on-beat European market intelligence: EU gas
+    # storage refill above EUR 60/MWh, European LNG import recovery, German /
+    # Italian winter gas outlooks, gas-fired generation in heatwaves, Nordic H2
+    # pipeline. Feed WAF-blocked from the runner. Articles resolve to
+    # www.montelnews.com.
+    "montelnews.com",
     # --- Wave 2 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
     # Neftegaz.RU (neftegaz.ru): no viable surface from the runner. Its RSS

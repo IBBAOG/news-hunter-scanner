@@ -235,6 +235,8 @@ SOURCE_NAMES: dict[str, str] = {
     # completeness.
     "eenews.net": "E&E News",
     "www.eenews.net": "E&E News",
+    "montelnews.com": "Montel News",
+    "www.montelnews.com": "Montel News",
 }
 
 
@@ -643,6 +645,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # scan path); ex_auto registered for consistency + the lede-rescue path.
     "eenews.net": ex_auto,
     "www.eenews.net": ex_auto,
+    "montelnews.com": ex_auto,
+    "www.montelnews.com": ex_auto,
 }
 
 
