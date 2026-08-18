@@ -925,6 +925,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # subdomain, and articles resolve to en.shana.ir -- keyed in SOURCE_NAMES
     # alongside apex + www.
     "shana.ir",
+    # Gulf News (gulfnews.com) -- UAE English daily. Its /feed IS
+    # runner-reachable and dated, but it is a GENERAL news feed (2 passes / 18
+    # items in a 15h window, mostly off-beat), so GNews site: (keyword-scoped)
+    # is cleaner than downloading the whole feed every poll. pass=24/7d
+    # (items=98 near=74): Hormuz shipping, US sanctions, ADNOC, Gulf war /
+    # oil, tanker incidents. Articles resolve to gulfnews.com.
+    "gulfnews.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

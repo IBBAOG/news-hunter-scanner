@@ -210,6 +210,8 @@ SOURCE_NAMES: dict[str, str] = {
     "shana.ir": "Shana",
     "www.shana.ir": "Shana",
     "en.shana.ir": "Shana",
+    "gulfnews.com": "Gulf News",
+    "www.gulfnews.com": "Gulf News",
 }
 
 
@@ -596,6 +598,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "shana.ir": ex_auto,
     "www.shana.ir": ex_auto,
     "en.shana.ir": ex_auto,
+    "gulfnews.com": ex_auto,
+    "www.gulfnews.com": ex_auto,
 }
 
 
