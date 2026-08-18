@@ -230,6 +230,11 @@ SOURCE_NAMES: dict[str, str] = {
     "www.offshore-energy.biz": "Offshore Energy",
     "naturalgasintel.com": "Natural Gas Intelligence",
     "www.naturalgasintel.com": "Natural Gas Intelligence",
+    # Wave 3 GNews-covered (see ENGLISH_NO_RSS_DOMAINS). GNews resolves items to
+    # the www article netloc, so the www key renders the name; apex kept for
+    # completeness.
+    "eenews.net": "E&E News",
+    "www.eenews.net": "E&E News",
 }
 
 
@@ -634,6 +639,10 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.offshore-energy.biz": ex_auto,
     "naturalgasintel.com": ex_auto,
     "www.naturalgasintel.com": ex_auto,
+    # Wave 3 GNews-covered (bodies WAF-blocked/paywalled, title-only on the main
+    # scan path); ex_auto registered for consistency + the lede-rescue path.
+    "eenews.net": ex_auto,
+    "www.eenews.net": ex_auto,
 }
 
 

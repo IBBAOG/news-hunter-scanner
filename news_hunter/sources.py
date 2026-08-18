@@ -993,6 +993,24 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # nothing else covers. Kept at the paywall-source floor. Articles resolve
     # to www.iraqoilreport.com.
     "iraqoilreport.com",
+    # =======================================================================
+    # US + Europe oil & gas / energy press (English) -- Wave 3 (2026-08-18).
+    # Same shape as the Wave 1/2 GNews blocks above: English-only publishers
+    # reached via Google News site: (hl=en-US) + the 12-term english_keywords()
+    # subset, because their feed is WAF-blocked (E&E News, Montel) or too slow
+    # for the scanner's 4s FEED_TIMEOUT (Global Energy Network). Bodies stay
+    # unreachable, so items land title-only (empty snippet). Each yield is the
+    # GNews title-pass count over 7d, measured on the runner (measure_source.yml)
+    # against the live 91-keyword set on 2026-08-18.
+    # -----------------------------------------------------------------------
+    # E&E News (eenews.net, POLITICO's energy & environment desk) -- US energy
+    # POLICY, a beat no other registered source carries. GNews pass=15/7d
+    # (items=41 near=26), pass set almost entirely on-beat and UNIQUE: Supreme
+    # Court climate cases tied to oil companies, Interior Gulf oil & gas lease
+    # sales, federal oil-pipeline tunnel approvals, California gasoline-blend /
+    # pipeline policy, offshore fracking, EU Rosatom sanctions. No RSS reachable
+    # from the runner (403). Articles resolve to www.eenews.net.
+    "eenews.net",
     # --- Wave 2 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
     # Neftegaz.RU (neftegaz.ru): no viable surface from the runner. Its RSS
