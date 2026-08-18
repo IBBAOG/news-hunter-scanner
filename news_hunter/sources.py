@@ -948,6 +948,15 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # Egypt bid rounds. No path scope needed. Articles resolve to
     # www.zawya.com.
     "zawya.com",
+    # Iraq Oil Report (iraqoilreport.com) -- the definitive independent Iraq
+    # oil & gas intelligence outlet; paywall. Its /feed/ is dated from a
+    # browser but returns 0 usable items from the runner (WAF interstitial),
+    # so GNews. pass=4/7d (items=4 near=0) -- low VOLUME (Google indexes few
+    # of a paywalled weekly) but 4 DISTINCT on-beat stories (Iraq crude
+    # exports, Khor Mor gas, Turkey pipeline deal), not duplicates, on a beat
+    # nothing else covers. Kept at the paywall-source floor. Articles resolve
+    # to www.iraqoilreport.com.
+    "iraqoilreport.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
