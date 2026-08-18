@@ -544,9 +544,11 @@ RSS_FEEDS: dict[str, list[str]] = {
     # publish slowly enough to need a FEED_STALE_HOURS entry (stalest healthy
     # span here is lngprime at 29h, inside the 48h default).
     #
-    # Sources that HAVE a real feed but sit behind a WAF the scanner's
-    # plain-requests feed path cannot clear (OGJ, Energy Voice, Offshore
-    # Technology, Rigzone) are in ENGLISH_NO_RSS_DOMAINS instead — see there.
+    # Sources whose feed the scanner's feed path cannot USE — behind a WAF it
+    # cannot clear (OGJ, Energy Voice, Offshore Technology, Rigzone) or DATELESS
+    # with no recoverable article-page date (World Oil) — are in
+    # ENGLISH_NO_RSS_DOMAINS instead, where Google News supplies the date. See
+    # there.
     # =========================================================================
     # OilPrice.com — the highest-density surface measured in this wave. General
     # energy-markets wire. 2026-08-18: items=15 span=10h fresh=15 pass=11 near=4
@@ -588,20 +590,10 @@ RSS_FEEDS: dict[str, list[str]] = {
     "splash247.com": [
         "https://splash247.com/feed/",
     ],
-    # World Oil — upstream E&P daily. The feed is the QUERY form /rss?feed=news
-    # (the bare /rss is an HTML index of per-topic feeds); is_sitemap_url() is
-    # False for it, so it is parsed as RSS. 2026-08-18: items=10 fresh=10 pass=10
-    # near=0 rescued=0 with full CDATA descriptions. CAVEAT worth the line: this
-    # feed carries NO <pubDate>. enrich_item therefore fetches each NEW article
-    # page and reads article:published_time (US M/D/Y, parses fine) to date it —
-    # verified reachable from the runner (article page HTTP 200, 2026-08-18). The
-    # date is REAL, never fabricated: World Oil is deliberately NOT in
-    # RECENT_ONLY_SCRAPERS, so if an article page is ever unreachable the item is
-    # DROPPED (no fabricated-timestamp zombie), not stamped now(). One body fetch
-    # per new article, then cached. Feed on apex, article links www -> apex.
-    "worldoil.com": [
-        "https://worldoil.com/rss?feed=news",
-    ],
+    # (World Oil has a real feed too but it is DATELESS and its apex article page
+    # carries no machine-readable date either, so it cannot be dated through the
+    # scanner's feed path — it is covered via Google News instead. See the
+    # worldoil entry in ENGLISH_NO_RSS_DOMAINS for the full autopsy.)
 }
 
 
@@ -772,6 +764,21 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # site: slot is honoured by Google and only affects the query; the resolved
     # article domain is still www.rigzone.com (where SOURCE_NAMES is keyed).
     "www.rigzone.com/news",
+    # World Oil — upstream E&P daily. It HAS a real, fetchable RSS feed
+    # (/rss?feed=news, apex, HTTP 200 from the runner, 10 full-CDATA items,
+    # measured pass=10) — but that feed is DATELESS (no <pubDate>, and no dated
+    # variant: /rss?feed=issue and topic feeds are dateless too). Normally
+    # enrich_item recovers a missing date from the article page, but here it
+    # cannot: normalize_url strips www, so it fetches the APEX article page
+    # (worldoil.com/news/...), which returns 200 but carries NO machine-readable
+    # date at all — no article:published_time, JSON-LD datePublished, meta date
+    # or <time datetime> (only the WWW page has article:published_time, and the
+    # scanner never fetches www). Verified 2026-08-18: two live scans persisted
+    # ZERO worldoil rows because every item was dropped in stage 4 for a null
+    # date. Google News carries the same articles WITH a real published_at, so
+    # this is the reliable route: GNews pass=22/7d (items=37 fresh=37 near=15),
+    # resolved to www.worldoil.com. NOT a WAF case — a dateless-source case.
+    "www.worldoil.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
