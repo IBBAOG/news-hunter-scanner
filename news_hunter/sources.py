@@ -827,6 +827,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # secondhand tanker deals — the shadow-fleet / freight beat no other
     # registered source covers. Articles resolve to www.tradewindsnews.com.
     "tradewindsnews.com",
+    # Energy Intelligence (energyintel.com) — premium oil & gas market
+    # intelligence (Petroleum Intelligence Weekly, Oil Daily, etc.). GNews
+    # pass=65/7d, the highest of the wave, and the pass set is pure sector:
+    # crude / gas prices, OPEC+ output, LNG markets, refining margins,
+    # sanctions, Hormuz, Petrobras / Foz do Amazonas. Articles resolve to
+    # www.energyintel.com.
+    "energyintel.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
