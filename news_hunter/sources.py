@@ -917,6 +917,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # spill, Hormuz vessel strikes, Pakistan fuel prices, IEA demand cuts,
     # Russian refinery drone. Articles resolve to www.arabnews.com.
     "arabnews.com",
+    # Shana (shana.ir) -- Iran oil-ministry news agency, English edition at
+    # en.shana.ir. GNews pass=7/7d (items=10 near=3): Iran gas output /
+    # savings, oil-ministry appointments, ICOFC gas targets -- the Iranian
+    # upstream / ministry beat no other source carries. The English site is
+    # en.shana.ir (www.shana.ir/en is 404); site:shana.ir covers the
+    # subdomain, and articles resolve to en.shana.ir -- keyed in SOURCE_NAMES
+    # alongside apex + www.
+    "shana.ir",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
