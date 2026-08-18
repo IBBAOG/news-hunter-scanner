@@ -1214,6 +1214,20 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # duplicate on the same China-buildout + Hormuz stories and is kept per the
     # numeric bar. Articles resolve to www.globaltimes.cn.
     "globaltimes.cn",
+    # South China Morning Post (scmp.com) -- Hong Kong English daily, the most
+    # DISTINCTIVE of the China set (an Asia-geopolitics desk, not a state wire).
+    # GNews pass=13/7d (items=90 near=69), ~8 on-beat: "US diesel crack tops
+    # $100/bbl", Myanmar seeking Russian oil, Philippines-China oil deal, US
+    # shifting its Iran-war goal to cheaper oil, EU Russia sanctions, China
+    # peak-oil-by-2030, and Hormuz items. Highest false-positive rate of the
+    # wave (~4/13): "crude" as an adjective (a cartoon-ox headline), "palm oil"
+    # data centres, a "toxic gas" accident, and a "running out of gas" idiom --
+    # all bounded (title-only, url-keyed). Kept because the on-beat set clears
+    # the bar AND is genuinely additive (an Asia crude-trade / sanctions angle no
+    # other source carries). span in the raw measure is ~10y because Google
+    # surfaced a few archived pages; fresh=82 within the 7d window. Articles
+    # resolve to www.scmp.com.
+    "scmp.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

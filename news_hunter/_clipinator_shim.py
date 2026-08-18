@@ -261,6 +261,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.chinadaily.com.cn": "China Daily",
     "globaltimes.cn": "Global Times",
     "www.globaltimes.cn": "Global Times",
+    "scmp.com": "South China Morning Post",
+    "www.scmp.com": "South China Morning Post",
 }
 
 
@@ -691,6 +693,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.chinadaily.com.cn": ex_auto,
     "globaltimes.cn": ex_auto,
     "www.globaltimes.cn": ex_auto,
+    "scmp.com": ex_auto,
+    "www.scmp.com": ex_auto,
 }
 
 
