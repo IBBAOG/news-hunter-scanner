@@ -171,6 +171,14 @@ SOURCE_NAMES: dict[str, str] = {
     "www.offshore-technology.com": "Offshore Technology",
     "rigzone.com": "Rigzone",
     "www.rigzone.com": "Rigzone",
+    # Premium / paywalled international wires covered via Google News — Wave 1b.
+    # GNews resolves items to the www article netloc (NOT normalize_url'd), so
+    # the www key is the one that renders the name; apex is kept for
+    # completeness AND because source_name_for's lstrip("www.") fallback is
+    # charset-buggy (it strips leading w/. chars, not the "www." prefix), so we
+    # never rely on it — both keys are exact matches.
+    "bloomberg.com": "Bloomberg",
+    "www.bloomberg.com": "Bloomberg",
 }
 
 
@@ -522,6 +530,12 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.offshore-technology.com": ex_auto,
     "rigzone.com": ex_auto,
     "www.rigzone.com": ex_auto,
+    # Premium / paywalled international wires covered via Google News — Wave 1b.
+    # Bodies are paywalled/WAF-blocked, so items are title-only and ex_auto
+    # never gets a body to parse on the main scan path; registered for
+    # consistency and for the lede-rescue path where a body fetch can succeed.
+    "bloomberg.com": ex_auto,
+    "www.bloomberg.com": ex_auto,
 }
 
 

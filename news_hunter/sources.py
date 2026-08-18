@@ -779,6 +779,24 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # this is the reliable route: GNews pass=22/7d (items=37 fresh=37 near=15),
     # resolved to www.worldoil.com. NOT a WAF case — a dateless-source case.
     "www.worldoil.com",
+    # =======================================================================
+    # Premium / paywalled international wires — Wave 1b (2026-08-18). Same
+    # shape as the Wave 1a GNews block above: English-only publishers that are
+    # paywalled or WAF-blocked, so the only surface is Google News site:
+    # (hl=en-US) + the 12-term english_keywords() subset. Bodies stay behind
+    # the paywall, so items land title-only (empty snippet) — same shape as
+    # Argus / Reuters / OGJ. Each yield is the GNews title-pass count over 7d,
+    # measured on the runner (measure_source.yml) against the live 91-keyword
+    # set on 2026-08-18.
+    # =======================================================================
+    # Bloomberg. GNews pass=55/7d, and the pass set is ~100% on-beat (oil, gas,
+    # OPEC, Hormuz, tankers, refineries, Petrobras/Braskem, LNG, shale) — a
+    # top-tier signal wire that needs NO path scope. Counter-checked the
+    # opposite way: site:bloomberg.com/energy returned 0 items, because
+    # Bloomberg files articles under /news/articles/... not /energy/..., so a
+    # path scope would have silently zeroed the source. Bare apex is the query;
+    # articles resolve to www.bloomberg.com.
+    "bloomberg.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
