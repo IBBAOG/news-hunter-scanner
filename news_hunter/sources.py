@@ -712,6 +712,18 @@ RSS_FEEDS: dict[str, list[str]] = {
         "https://www.thehindubusinessline.com/markets/commodities/feeder/default.rss",
         "https://www.thehindubusinessline.com/economy/feeder/default.rss",
     ],
+    # --- India RSS REJECTED (measured 2026-08-18 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # Business Standard (business-standard.com), /rss/industry-217.rss: a
+    # general business-industry feed. items=35 span=31h fresh=35 pass=1 near=34
+    # rescued=0 -- the single pass ("5-yr age extension for EV, CNG, hydrogen
+    # commercial vehicles") is itself off-beat (vehicle policy). Below the
+    # >=3/7d on-beat bar. Only the industry feed was measured; a future wave
+    # could try its markets/commodities feed before concluding the domain is
+    # dead.
+    # "www.business-standard.com": [
+    #     "https://www.business-standard.com/rss/industry-217.rss",
+    # ],
 }
 
 
@@ -1228,6 +1240,20 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # surfaced a few archived pages; fresh=82 within the 7d window. Articles
     # resolve to www.scmp.com.
     "scmp.com",
+    # --- Wave 4 REJECTED (measured 2026-08-18 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # Yicai Global (yicaiglobal.com): China's answer to the FT, English edition.
+    # site: GNews items=2 fresh=2 pass=0 near=2 -- Google indexes almost nothing
+    # of it under en-US (a hard paywall + a thin English index). Zero passes,
+    # nowhere near the bar.
+    # "yicaiglobal.com",
+    # Caixin Global (caixinglobal.com): China business / markets, English
+    # edition. site: GNews items=8 fresh=8 pass=2 near=6 -- both passes are
+    # genuinely on-beat (China's oil & gas buildout to 2030, a coal-mine gas
+    # outburst) but only 2 in 7d: a hard paywall means Google indexes few
+    # articles. Below the >=3/7d bar despite being the markets-focused outlet
+    # expected to be the strongest of the two.
+    # "caixinglobal.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
