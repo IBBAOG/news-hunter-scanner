@@ -1049,6 +1049,43 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # story, press-release-only, very low frequency. OPEC+ output / MOMR news
     # is already carried by TASS / Interfax / Zawya / MEES. Below bar.
     # "opec.org",
+    # --- Wave 3 REJECTED (measured 2026-08-18 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # Houston Chronicle (houstonchronicle.com): general-news domain. Bare
+    # site: GNews pass=6/7d but near=94, and the pass set is generic AP wire
+    # (Asia shares / US stocks "as oil prices swing", plus Hormuz / Oman-tanker
+    # items already carried by gCaptain / TradeWinds / Zawya) -- not Houston
+    # energy reporting. Path-scoping is unavailable: site:houstonchronicle.com/
+    # business/energy returns 0 GNews items (Google honours a /news path for
+    # Rigzone but ignores this deeper one). Duplicate-dominated + un-narrowable.
+    # "houstonchronicle.com",
+    # Euractiv (euractiv.com): general EU-policy domain. RSS 403 from the
+    # runner; bare site: GNews pass=2/7d (items=96 fresh=56 near=54), both
+    # passes generic geopolitics (Hormuz, EU Russia sanctions) already carried
+    # elsewhere, buried in 54 non-energy near-misses. Path-scope unavailable
+    # (Google ignores the path, same as Houston Chronicle above). Below bar.
+    # "euractiv.com",
+    # ICIS (icis.com): chemicals/energy price wire, hard paywall -- Google
+    # indexes few articles. site: GNews pass=2/7d (items=9 near=7), both
+    # generic Hormuz duplicates. Below the paywall-source floor.
+    # "icis.com",
+    # Recharge (rechargenews.com): energy-TRANSITION / renewables outlet.
+    # site: GNews pass=7/7d (items=15 near=8) but six of seven passes are
+    # offshore WIND (Atlantic Shores, Vestas, Finland/Germany/Denmark wind) --
+    # the "offshore" keyword matching offshore wind, a false positive for the
+    # O&G beat; only ~1 gas-adjacent story/wk (an RWE gas pivot). Off-beat, it
+    # would inject wind-farm noise. Rejected.
+    # "rechargenews.com",
+    # Kallanish (kallanish.com): steel / metals commodities wire. site: GNews
+    # pass=2/7d (items=45 fresh=40 near=38); the passes are "crude STEEL" (a
+    # false positive on "crude") and a steel-industry-on-gas item. Off-beat +
+    # below bar.
+    # "kallanish.com",
+    # JPT / SPE (jpt.spe.org): SPE technical journal. /feed is HTTP 404; site:
+    # GNews pass=2/7d (items=9 near=7), both duplicates of stories other
+    # sources carry (Rovuma LNG, Petrobras Equatorial Margin). Google indexes
+    # few of a technical monthly. Below bar.
+    # "jpt.spe.org",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
