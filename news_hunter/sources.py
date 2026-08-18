@@ -862,6 +862,16 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # timed out, 2026-08-18) -- not WAF, just slow -- so GNews is the reliable
     # surface. Articles resolve to www.intellinews.com.
     "intellinews.com",
+    # TASS (tass.com) -- Russian state wire, English edition. GNews pass=8/7d
+    # (items=100 near=92): Brent crude, Kazakhstan oil exports, Russian LNG,
+    # OPEC+ output, Arctic LNG, Hormuz, Western sanctions. Its RSS FIREHOSE
+    # (tass.com/rss/v2.xml) IS runner-reachable (200, 100 items) but it is the
+    # whole-wire feed -- pass=8/100 in a 10h window, war / politics / sport
+    # noise and false substring hits (a NATO-planes item matched oil /
+    # Compass) -- the classic polluted-general-domain case, so GNews
+    # (keyword-scoped) is preferred over the firehose. Articles resolve to
+    # tass.com.
+    "tass.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

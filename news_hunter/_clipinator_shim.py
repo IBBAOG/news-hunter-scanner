@@ -197,6 +197,8 @@ SOURCE_NAMES: dict[str, str] = {
     # National's RSS links are www, which normalize_url strips to the apex.
     "intellinews.com": "bne IntelliNews",
     "www.intellinews.com": "bne IntelliNews",
+    "tass.com": "TASS",
+    "www.tass.com": "TASS",
 }
 
 
@@ -570,6 +572,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # lede-rescue path and for The National's dated business RSS.
     "intellinews.com": ex_auto,
     "www.intellinews.com": ex_auto,
+    "tass.com": ex_auto,
+    "www.tass.com": ex_auto,
 }
 
 
