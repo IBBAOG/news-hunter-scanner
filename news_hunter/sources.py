@@ -935,37 +935,60 @@ def _kw_or(keywords: list[str]) -> str:
 # quando alguem a adiciona aqui — de proposito, para o bloco nao voltar a
 # estourar o limite de truncagem em silencio.
 ENGLISH_KEYWORD_PRIORITY: tuple[str, ...] = (
-    "Petrobras", "oil", "gas", "diesel", "Brent", "WTI", "OPEC",
-    "Braskem", "Cosan", "refinery", "Hormuz", "Vibra",
-    # Reservas: so entram se alguma das acima nao estiver no conjunto vivo.
-    "PRIO", "Ultrapar", "Ipiranga", "OceanPact", "refit", "ANP",
+    # International oil & gas retrieval, ordered by yield. EXACTLY
+    # ENGLISH_KEYWORD_CAP (12) terms — the block Google will not truncate.
+    "oil", "gas", "diesel", "Brent", "WTI", "OPEC",
+    "crude", "LNG", "refinery", "gasoline", "Petrobras", "sanction",
+    # Reserve candidates — documented, NOT emitted (the tuple is full at 12).
+    # Promote one only by demoting one above, so the block never re-crosses the
+    # truncation limit in silence:
+    #   Brazilian / regional : Braskem, Cosan, Hormuz, Vibra
+    #   prior reserves       : PRIO, Ultrapar, Ipiranga, OceanPact, refit, ANP
 )
 # NOTE (2026-08-18) — this tuple gates RETRIEVAL, not MATCHING, and the two
 # have different failure modes. Do not "fix" a matching problem here.
 #
-#   retrieval: what we ask Google for. Capped at ENGLISH_KEYWORD_CAP and
-#              filtered by this tuple, so a keyword added to Supabase does NOT
-#              reach these queries unless it is also listed above. Google
-#              stems the terms it receives.
-#   matching:  what we keep. filter.matches_keywords runs over the FULL live
-#              keyword set from Supabase, uncapped, and is a literal substring
-#              (or \b-bounded) test with NO stemming.
+# CROSS-REPO CONTRACT with the dashboard's Supabase table
+# `news_hunter_default_keywords`: english_keywords() INTERSECTS the live keyword
+# set (that table, plus the per-user `news_hunter_keywords` copies the
+# /news-hunter feed scopes on) with this tuple BY EXACT STRING (casefolded).
+# Consequences:
+#   * Every string here MUST exist verbatim as a DB keyword row, or it is
+#     SILENTLY dropped from retrieval — no error, just an absent term. Of the 12
+#     above, 7 (oil, gas, diesel, Brent, WTI, OPEC, Petrobras) already have rows;
+#     the other 5 (crude, LNG, refinery, gasoline, sanction) are being inserted
+#     by a parallel worker_supabase task. Until those rows land, english_keywords
+#     degrades gracefully: the missing terms are simply not emitted (see its
+#     intersection + empty-set fallback below), so the scanner keeps working.
+#   * RETRIEVAL is the funnel: this tuple, capped at ENGLISH_KEYWORD_CAP and
+#     emitted in the priority order above, is what we ASK Google for; Google
+#     STEMS the terms it receives.
+#   * MATCHING is the sieve: filter.matches_keywords runs over the FULL live
+#     set, uncapped, as a literal substring (or \b-bounded) test with NO
+#     stemming. A matching gap is therefore closed with a DB ROW, never by
+#     editing this tuple (a stem added here only burns a retrieval slot — see
+#     the 'refinery' case below).
 #
-# That asymmetry is why 'refinery' converts to nothing. Measured 2026-08-18,
-# site:www.argusmedia.com, when:7d:
+# PRIORITY ORDER matters. Unlike the PT `site:` route — whose live set arrives
+# ALPHABETICALLY sorted and is truncated by Google at ~13 terms (the still-open
+# consequence documented at ~sources.py:892-901) — the English route emits in
+# THIS explicit yield order, so the highest-yield terms always survive the
+# truncation. `when:` must still precede the OR block on every query (the
+# `when:`-before-OR rationale above) or the time filter is the part dropped.
+#
+# The retrieval/matching asymmetry is why 'refinery' converts to nothing
+# WITHOUT its DB row. Measured 2026-08-18, site:www.argusmedia.com, when:7d:
 #
 #     query term   raw items returned by Google
 #     "refinery"          27   <- includes headlines that say "refineries"
 #     "refineries"        21
 #     "refiner"            6
 #
-# So Google already hands us the "refineries" headlines; it is our own filter
-# that drops them, because "refineries" does not contain the string
-# "refinery" ('refiner|y' vs 'refiner|ies'). The fix is a keyword ROW in
-# news_hunter_default_keywords (+ the per-user news_hunter_keywords copies,
-# which is what the /news-hunter feed scopes on), NOT an entry here:
-# adding 'refineries' to this tuple would spend one of the 12 retrieval slots
-# to ask for items Google already returns for 'refinery'.
+# Google already hands us the "refineries" headlines; our own filter drops them,
+# because "refineries" does not contain the string "refinery" ('refiner|y' vs
+# 'refiner|ies'). The fix is a keyword ROW in news_hunter_default_keywords (+ the
+# per-user copies), NOT an entry here: adding 'refineries' would spend one of the
+# 12 retrieval slots to ask for items Google already returns for 'refinery'.
 # Keep 'refinery' above for retrieval; let the DB row do the matching.
 # Teto de termos por query em ingles. 12 termos = 25 "palavras" contando
 # `site:`, `when:` e os OR — abaixo do ponto de truncagem medido (~28).

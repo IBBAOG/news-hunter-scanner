@@ -171,3 +171,53 @@ def test_cnbc_points_at_the_energy_section_not_at_finance():
         "https://search.cnbc.com/rs/search/combinedcms/view.xml"
         "?partnerId=wrss01&id=19836768"
     ], urls
+
+
+# --- international O&G re-curation (2026-08-18, Wave 0b) ---------------------
+#
+# ENGLISH_KEYWORD_PRIORITY was re-curated for international oil & gas. These pin
+# the exact terms and their order so a future edit cannot silently reintroduce
+# the Brazilian/regional bias or overflow the truncation cap. They FAIL on the
+# pre-Wave-0b tuple (18 entries led by "Petrobras", "Braskem", ...).
+
+# The curated retrieval tuple, ordered by international O&G yield. Every string
+# must also exist verbatim as a `news_hunter_default_keywords` row or it is
+# silently dropped from retrieval (see the cross-repo contract in sources.py).
+EXPECTED_ENGLISH_PRIORITY = (
+    "oil", "gas", "diesel", "Brent", "WTI", "OPEC",
+    "crude", "LNG", "refinery", "gasoline", "Petrobras", "sanction",
+)
+
+
+def test_english_priority_tuple_fits_under_the_cap():
+    from news_hunter.sources import ENGLISH_KEYWORD_PRIORITY
+
+    assert len(ENGLISH_KEYWORD_PRIORITY) <= ENGLISH_KEYWORD_CAP
+
+
+def test_english_priority_is_the_curated_international_list_in_order():
+    from news_hunter.sources import ENGLISH_KEYWORD_PRIORITY
+
+    assert tuple(ENGLISH_KEYWORD_PRIORITY[:ENGLISH_KEYWORD_CAP]) == EXPECTED_ENGLISH_PRIORITY
+
+
+def test_english_site_query_emits_only_priority_subset_terms_under_the_cap():
+    # Live set = every curated term (shuffled) plus two junk terms absent from
+    # the tuple. The emitted query must be in English, put `when:` before the OR
+    # block, carry ONLY priority terms, and never exceed the cap.
+    live = list(reversed(EXPECTED_ENGLISH_PRIORITY)) + ["quitanda", "vaquejada"]
+    url = google_news_site_queries_en(["www.reuters.com"], live, 24)[0]
+
+    assert _params(url)["hl"] == "en-US"
+
+    q = _q(url)
+    assert q.startswith("site:www.reuters.com when:24h ("), q
+    assert q.index("when:24h") < q.index(" OR "), q
+
+    emitted = [t.strip('"') for t in q.split("(", 1)[1].rstrip(")").split(" OR ")]
+    assert len(emitted) <= ENGLISH_KEYWORD_CAP, emitted
+    assert set(emitted) <= set(EXPECTED_ENGLISH_PRIORITY), emitted
+    assert "quitanda" not in emitted and "vaquejada" not in emitted, emitted
+    # The re-curation added these international terms; when present in the live
+    # set they must now be retrieved (they were absent from the old tuple).
+    assert {"crude", "LNG", "gasoline", "sanction"} <= set(emitted), emitted
