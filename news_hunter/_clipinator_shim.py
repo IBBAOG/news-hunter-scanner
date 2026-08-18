@@ -421,8 +421,19 @@ EXTRACTORS: dict[str, Extractor] = {
     # <p> tags are inside it. Measured 2026-08-18 on three articles across
     # economia/politica: 8/10/13 paragraphs, 2.3k/3.7k/4.0k chars of real body,
     # against meta descriptions of 148/135/112 chars. Without the registration
-    # enrich falls through to that meta description, i.e. the standfirst, which
-    # is what the lede rescue would have to match a keyword against.
+    # enrich falls through to that meta description, i.e. the standfirst.
+    #
+    # WHERE THIS ACTUALLY RUNS, because it is not where you would assume: the
+    # periodic scan calls run_search(fast_mode=True), which passes
+    # need_snippet=False, and enrich_item then returns BEFORE fetch_html for any
+    # item that already has a title and a date — i.e. for every well-formed RSS
+    # item. So on the main scan path no extractor runs at all and the stored
+    # snippet is just the feed's own <description> (or empty, when that is under
+    # SNIPPET_MIN_RSS_CHARS=150). The extractor is exercised by the LEDE RESCUE,
+    # which passes need_snippet=True. Measured end to end on 2026-08-18 for two
+    # Itatiaia articles whose <description> is 148 and 92 chars: fast path 0 and
+    # 0, lede path 357 and 360. That difference is the whole value of this entry
+    # — it is what a body-only keyword gets matched against.
     "itatiaia.com.br": ex_auto,
     "www.itatiaia.com.br": ex_auto,
     "www12.senado.leg.br": ex_auto,

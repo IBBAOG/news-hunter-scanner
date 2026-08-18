@@ -274,10 +274,25 @@ RSS_FEEDS: dict[str, list[str]] = {
     #
     # Cadence 10.6 posts/day, largest healthy gap 20.1h over the 5-day feed
     # window — comfortably inside FEED_STALE_HOURS_DEFAULT (48h), so no entry
-    # there. Bodies: article pages answer 200 from the runner and ex_auto reads
-    # 8-13 real paragraphs from them (see _clipinator_shim). Nothing from this
-    # domain existed in news_articles before this commit (0 rows of 38,781), so
-    # the global Google News queries never surfaced it — this is new coverage.
+    # there.
+    #
+    # VERIFIED END TO END, 2026-08-18: the first scan carrying this entry
+    # persisted exactly the 4 expected articles with source_name "Radio
+    # Itatiaia", real published_at and correct keywords. Two of them landed with
+    # an EMPTY snippet, which looks like a broken extractor and is not: the scan
+    # runs run_search(fast_mode=True), so enrich_item returns before fetch_html
+    # for any item that already has a title and a date, and the snippet is
+    # simply the feed's <description> — kept when it clears
+    # SNIPPET_MIN_RSS_CHARS=150 (177 and 210 chars here) and dropped when it
+    # does not (148 and 92). Reproduced exactly, both paths, per article. So the
+    # ex_auto registration in _clipinator_shim buys nothing on this path; it
+    # buys the lede rescue a 357-360 char body instead of a ~140 char
+    # standfirst. Article pages themselves are healthy from the runner (200 in
+    # 0.28-0.72s, 391 KB, no cf-* headers).
+    #
+    # Nothing from this domain existed in news_articles before this commit
+    # (0 rows of 38,781), so the global Google News queries never surfaced it —
+    # this is new coverage.
     "www.itatiaia.com.br": [
         "https://admin.itatiaia.com.br/feed/?cat=68828",
     ],
