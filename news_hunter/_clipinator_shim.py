@@ -248,6 +248,8 @@ SOURCE_NAMES: dict[str, str] = {
     "energy.economictimes.indiatimes.com": "ET EnergyWorld",
     "livemint.com": "Mint",
     "www.livemint.com": "Mint",
+    "thehindubusinessline.com": "BusinessLine",
+    "www.thehindubusinessline.com": "BusinessLine",
 }
 
 
@@ -667,6 +669,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "energy.economictimes.indiatimes.com": ex_auto,
     "livemint.com": ex_auto,
     "www.livemint.com": ex_auto,
+    "thehindubusinessline.com": ex_auto,
+    "www.thehindubusinessline.com": ex_auto,
 }
 
 

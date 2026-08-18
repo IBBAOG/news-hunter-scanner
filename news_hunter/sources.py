@@ -690,6 +690,28 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.livemint.com": [
         "https://www.livemint.com/rss/industry",
     ],
+    # The Hindu BusinessLine (thehindubusinessline.com) -- India's financial
+    # daily (The Hindu group). Two section feeds registered, the same
+    # narrow-over-general call as Gazeta do Povo: the site-wide feed is general
+    # news, these two are the sector.
+    #   - markets/commodities: the anchor. items=60 span=222h fresh=48 pass=23
+    #     near=25 rescued=1 -- twenty-three passes in the 7d window, ~21 on-beat
+    #     (crude / Brent / oil futures, OPEC & IEA demand, Hormuz-blocked refiner
+    #     buying, HPCL / MRPL crude tenders, India Russian-crude record). The two
+    #     off-beat are "coconut oil" prices (Onam demand) on the substring `oil`.
+    #   - economy: items=60 span=56h fresh=60 pass=6 near=54 rescued=0 -- six
+    #     passes, ~5 on-beat and DISTINCT from commodities (LNG-truck logistics,
+    #     India tanker exports, ethanol-blend fuel policy, Chabahar vs US
+    #     sanctions), one "coconut oil" false positive. Registered because those
+    #     downstream / logistics / policy stories are India-domestic and neither
+    #     the commodities feed nor the global wires carry them.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # thehindubusinessline.com -- where SOURCE_NAMES is keyed. Watch the recurring
+    # coconut/edible-oil `oil` false positive (bounded: title-only, url-keyed).
+    "www.thehindubusinessline.com": [
+        "https://www.thehindubusinessline.com/markets/commodities/feeder/default.rss",
+        "https://www.thehindubusinessline.com/economy/feeder/default.rss",
+    ],
 }
 
 
