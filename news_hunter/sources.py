@@ -1193,6 +1193,18 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # additive Chinese-wire read on the global beat. English articles resolve to
     # english.news.cn (a subdomain, no www) -- keyed there in SOURCE_NAMES.
     "english.news.cn",
+    # China Daily (chinadaily.com.cn) -- China's flagship English daily. GNews
+    # pass=9/7d (items=100 fresh=100 near=91). Deduping same-title copies (OPEC
+    # demand x2, coal-mine gas-outburst x2) and dropping the gas-accident false
+    # positive leaves ~5 distinct on-beat -- PipeChina's East-China crude
+    # pipeline, China's 220,000 km oil / gas pipeline plan to 2030, OPEC oil
+    # demand, Tehran-vs-Trump on Hormuz, a Greenland / Texas oil-company row.
+    # That clears the >=3/7d on-beat bar, but nearly all of it is ALSO carried
+    # by Xinhua at ~5x the volume; kept per the numeric bar, with the redundancy
+    # recorded here for a future pruning pass. near=91 is China-general copy that
+    # mentions a keyword in passing and never passes on the title. Articles
+    # resolve to www.chinadaily.com.cn.
+    "chinadaily.com.cn",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

@@ -257,6 +257,8 @@ SOURCE_NAMES: dict[str, str] = {
     # (www / subdomain kept); apex kept for completeness. Xinhua's English site
     # is the english.news.cn subdomain (no www).
     "english.news.cn": "Xinhua",
+    "chinadaily.com.cn": "China Daily",
+    "www.chinadaily.com.cn": "China Daily",
 }
 
 
@@ -683,6 +685,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # China state / regional wires (English) -- Wave 4, GNews title-only;
     # ex_auto registered for consistency + the lede-rescue path.
     "english.news.cn": ex_auto,
+    "chinadaily.com.cn": ex_auto,
+    "www.chinadaily.com.cn": ex_auto,
 }
 
 
