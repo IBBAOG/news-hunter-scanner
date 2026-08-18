@@ -674,6 +674,22 @@ RSS_FEEDS: dict[str, list[str]] = {
     "energy.economictimes.indiatimes.com": [
         "https://energy.economictimes.indiatimes.com/rss/oil-and-gas",
     ],
+    # Mint (livemint.com) -- India business daily (HT Media), /rss/industry
+    # section. A GENERAL business-industry feed, thinner on O&G than ET
+    # EnergyWorld: items=35 span=128h fresh=35 pass=5 near=30 rescued=0 -- five
+    # title/summary passes over 7d, four on-beat (L&T offshore energy order, a
+    # covert-Mideast-oil-flows markets piece, and the govt LPG-refinery
+    # allocation x2) and one an "edible oil" false positive on the substring
+    # keyword `oil`. Clears the >=3/7d-on-beat bar for a general-business domain,
+    # though most of its on-beat items are also carried by ET EnergyWorld /
+    # BusinessLine / Moneycontrol -- it is registered for the marginal
+    # markets-desk pieces (e.g. covert Mideast flows) those miss. Feed and
+    # article links are www, so normalize_url strips to the apex livemint.com --
+    # where SOURCE_NAMES is keyed. Watch the edible/coconut-oil `oil` false
+    # positive; it is bounded (title-only, url-keyed, lands at most once).
+    "www.livemint.com": [
+        "https://www.livemint.com/rss/industry",
+    ],
 }
 
 

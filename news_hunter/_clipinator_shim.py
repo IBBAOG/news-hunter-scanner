@@ -246,6 +246,8 @@ SOURCE_NAMES: dict[str, str] = {
     # (or the energy subdomain for ET, which has no www); GNews resolves to the
     # article's real netloc (www kept). Both keyed for completeness.
     "energy.economictimes.indiatimes.com": "ET EnergyWorld",
+    "livemint.com": "Mint",
+    "www.livemint.com": "Mint",
 }
 
 
@@ -663,6 +665,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # Moneycontrol is GNews title-only. ex_auto registered for the lede-rescue
     # path + consistency.
     "energy.economictimes.indiatimes.com": ex_auto,
+    "livemint.com": ex_auto,
+    "www.livemint.com": ex_auto,
 }
 
 
