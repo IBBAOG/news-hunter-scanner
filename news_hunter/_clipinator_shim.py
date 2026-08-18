@@ -140,6 +140,24 @@ SOURCE_NAMES: dict[str, str] = {
     "moneytimes.com.br": "Money Times",
     "visnoinvest.com.br": "Visno Invest",
     "www.visnoinvest.com.br": "Visno Invest",
+    # International oil & gas / shipping trade press (English) — Wave 1a, RSS.
+    # Both apex and www keyed: RSS item links are normalize_url'd (www stripped),
+    # so the resolved source_domain is always the apex — but www is kept for
+    # completeness and for the GNews-resolved path, which does NOT strip www.
+    "oilprice.com": "OilPrice",
+    "www.oilprice.com": "OilPrice",
+    "gcaptain.com": "gCaptain",
+    "www.gcaptain.com": "gCaptain",
+    "hellenicshippingnews.com": "Hellenic Shipping News",
+    "www.hellenicshippingnews.com": "Hellenic Shipping News",
+    "lngprime.com": "LNG Prime",
+    "www.lngprime.com": "LNG Prime",
+    "oedigital.com": "Offshore Engineer",
+    "www.oedigital.com": "Offshore Engineer",
+    "splash247.com": "Splash247",
+    "www.splash247.com": "Splash247",
+    "worldoil.com": "World Oil",
+    "www.worldoil.com": "World Oil",
 }
 
 
@@ -457,6 +475,26 @@ EXTRACTORS: dict[str, Extractor] = {
     "moneytimes.com.br": ex_auto,
     "visnoinvest.com.br": ex_auto,
     "www.visnoinvest.com.br": ex_auto,
+    # International oil & gas / shipping trade press (English) — Wave 1a, RSS.
+    # ex_auto covers all of these; measured 2026-08-18 the matches land on
+    # title+summary so no extractor runs on the main scan path — the extractor
+    # only powers the lede rescue (body fetch of a near-miss). World Oil is the
+    # exception that always fetches (its feed has no <pubDate>, so enrich_item
+    # fetches the article page to read article:published_time).
+    "oilprice.com": ex_auto,
+    "www.oilprice.com": ex_auto,
+    "gcaptain.com": ex_auto,
+    "www.gcaptain.com": ex_auto,
+    "hellenicshippingnews.com": ex_auto,
+    "www.hellenicshippingnews.com": ex_auto,
+    "lngprime.com": ex_auto,
+    "www.lngprime.com": ex_auto,
+    "oedigital.com": ex_auto,
+    "www.oedigital.com": ex_auto,
+    "splash247.com": ex_auto,
+    "www.splash247.com": ex_auto,
+    "worldoil.com": ex_auto,
+    "www.worldoil.com": ex_auto,
 }
 
 

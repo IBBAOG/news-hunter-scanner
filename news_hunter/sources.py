@@ -524,6 +524,84 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.theagribiz.com": [
         "https://www.theagribiz.com/feed/",
     ],
+
+    # =========================================================================
+    # International oil & gas / shipping trade press (English) — Wave 1a.
+    #
+    # Registered 2026-08-18. Every yield below was MEASURED on the GHA runner
+    # (measure_source.yml — so from a datacenter IP, with the Supabase secrets)
+    # against the LIVE keyword set (91 keywords, 41 exact) with --lede, 7-day
+    # window. English outlets match only on the Latin subset of the set (oil /
+    # gas / diesel / Brent / WTI / OPEC / LNG / crude / offshore / tanker /
+    # pipeline / Hormuz / ExxonMobil / Chevron / Petrobras / ... — accents never
+    # fire), which is plenty: these feeds carry full descriptions, so most
+    # matches land on title+summary with no body fetch.
+    #
+    # Item links are apex on some feeds and www on others, but normalize_url
+    # strips www, so the RESOLVED source_domain — and thus the SOURCE_NAMES /
+    # EXTRACTORS key that renders the outlet name — is ALWAYS the apex form.
+    # Both keys are registered in _clipinator_shim regardless. None of these
+    # publish slowly enough to need a FEED_STALE_HOURS entry (stalest healthy
+    # span here is lngprime at 29h, inside the 48h default).
+    #
+    # Sources that HAVE a real feed but sit behind a WAF the scanner's
+    # plain-requests feed path cannot clear (OGJ, Energy Voice, Offshore
+    # Technology, Rigzone) are in ENGLISH_NO_RSS_DOMAINS instead — see there.
+    # =========================================================================
+    # OilPrice.com — the highest-density surface measured in this wave. General
+    # energy-markets wire. 2026-08-18: items=15 span=10h fresh=15 pass=11 near=4
+    # rescued=0 — eleven of fifteen items in a TEN-HOUR window match on
+    # title/summary alone (Hormuz, diesel, Brent, tankers, LNG, refinery,
+    # gasoline). Article links are apex (oilprice.com/Latest-Energy-News/...).
+    "oilprice.com": [
+        "https://oilprice.com/rss/main",
+    ],
+    # gCaptain — maritime/shipping daily; heavy tanker + Strait-of-Hormuz +
+    # oil-logistics coverage no Brazilian outlet carries. 2026-08-18: items=12
+    # span=21h fresh=12 pass=9 near=3 rescued=0. Apex article links.
+    "gcaptain.com": [
+        "https://gcaptain.com/feed/",
+    ],
+    # Hellenic Shipping News — shipping + commodities wire/aggregator.
+    # 2026-08-18: items=20 span=20h fresh=20 pass=7 near=13 rescued=0 (LNG
+    # shipping, EU gas storage, Brent, ADNOC, Hormuz). Feed and article links are
+    # both www, so source_domain resolves to the apex hellenicshippingnews.com.
+    "www.hellenicshippingnews.com": [
+        "https://www.hellenicshippingnews.com/feed/",
+    ],
+    # LNG Prime — pure LNG trade press; every item is on-beat by construction.
+    # 2026-08-18: items=10 span=29h fresh=10 pass=10 near=0 rescued=0. Apex links.
+    "lngprime.com": [
+        "https://lngprime.com/feed/",
+    ],
+    # Offshore Engineer (oedigital.com) — offshore E&P / subsea. 2026-08-18:
+    # items=15 span=24h fresh=15 pass=7 near=8 rescued=0 (Equinor Namibia,
+    # ExxonMobil Rovuma LNG, Chevron Angola, Rosebank). /rss is the real feed;
+    # /feed and /component/obrss/* return HTML. Feed and article links are www,
+    # so source_domain resolves to the apex oedigital.com.
+    "www.oedigital.com": [
+        "https://www.oedigital.com/rss",
+    ],
+    # Splash247 — maritime/shipping daily. 2026-08-18: items=10 span=6h fresh=10
+    # pass=3 near=7 rescued=0 — only a 6h window is visible in the feed, so
+    # pass=3 in 6h is a high rate, not a marginal weekly one. Apex article links.
+    "splash247.com": [
+        "https://splash247.com/feed/",
+    ],
+    # World Oil — upstream E&P daily. The feed is the QUERY form /rss?feed=news
+    # (the bare /rss is an HTML index of per-topic feeds); is_sitemap_url() is
+    # False for it, so it is parsed as RSS. 2026-08-18: items=10 fresh=10 pass=10
+    # near=0 rescued=0 with full CDATA descriptions. CAVEAT worth the line: this
+    # feed carries NO <pubDate>. enrich_item therefore fetches each NEW article
+    # page and reads article:published_time (US M/D/Y, parses fine) to date it —
+    # verified reachable from the runner (article page HTTP 200, 2026-08-18). The
+    # date is REAL, never fabricated: World Oil is deliberately NOT in
+    # RECENT_ONLY_SCRAPERS, so if an article page is ever unreachable the item is
+    # DROPPED (no fabricated-timestamp zombie), not stamped now(). One body fetch
+    # per new article, then cached. Feed on apex, article links www -> apex.
+    "worldoil.com": [
+        "https://worldoil.com/rss?feed=news",
+    ],
 }
 
 
