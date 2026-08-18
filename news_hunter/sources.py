@@ -640,6 +640,16 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.offshore-energy.biz": [
         "https://www.offshore-energy.biz/feed/",
     ],
+    # Natural Gas Intelligence (naturalgasintel.com) -- THE US natural-gas price
+    # wire; every item is on-beat by construction. WordPress /feed/, ~10 items
+    # but a fast-moving window: 2026-08-18 items=10 span=6h fresh=10 pass=10
+    # near=0 (Henry Hub futures, LNG buildout, Rovuma LNG, Vaca Muerta shale,
+    # Venture Global CP2). pass=10 in a 6-hour window is a high rate, not a
+    # marginal weekly one. Feed and article links are www, so normalize_url
+    # strips to the apex naturalgasintel.com -- where SOURCE_NAMES is keyed.
+    "www.naturalgasintel.com": [
+        "https://www.naturalgasintel.com/feed/",
+    ],
 }
 
 

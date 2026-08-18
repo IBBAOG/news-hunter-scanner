@@ -228,6 +228,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.oilandgas360.com": "Oil & Gas 360",
     "offshore-energy.biz": "Offshore Energy",
     "www.offshore-energy.biz": "Offshore Energy",
+    "naturalgasintel.com": "Natural Gas Intelligence",
+    "www.naturalgasintel.com": "Natural Gas Intelligence",
 }
 
 
@@ -630,6 +632,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.oilandgas360.com": ex_auto,
     "offshore-energy.biz": ex_auto,
     "www.offshore-energy.biz": ex_auto,
+    "naturalgasintel.com": ex_auto,
+    "www.naturalgasintel.com": ex_auto,
 }
 
 
