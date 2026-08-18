@@ -355,8 +355,21 @@ RSS_FEEDS: dict[str, list[str]] = {
     ],
     # IstoE Dinheiro: feed retorna 200 mas corpo vazio — coberto via Google News
     # "istoedinheiro.com.br": [],
+    # CNBC publishes one feed per section under the same view.xml endpoint,
+    # discriminated only by `id`. We were on id=10000664, which is the FINANCE
+    # section — markets/personal-finance copy, not energy. It answers 200 with
+    # 30 fresh items every scan, so nothing ever looked broken; it simply never
+    # matched. Measured 2026-08-18 against the live keyword set (47 keywords,
+    # 15 exact), all 30 entries the feed returned, title+summary only:
+    #
+    #     id=10000664 (Finance) ...  30 items, span 161h, pass  0, near 30
+    #     id=19836768 (Energy) ....  30 items, span 244h, pass 23, near  7
+    #
+    # Same cost per scan, same publisher, 23x the yield. The Energy feed is
+    # slower-moving (244h to cover 30 items vs 161h), which is expected of a
+    # section feed and is not a problem: the fetcher filters by published_at.
     "www.cnbc.com": [
-        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=19836768",
     ],
     # Reuters encerrou todos os feeds RSS oficialmente em 2020 — coberta via Google News
     # "www.reuters.com": [],
@@ -527,7 +540,9 @@ NO_RSS_DOMAINS: list[str] = [
     # frente a mesma query devolve 7 itens, 5 deles frescos em 24h — medido
     # duas vezes, 2026-08-04. Fica cadastrado.
     "br.tradingview.com",
-    "www.argusmedia.com",
+    # www.argusmedia.com MOVED to ENGLISH_NO_RSS_DOMAINS on 2026-08-18 — it
+    # publishes only in English and was being queried at hl=pt-BR. See the
+    # measurement table there.
     "www12.senado.leg.br",
     # estradao.estadao.com.br REMOVIDO em 2026-08-04: o host responde 301 para
     # https://www.estadao.com.br/jornal-do-carro/estradao/, ou seja, ja nao e um
@@ -614,6 +629,26 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     "edition.cnn.com",
     "www.cnn.com",
     "www.theedgesingapore.com",
+    # Argus Media: exactly the same bug as CNN above, left behind when CNN and
+    # The Edge Singapore were moved on 2026-08-04. Argus publishes only in
+    # English and was still being queried at hl=pt-BR&gl=BR. It did not look
+    # dead — the workflow stayed green and the query answered 200 — it just
+    # answered with nothing, and the row count in news_articles decayed
+    # 31 -> 15 -> 3 per month and stopped on 2026-08-06.
+    #
+    # Measured 2026-08-18 against the live keyword set, same day, same machine:
+    #
+    #     window   hl=pt-BR (before)          hl=en-US + subset (after)
+    #     24h      0 raw items                16 raw, 15 fresh
+    #     7d       (not probed, 0 at 24h)     75 raw, 63 unique titles, 8 pass
+    #
+    # "pass" = matches a keyword on the title alone, i.e. what lands without
+    # paying a body fetch. Argus is a paywalled trade wire, so treat the
+    # lede-rescue path as unavailable and the title-only figure as the yield.
+    #
+    # Volume expectation: ~1 item/day, not dozens. Most of what Argus files is
+    # petchems/fertilizer/metals, which our keyword set correctly ignores.
+    "www.argusmedia.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
@@ -905,6 +940,33 @@ ENGLISH_KEYWORD_PRIORITY: tuple[str, ...] = (
     # Reservas: so entram se alguma das acima nao estiver no conjunto vivo.
     "PRIO", "Ultrapar", "Ipiranga", "OceanPact", "refit", "ANP",
 )
+# NOTE (2026-08-18) — this tuple gates RETRIEVAL, not MATCHING, and the two
+# have different failure modes. Do not "fix" a matching problem here.
+#
+#   retrieval: what we ask Google for. Capped at ENGLISH_KEYWORD_CAP and
+#              filtered by this tuple, so a keyword added to Supabase does NOT
+#              reach these queries unless it is also listed above. Google
+#              stems the terms it receives.
+#   matching:  what we keep. filter.matches_keywords runs over the FULL live
+#              keyword set from Supabase, uncapped, and is a literal substring
+#              (or \b-bounded) test with NO stemming.
+#
+# That asymmetry is why 'refinery' converts to nothing. Measured 2026-08-18,
+# site:www.argusmedia.com, when:7d:
+#
+#     query term   raw items returned by Google
+#     "refinery"          27   <- includes headlines that say "refineries"
+#     "refineries"        21
+#     "refiner"            6
+#
+# So Google already hands us the "refineries" headlines; it is our own filter
+# that drops them, because "refineries" does not contain the string
+# "refinery" ('refiner|y' vs 'refiner|ies'). The fix is a keyword ROW in
+# news_hunter_default_keywords (+ the per-user news_hunter_keywords copies,
+# which is what the /news-hunter feed scopes on), NOT an entry here:
+# adding 'refineries' to this tuple would spend one of the 12 retrieval slots
+# to ask for items Google already returns for 'refinery'.
+# Keep 'refinery' above for retrieval; let the DB row do the matching.
 # Teto de termos por query em ingles. 12 termos = 25 "palavras" contando
 # `site:`, `when:` e os OR — abaixo do ponto de truncagem medido (~28).
 ENGLISH_KEYWORD_CAP = 12

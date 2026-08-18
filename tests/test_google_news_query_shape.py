@@ -127,7 +127,18 @@ def test_english_subset_degrades_instead_of_emitting_an_empty_block():
 
 
 def test_english_outlets_are_not_queried_in_portuguese():
-    for dom in ("edition.cnn.com", "www.cnn.com", "www.theedgesingapore.com", "www.reuters.com"):
+    # argusmedia was left behind when CNN and The Edge Singapore were moved on
+    # 2026-08-04 and stayed on hl=pt-BR until 2026-08-18: 0 items at pt-BR vs 16
+    # in 24h at en-US, measured the same minute. The workflow was green the whole
+    # time — a query that answers 200 with an empty channel is the failure mode
+    # this list exists to prevent.
+    for dom in (
+        "edition.cnn.com",
+        "www.cnn.com",
+        "www.theedgesingapore.com",
+        "www.reuters.com",
+        "www.argusmedia.com",
+    ):
         assert dom in ENGLISH_NO_RSS_DOMAINS, dom
         assert dom not in NO_RSS_DOMAINS, dom
 
@@ -148,3 +159,15 @@ def test_visaoagro_points_at_the_index_not_at_yoast_page_one():
 
 def test_no_domain_is_registered_in_both_language_lists():
     assert not (set(NO_RSS_DOMAINS) & set(ENGLISH_NO_RSS_DOMAINS))
+
+
+def test_cnbc_points_at_the_energy_section_not_at_finance():
+    # CNBC's section feeds differ only by `id`. id=10000664 is Finance: 30 fresh
+    # items every scan, 0 of which matched the live keyword set (measured
+    # 2026-08-18). id=19836768 is Energy: 23 of 30 matched. Same cost, same 200,
+    # 23x the yield — which is why the id is pinned here and not just in a URL.
+    urls = RSS_FEEDS["www.cnbc.com"]
+    assert urls == [
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml"
+        "?partnerId=wrss01&id=19836768"
+    ], urls
