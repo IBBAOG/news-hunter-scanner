@@ -821,6 +821,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # nothing for the lede rescue to recover. Articles resolve to
     # www.upstreamonline.com.
     "upstreamonline.com",
+    # TradeWinds (tradewindsnews.com) — tanker / shipping-markets wire (NHST,
+    # sister title to Upstream). GNews pass=44/7d; the pass set is all shipping:
+    # tanker spot rates, LNG carriers, Strait of Hormuz transits, oil spills,
+    # secondhand tanker deals — the shadow-fleet / freight beat no other
+    # registered source covers. Articles resolve to www.tradewindsnews.com.
+    "tradewindsnews.com",
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).

@@ -183,6 +183,8 @@ SOURCE_NAMES: dict[str, str] = {
     "www.spglobal.com": "S&P Global Commodity Insights",
     "upstreamonline.com": "Upstream",
     "www.upstreamonline.com": "Upstream",
+    "tradewindsnews.com": "TradeWinds",
+    "www.tradewindsnews.com": "TradeWinds",
 }
 
 
@@ -544,6 +546,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.spglobal.com": ex_auto,
     "upstreamonline.com": ex_auto,
     "www.upstreamonline.com": ex_auto,
+    "tradewindsnews.com": ex_auto,
+    "www.tradewindsnews.com": ex_auto,
 }
 
 
