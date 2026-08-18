@@ -197,6 +197,90 @@ RSS_FEEDS: dict[str, list[str]] = {
         "https://www.gazetadopovo.com.br/feed/rss/republica.xml",
         "https://www.gazetadopovo.com.br/feed/rss/agronegocio.xml",
     ],
+    # Radio Itatiaia (Belo Horizonte/MG). Canonical domain is
+    # www.itatiaia.com.br — the apex 301s to it, and every article link in every
+    # surface is www-form (normalize_url then strips it, so articles land as
+    # itatiaia.com.br; that is the key the extractor is registered under).
+    #
+    # SPLIT INFRASTRUCTURE, and this is the whole trick to registering it: the
+    # site the reader sees is a Next.js front on www with NO feed at all
+    # (/feed/, /rss, /rss.xml and /wp-sitemap.xml are 404s served as a Next
+    # error page — 218 KB of HTML behind an HTTP 404, so a naive prober that
+    # only reads status is fine but one that only reads bytes is not). The
+    # WordPress backend that publishes it is exposed at admin.itatiaia.com.br,
+    # and THAT host serves the real RSS. So the feed URL below is on `admin`
+    # while the key, the articles and the extractor are all `itatiaia`.
+    #
+    # WHY ?cat= INSTEAD OF A PRETTY SECTION FEED: the WP permalinks for feeds
+    # are broken on that host — /category/economia/feed/, /economia/feed/ and
+    # /?feed=rss2&cat=<id> all answer HTTP 500. The plain /feed/ with a `cat`
+    # query is the only per-editoria form that works. 68828 = "Economia" (the
+    # `cat` query includes child categories, so this also carries Negocios,
+    # Investimentos and Imoveis).
+    #
+    # WHICH SURFACE. Itatiaia publishes ~171 posts/day, overwhelmingly football,
+    # police, celebrity and recipes, so the choice is entirely about precision.
+    # Four surfaces exist; measured 2026-08-18 on the GHA runner with the real
+    # fetcher + filter against the LIVE 47-keyword set (15 exact), window 24h:
+    #
+    #     surface                       items  span  fresh  pass  near  resc
+    #     sitemap-news.xml (all sects)    100   12h    100     4    96     0
+    #     /feed/?cat=68828  economia       60  142h     16     4    12     0
+    #     /feed/?cat=68816  politica       60   25h     55     2    53     0
+    #     /feed/?cat=68796  mg              —     —      —     —     —     —   (read timeout)
+    #     /feed/?cat=68883  agro            60  223h      6     0     6     0
+    #     /feed/          general           60   10h     60     1    59     0
+    #
+    # The general surfaces are NOT registered. Their extra recall is duplicate
+    # national wire copy and their extra volume is junk — measured by replaying
+    # the live keyword set over the title of every one of the 1,200 posts
+    # published in the 7 days to 2026-08-18 (via the WP REST API, so the count
+    # is the section's real output rather than a feed window):
+    #
+    #     section    posts  title-matches  genuine  junk
+    #     economia      26        8            8      0
+    #     politica      47        3            3      0
+    #     mg            97        1            0      1
+    #     agro          22        0            0      0
+    #     other      1,008        5            1      4
+    #
+    # i.e. registering a general surface buys +4 genuine sector items a week and
+    # +5 junk ones ("Quanto combustivel seu carro consome parado com motor
+    # ligado", "Molho verde caseiro fica cremoso com tecnica simples de
+    # adicionar oleo aos poucos", "Cruzeiro: Lucho VIBRA com assistencia") —
+    # `oleo`, `combustivel` and `gasolina` are SUBSTRING keywords and this
+    # outlet writes about cars, cooking and traffic all day. And the +4 is not
+    # even unique: the Margem Equatorial / Alcolumbre cycle those items belong
+    # to was already captured 300+ times from 20 other registered domains in the
+    # same week (estadao 79, brasil247 20, g1 15, ...). economia gets 8 of the
+    # 12 genuine items at 100% precision; the 4 it misses are wire duplicates.
+    #
+    # It also protects the lede rescue, which is capped at
+    # LEDE_RESCUE_CAP_DOMAIN=8 fetches per DOMAIN per scan — a cap the sitemap
+    # would not raise but would fill with football and police near-misses (96 of
+    # them) instead of this feed's 12 economy ones. Rescue measured 0 on every
+    # surface even after registering the extractor, so that budget currently
+    # buys nothing here; the point is that it costs nothing either.
+    #
+    # KNOWN FLAKINESS, deliberately accepted: the feed sits behind a Varnish
+    # whose TTL is short and irregular. A cache HIT is 0.11-0.35s, a MISS is
+    # 4.08-4.88s — straddling the scanner's FEED_TIMEOUT of 4s (diagnose_feed
+    # saw a HIT and a MISS in two back-to-back requests, 2026-08-18). Expect
+    # this feed to be named in the run summary occasionally. It loses NOTHING
+    # when that happens: the feed holds 60 items spanning ~134h, we poll every
+    # ~5 min, and an item only has to be collected once. Do not "fix" this by
+    # switching to sitemap-news.xml, which is static and always 0.17s — that
+    # trades an occasional cosmetic error for the precision loss tabled above.
+    #
+    # Cadence 10.6 posts/day, largest healthy gap 20.1h over the 5-day feed
+    # window — comfortably inside FEED_STALE_HOURS_DEFAULT (48h), so no entry
+    # there. Bodies: article pages answer 200 from the runner and ex_auto reads
+    # 8-13 real paragraphs from them (see _clipinator_shim). Nothing from this
+    # domain existed in news_articles before this commit (0 rows of 38,781), so
+    # the global Google News queries never surfaced it — this is new coverage.
+    "www.itatiaia.com.br": [
+        "https://admin.itatiaia.com.br/feed/?cat=68828",
+    ],
     "veja.abril.com.br": [
         "https://veja.abril.com.br/feed",
     ],
