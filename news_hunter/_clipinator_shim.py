@@ -100,6 +100,10 @@ SOURCE_NAMES: dict[str, str] = {
     "correiodopovo.com.br": "Correio do Povo",
     "www.jornaldocomercio.com": "Jornal do Comércio",
     "jornaldocomercio.com": "Jornal do Comércio",
+    # Apex first: normalize_url strips "www.", so the key the enricher looks up
+    # is the apex form.
+    "itatiaia.com.br": "Rádio Itatiaia",
+    "www.itatiaia.com.br": "Rádio Itatiaia",
     "www.atribuna.com.br": "A Tribuna",
     "atribuna.com.br": "A Tribuna",
     "veronoticias.com": "Vero Notícias",
@@ -408,6 +412,19 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.claudiodantas.com.br": ex_auto,
     "br.tradingview.com": ex_auto,
     "www.theedgesingapore.com": ex_auto,
+    # Radio Itatiaia (Belo Horizonte/MG). Next.js + Tailwind: the body wrapper
+    # carries only utility classes ("mx-auto flex w-full max-w-[640px] ..."),
+    # so there is no semantic hook and none of ex_auto's NAMED selectors match.
+    # What saves it is that the body sits in a real <article>
+    # tag, which is ex_auto's LAST fallback, and — unlike Gazeta do Povo and
+    # Jornal do Comercio, where <article> exists but holds no <p> — here the
+    # <p> tags are inside it. Measured 2026-08-18 on three articles across
+    # economia/politica: 8/10/13 paragraphs, 2.3k/3.7k/4.0k chars of real body,
+    # against meta descriptions of 148/135/112 chars. Without the registration
+    # enrich falls through to that meta description, i.e. the standfirst, which
+    # is what the lede rescue would have to match a keyword against.
+    "itatiaia.com.br": ex_auto,
+    "www.itatiaia.com.br": ex_auto,
     "www12.senado.leg.br": ex_auto,
     "www.camara.leg.br": ex_auto,
     "camara.leg.br": ex_auto,
