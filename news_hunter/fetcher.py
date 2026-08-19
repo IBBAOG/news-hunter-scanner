@@ -775,16 +775,35 @@ def iter_collect(
     # queries are entered; RSS feeds and the PT block stay absent (=> None =
     # native/untranslated). Items are stamped from this map in the drain loop.
     lang_by_url: dict[str, str] = {}
+    # Foreign-language GNews queries are submitted FIRST — before the RSS feeds
+    # and the ~35 PT/English GNews queries. news.google.com rate-limits a BURST
+    # of `site:` queries from one IP and silently drops some (measured; see
+    # sources.py "derrubou TODAS as queries"). PT/English tolerate that: they have
+    # RSS fallbacks and many redundant sources. FOREIGN languages are GNews-ONLY,
+    # so a dropped foreign query is TOTAL data loss for that language — which is
+    # exactly what stranded the Arabic pilot at 0 rows while measure_source (3
+    # isolated queries) returned 58-100 fresh items/domain from the same runner
+    # IP. Firing them before the burst saturates gives them the freshest
+    # rate-limit budget, and their items reach the gnewsdecoder resolve queue
+    # first, so they are not starved at the resolve deadline either.
+    priority_tasks: list[tuple[str, str]] = []
     if include_google_news:
+        for cfg in LANGUAGES.values():
+            if cfg.translate and cfg.no_rss_domains:      # foreign, GNews-only
+                for url in google_news_site_queries_lang(
+                    cfg, list(cfg.no_rss_domains), keywords, hours
+                ):
+                    priority_tasks.append(("news.google.com", url))
+                    lang_by_url[url] = cfg.code
         if NO_RSS_DOMAINS:
             for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
                 tasks.append(("news.google.com", url))
-        # Per-language site: queries from the LANGUAGES registry (en today; +ar
-        # in B1-d; +5 in B2+). English reproduces the historical direct call
-        # exactly (test_multilingual_en_frozen.py); each query URL is tagged with
-        # its language code so the drain loop can stamp the items it returns.
+        # English (translate=False) stays in the normal block — it is already
+        # robust (RSS-covered domains + redundancy) and reproduces the historical
+        # direct call exactly (test_multilingual_en_frozen.py). Each query URL is
+        # tagged so the drain loop can stamp the items it returns.
         for cfg in LANGUAGES.values():
-            if cfg.no_rss_domains:
+            if not cfg.translate and cfg.no_rss_domains:
                 for url in google_news_site_queries_lang(
                     cfg, list(cfg.no_rss_domains), keywords, hours
                 ):
@@ -807,6 +826,9 @@ def iter_collect(
         return _fetch_one
 
     all_tasks = (
+        # Foreign GNews first (fallback-less, rate-limit-fragile — see above),
+        # then RSS/PT/EN, then standard sitemaps, then homepage scrapers.
+        [(dom, url, False, False) for dom, url in priority_tasks] +
         [(dom, url, False, False) for dom, url in tasks] +
         [(dom, url, True, False) for dom, url in std_tasks] +
         [(dom, url, False, True) for dom, url in home_tasks]
