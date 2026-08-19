@@ -5,6 +5,8 @@ instavel sao cobertos via Google News search (site:dominio + keyword).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Callable
 from urllib.parse import quote_plus
 
 # -----------------------------------------------------------------------------
@@ -1611,6 +1613,75 @@ def english_keywords(keywords: list[str]) -> list[str]:
     return subset[:ENGLISH_KEYWORD_CAP]
 
 
+# -----------------------------------------------------------------------------
+# Language registry (Wave B1-a — mechanism generalization).
+#
+# The scanner's one non-Portuguese retrieval path is a LANGUAGE SWITCH on the
+# Google News `site:` route (hl/gl/ceid + a per-language keyword subset). It used
+# to be a single hard-coded English function (google_news_site_queries_en); it is
+# now expressed through this registry so future waves can add languages as data,
+# not code. THIS WAVE SEEDS ONLY ENGLISH — English remains the only active
+# language, and google_news_site_queries_en (below) is now a shim over
+# LANGUAGES["en"], reproducing the historical en URLs byte-for-byte
+# (tests/test_multilingual_en_frozen.py pins that).
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LangConfig:
+    """One retrieval-language configuration for the Google News `site:` route.
+
+    Fields:
+      code            : canonical language tag ('en'; 'ar'/'ru'/... in later waves).
+      hl / gl / ceid  : Google News language/region query params.
+      no_rss_domains  : publishers queried via `site:` at this hl.
+      keyword_priority: ordered (native_term, canonical_en_concept) pairs. For
+                        English the two are identical; foreign vocabularies (later
+                        waves) map a native term to the English concept written
+                        into matched_keywords. Used by the DEFAULT resolver only.
+      cap             : max OR terms per query (Google truncates ~13 terms).
+      translate       : foreign languages translate to English for display;
+                        en/pt do not. False for English.
+      resolve_keywords: hook that turns the live keyword set into the OR-block
+                        terms for this language. English overrides it with
+                        english_keywords() (intersect-the-live-set semantics,
+                        byte-for-byte the historical behaviour). When None, the
+                        generic builder falls back to the standalone, curated
+                        native vocabulary (native terms of keyword_priority,
+                        capped) — the divergence foreign languages will use.
+    """
+
+    code: str
+    hl: str
+    gl: str
+    ceid: str
+    no_rss_domains: tuple[str, ...]
+    keyword_priority: tuple[tuple[str, str], ...]
+    cap: int = 12
+    translate: bool = True
+    resolve_keywords: Callable[["LangConfig", list[str]], list[str]] | None = None
+
+
+LANGUAGES: dict[str, LangConfig] = {
+    # English is now a member of the registry; the old _en path is a special case
+    # of it. Its resolver is english_keywords() (intersect the live DB set), so
+    # its emitted queries are identical to the pre-registry implementation.
+    "en": LangConfig(
+        code="en",
+        hl="en-US",
+        gl="US",
+        ceid="US:en",
+        no_rss_domains=tuple(ENGLISH_NO_RSS_DOMAINS),
+        keyword_priority=tuple((k, k) for k in ENGLISH_KEYWORD_PRIORITY),
+        cap=ENGLISH_KEYWORD_CAP,
+        translate=False,
+        resolve_keywords=lambda cfg, live: english_keywords(live),
+    ),
+    # fa/he/ru/zh/es/ar are added in later B1/B2+ sub-waves with the same shape.
+    # No non-English language is configured in this wave (scope fence).
+}
+
+
 def google_news_queries(keywords: list[str], hours: int) -> list[str]:
     """URLs de RSS do Google News, uma por keyword, com janela temporal.
 
@@ -1641,18 +1712,44 @@ def google_news_site_queries(domains: list[str], keywords: list[str], hours: int
     return out
 
 
-def google_news_site_queries_en(domains: list[str], keywords: list[str], hours: int) -> list[str]:
-    """Igual a google_news_site_queries mas em ingles (hl=en-US).
+def google_news_site_queries_lang(
+    cfg: LangConfig, domains: list[str], keywords: list[str], hours: int
+) -> list[str]:
+    """One Google News `site:` query per domain, scoped to a LangConfig.
 
-    Alem do idioma, restringe o bloco OR ao subconjunto de keywords que faz
-    sentido em ingles — ver ENGLISH_KEYWORD_PRIORITY.
+    Generalizes google_news_site_queries_en to any language: it swaps in the
+    config's hl/gl/ceid and its keyword resolver. Everything else — the
+    `when:`-before-OR shape (do NOT reorder, see the note above _when_clause) and
+    the per-domain iteration — is identical across languages.
+
+    The resolver decides the OR-block terms. English supplies english_keywords()
+    (intersect the live DB set); a config with no resolver falls back to the
+    standalone curated native vocabulary (the divergence foreign languages use in
+    later waves). With LANGUAGES["en"] this reproduces the historical en URLs
+    byte-for-byte — pinned by tests/test_multilingual_en_frozen.py.
     """
     when = _when_clause(hours)
-    kw_or = _kw_or(english_keywords(keywords))
+    resolve = cfg.resolve_keywords or (
+        lambda c, live: [nat for nat, _ in c.keyword_priority][: c.cap]
+    )
+    kw_or = _kw_or(resolve(cfg, keywords))
     out: list[str] = []
     for domain in domains:
         q = quote_plus(f"site:{domain} when:{when} ({kw_or})")
         out.append(
-            f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+            f"https://news.google.com/rss/search?q={q}&hl={cfg.hl}&gl={cfg.gl}&ceid={cfg.ceid}"
         )
     return out
+
+
+def google_news_site_queries_en(domains: list[str], keywords: list[str], hours: int) -> list[str]:
+    """English Google News `site:` queries (hl=en-US) — now a shim over the
+    language-generic builder driven by LANGUAGES["en"].
+
+    Kept as a named function so existing callers (fetcher, tests) are untouched.
+    LANGUAGES["en"] reproduces every input to the URL — hl=en-US&gl=US&ceid=US:en,
+    the same english_keywords() subset in the same priority order, the same
+    `when:`-before-OR shape — so the output is byte-for-byte identical to the
+    previous direct implementation (see ENGLISH_KEYWORD_PRIORITY).
+    """
+    return google_news_site_queries_lang(LANGUAGES["en"], domains, keywords, hours)
