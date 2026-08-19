@@ -1974,6 +1974,84 @@ HEBREW_NO_RSS_DOMAINS: tuple[str, ...] = (
 )
 
 
+# -----------------------------------------------------------------------------
+# Spanish (es) — Wave B2b. Config-only, same shape as the pilot, but the FIRST
+# Latin-script foreign language — so the union tests these terms against PT/EN
+# text too (unlike the Arabic/Russian/Chinese/Hebrew scripts, which can only ever
+# match text retrieved in-language). That makes collision control the whole job.
+#
+# VOCABULARY (native Spanish term -> canonical English concept). Canonicals align
+# to existing English keywords where one exists (crude/oil/refinery/diesel/
+# pipeline/sanction/tanker); the LatAm oil majors and Vaca Muerta carry their own
+# (ASCII) proper-noun token.
+#
+# THE RULE FOR A LATIN LANGUAGE — only terms that are (a) Spanish-SPECIFIC (the
+# shared petróleo/gas/gasolina/OPEP/Brent/WTI/Ormuz already match ES text via the
+# existing keyword set, so a Spanish article that only names those needs nothing
+# here), and (b) NOT a substring of any common PT/EN word. Both were MEASURED, not
+# assumed: every concept term below scored ZERO hits across 40,309 native (pt/en)
+# titles in news_articles on 2026-08-19 (crudo/petrolero/petrolera/gasóleo/diésel/
+# oleoducto/gasoducto/yacimiento/sanciones/hidrocarburos = 0 each; refinería = 1).
+# The five proper nouns DO match native titles — Pemex 62, Ecopetrol 93, PDVSA 5,
+# YPF 9, Vaca Muerta 14 — but those are CORRECT tags (a PT/EN article naming
+# Ecopetrol should carry "Ecopetrol"), not false positives: they are unambiguous
+# entity names, so the canonical rewrite simply enriches those rows.
+#
+# NOT ADDED, on purpose: refinería is retrieval-useful but its MATCH is already
+# covered by the existing substring keyword `refin` (it is kept here so ES
+# refinery articles are RETRIEVED and get the cleaner "refinery" canonical);
+# OPEP/Ormuz/gas/diesel/Brent are omitted because they are already live keywords.
+# petrolero -> oil (not tanker): "petrolero" is far more often adjectival
+# (sector/mercado/empresa petrolera = oil-) than the noun "oil tanker", and even
+# the tanker sense is oil-related, so "oil" is never badly wrong; the explicit
+# "buque petrolero" -> tanker wins leftmost-longest for the vessel sense.
+#
+# RETRIEVAL vs MATCHING: retrieval uses the first cap (12) terms; MATCHING uses
+# all of them via the union in pipeline.run_search. "buque petrolero" wins
+# leftmost-longest over "petrolero" inside it.
+ES_KEYWORDS: tuple[tuple[str, str], ...] = (
+    # --- retrieval slice (first 12, the OR-block Google receives) ---
+    ("crudo", "crude"),           # crude oil (ES; distinct from the EN "crude" string)
+    ("petrolero", "oil"),         # oil- (adjective/sector) — see note; buque petrolero->tanker
+    ("petrolera", "oil"),         # oil company / oil- (feminine)
+    ("refinería", "refinery"),    # refinery (retrieval; match also covered by `refin`)
+    ("hidrocarburos", "oil"),     # hydrocarbons (PT is hidrocarbonetos — ES-specific)
+    ("yacimiento", "oil"),        # oil/gas field / deposit
+    ("oleoducto", "pipeline"),    # oil pipeline (PT is oleoduto — the 'c' makes it ES-specific)
+    ("gasóleo", "diesel"),        # diesel (Spain/standard; not matched by EN "diesel")
+    ("sanciones", "sanction"),    # sanctions (ES; not a substring of EN "sanction")
+    ("Pemex", "Pemex"),           # Petróleos Mexicanos
+    ("Ecopetrol", "Ecopetrol"),   # Colombia's oil major
+    ("PDVSA", "PDVSA"),           # Petróleos de Venezuela
+    # --- matching-only slice (beyond cap 12: enrich matched_keywords) ---
+    ("diésel", "diesel"),         # diesel (accented ES form the EN "diesel" keyword misses)
+    ("gasoducto", "pipeline"),    # gas pipeline (PT is gasoduto)
+    ("YPF", "YPF"),               # Argentina's oil major
+    ("Vaca Muerta", "Vaca Muerta"), # Argentina's shale play
+    ("buque petrolero", "tanker"), # oil tanker (wins leftmost-longest over petrolero->oil)
+)
+
+# Native Spanish ENERGY/business publishers queried via GNews `site:` at
+# hl=es-419. Measured 2026-08-19: each returns 100 dated items whose titles are
+# on-beat Spanish energy/markets news, all correctly rendered by GoogleTranslator.
+#   * eleconomista.com.mx — El Economista (Mexico), business daily (Pemex,
+#                           fracking, gasolineras, Ecopetrol gas Colombia).
+#   * ambito.com          — Ámbito Financiero (Argentina), business daily
+#                           (petrolero in Ormuz, Brent record, Russian tanker).
+#   * portafolio.co       — Portafolio (Colombia), business daily (Ecopetrol,
+#                           Brent > US$91, Ecopetrol takes control of Brava/Brazil).
+# Rejected (measured, recorded so a later wave doesn't re-test): lapoliticaonline
+# .com returns 100 but ALL off-beat politics; energiaadebate.com is pure energy
+# but thin (5 items). eleconomista.es (Spain, 100/100 on-beat) is a strong
+# measured alternative if a 4th is wanted. Bodies of GNews items are unreachable,
+# so these land TITLE-ONLY. GNews supplies the date.
+SPANISH_NO_RSS_DOMAINS: tuple[str, ...] = (
+    "eleconomista.com.mx",
+    "ambito.com",
+    "portafolio.co",
+)
+
+
 LANGUAGES: dict[str, LangConfig] = {
     # English is now a member of the registry; the old _en path is a special case
     # of it. Its resolver is english_keywords() (intersect the live DB set), so
@@ -2046,9 +2124,21 @@ LANGUAGES: dict[str, LangConfig] = {
         cap=12,
         translate=True,
     ),
-    # es is added below in the same wave with the same shape (config + vocab +
-    # measured sources + a translator-code entry) — no code-path change.
-    #
+    # Spanish — Wave B2b. translate=True, standalone curated vocabulary. The FIRST
+    # Latin-script foreign language: its terms are tested by the matching union
+    # against PT/EN text too, so the vocab is restricted to ES-specific,
+    # collision-free terms (measured 0 hits on 40,309 native titles — see
+    # ES_KEYWORDS). hl/gl/ceid measured at US:es-419 (100 items/domain).
+    "es": LangConfig(
+        code="es",
+        hl="es-419",
+        gl="US",
+        ceid="US:es-419",
+        no_rss_domains=SPANISH_NO_RSS_DOMAINS,
+        keyword_priority=ES_KEYWORDS,
+        cap=12,
+        translate=True,
+    ),
     # fa (Persian) was MEASURED NOT VIABLE via this mechanism on 2026-08-19 and is
     # deliberately NOT registered: Google News does not index Iranian domains
     # (~30 tested — shana/tasnim/mehr/isna/donya-e-eqtesad/... all 0-2 items/30d),

@@ -32,7 +32,7 @@ from news_hunter.translate import TRANSLATOR_CODE  # noqa: E402
 # does not index Iranian domains, and the diaspora outlets it indexes serve their
 # English edition), so it is deliberately NOT in this set — see the fa note in
 # sources.LANGUAGES.
-EXPECTED_TRANSLATE_LANGS = {"ar", "ru", "zh", "iw"}
+EXPECTED_TRANSLATE_LANGS = {"ar", "ru", "zh", "iw", "es"}
 
 
 def _foreign():

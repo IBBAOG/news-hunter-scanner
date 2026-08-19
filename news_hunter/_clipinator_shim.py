@@ -62,6 +62,14 @@ SOURCE_NAMES: dict[str, str] = {
     "www.themarker.com": "TheMarker (דה מרקר)",
     "calcalist.co.il": "Calcalist (כלכליסט)",
     "www.calcalist.co.il": "Calcalist (כלכליסט)",
+    # Spanish (LatAm) business/energy sources (Wave B2b). GNews items resolve to
+    # the apex or www; both forms registered defensively.
+    "eleconomista.com.mx": "El Economista (MX)",
+    "www.eleconomista.com.mx": "El Economista (MX)",
+    "ambito.com": "Ámbito",
+    "www.ambito.com": "Ámbito",
+    "portafolio.co": "Portafolio",
+    "www.portafolio.co": "Portafolio",
     "valor.globo.com": "Valor Econômico",
     "www.estadao.com.br": "Estadão",
     "estadao.com.br": "Estadão",
