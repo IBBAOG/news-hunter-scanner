@@ -150,6 +150,118 @@ gh workflow run refresh_brasil_energia_cookie.yml --repo IBBAOG/news-hunter-scan
 Required secrets (in addition to those above): `BRASIL_ENERGIA_USER`,
 `BRASIL_ENERGIA_PASS`.
 
+## International coverage
+
+Alongside the ~60 Brazilian sources, the scanner carries **48 English-language
+international outlets** across seven regions — six that predated the program plus
+**42 added in four waves** (2026-08-18). Two surfaces are used, in this order of
+preference:
+
+- **RSS** — a dated feed the scanner's feed path reaches from its datacenter
+  runner (15 outlets). Matches land on the item title/summary with no body fetch.
+- **GNews en-US** — a Google News `site:<domain> when:<window> (<keywords>)`
+  query at `hl=en-US` (33 outlets), used when the outlet's own feed is
+  WAF-blocked, paywalled, dateless or absent. Google supplies the date; bodies
+  stay unreachable, so these land **title-only** (empty snippet).
+
+What makes English outlets yield at all is the keyword layer. Matching runs over
+the **full 91-keyword Supabase lexicon** (41 exact / 50 substring — `oil`, `gas`,
+`Brent`, `WTI`, `OPEC`, `LNG`, `crude`, `diesel`, `refinery`, `Hormuz`,
+`ExxonMobil`, `Petrobras`, …), while *retrieval* on the GNews route is narrowed to
+the **12-term `ENGLISH_KEYWORD_PRIORITY`** subset (`sources.py`), the block Google
+will not truncate. The two are different funnels — a matching gap is closed with a
+DB keyword row, never by editing the tuple.
+
+The tables below are a **directory, not a second source of truth**: the per-domain
+comment in `sources.py` — next to each entry, and next to every *rejected*
+candidate — is the authoritative record, carrying the full measured
+`items/fresh/pass/near/rescued`, the resolution/keying rationale and the
+false-positive caveats. `pass` here is the title/summary pass count over a
+**7-day** window unless a shorter feed span is noted in parentheses.
+
+### Global trade press & shipping
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| OilPrice | oilprice.com | RSS | 11 (10h) |
+| Offshore Engineer | oedigital.com | RSS | 7 (24h) |
+| gCaptain | gcaptain.com | RSS | 9 (21h) |
+| Splash247 | splash247.com | RSS | 3 (6h) |
+| Hellenic Shipping News | hellenicshippingnews.com | RSS | 7 (20h) |
+| LNG Prime | lngprime.com | RSS | 10 (29h) |
+| CNBC (Energy) | cnbc.com | RSS | 23 (244h) |
+| Reuters | reuters.com | GNews en-US | — |
+| Bloomberg | bloomberg.com | GNews en-US | 55 |
+| S&P Global Commodity Insights | spglobal.com | GNews en-US | 44 |
+| Energy Intelligence | energyintel.com | GNews en-US | 65 |
+| Upstream | upstreamonline.com | GNews en-US | 60 |
+| TradeWinds | tradewindsnews.com | GNews en-US | 44 |
+| Argus Media | argusmedia.com | GNews en-US | 8 |
+| Global Energy Network | globalenergynetwork.net | GNews en-US | 18 |
+| CNN | cnn.com / edition.cnn.com | GNews en-US | ~16–29/30d |
+| The Edge Singapore | theedgesingapore.com | GNews en-US | 19 (24h) |
+
+### United States
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| Oil & Gas 360 | oilandgas360.com | RSS | 14 (99h) |
+| Natural Gas Intelligence | naturalgasintel.com | RSS | 10 (6h) |
+| Oil & Gas Journal (OGJ) | ogj.com | GNews en-US | 24 |
+| World Oil | worldoil.com | GNews en-US | 22 |
+| Rigzone | rigzone.com/news | GNews en-US | 31 |
+| Hart Energy | hartenergy.com | GNews en-US | 23 |
+| E&E News | eenews.net | GNews en-US | 15 |
+
+### Europe
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| Offshore Energy | offshore-energy.biz | RSS | 10 (24h) |
+| Offshore Technology | offshore-technology.com | GNews en-US | 21 |
+| Montel News | montelnews.com | GNews en-US | 8 |
+| Energy Voice | energyvoice.com | GNews en-US | 4 |
+
+### Russia–CIS
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| The Moscow Times | themoscowtimes.com | RSS | 17 |
+| bne IntelliNews | intellinews.com | GNews en-US | 11 |
+| Interfax | interfax.com | GNews en-US | 11 |
+| TASS | tass.com | GNews en-US | 8 |
+
+### Middle East
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| Arab News | arabnews.com | GNews en-US | 79 |
+| Zawya | zawya.com | GNews en-US | 38 |
+| Gulf News | gulfnews.com | GNews en-US | 24 |
+| Al Jazeera | aljazeera.com | GNews en-US | 17 |
+| MEES | mees.com | GNews en-US | 10 |
+| Shana | shana.ir | GNews en-US | 7 |
+| The National | thenationalnews.com | RSS | 6 (+2 rescued) |
+| Iraq Oil Report | iraqoilreport.com | GNews en-US | 4 |
+
+### China
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| Xinhua | english.news.cn | GNews en-US | 43 |
+| South China Morning Post | scmp.com | GNews en-US | 13 |
+| China Daily | chinadaily.com.cn | GNews en-US | 9 |
+| Global Times | globaltimes.cn | GNews en-US | 7 |
+
+### India
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+| ET EnergyWorld | energy.economictimes.indiatimes.com | RSS | 14 (56h) |
+| Moneycontrol | moneycontrol.com | GNews en-US | 57 |
+| The Hindu BusinessLine | thehindubusinessline.com | RSS | 23 comm. / 6 econ. |
+| Mint | livemint.com | RSS | 5 (4 on-beat) |
+
 ## Local dev
 
 ```bash
