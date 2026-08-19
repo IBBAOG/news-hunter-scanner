@@ -1890,6 +1890,90 @@ CHINESE_NO_RSS_DOMAINS: tuple[str, ...] = (
 )
 
 
+# -----------------------------------------------------------------------------
+# Hebrew (iw) — Wave B2b. Config-only, same shape as the pilot.
+#
+# CODE IS 'iw', NOT 'he'. Google's LEGACY code for Hebrew is iw everywhere that
+# matters to us: GoogleTranslator(source='he') raises LanguageNotSupportedException
+# (source='iw' works — verified), and hl=iw and hl=he BOTH return the same 100
+# items, so iw is the single tag used end to end (LANGUAGES key, source_lang,
+# TRANSLATOR_CODE['iw']='iw', hl=iw). Measured 2026-08-19.
+#
+# VOCABULARY (native Hebrew term -> canonical English concept). Canonicals align
+# to existing English keywords where one exists (oil/gas/gasoline/diesel/refinery/
+# sanction/tanker/crude/Brent/Iran/Yemen); Red Sea carries a natural English token.
+#
+# HEBREW HAS ATTACHED PROCLITICS (ה=the, ב=in, ל=to, מ=from, ו=and, ש=that), so
+# terms are matched as SUBSTRINGS (never \b-exact — design §2.1): נפט is a
+# substring of הנפט / בנפט / והנפט; גז of הגז / וגז / מהגז.
+#
+# COLLISIONS — measured on the site: route 2026-08-19, and the reason several
+# obvious terms are NOT here:
+#   * גז ("gas", essential — Israel's Leviathan/Tamar/NewMed/Isramco gas is THE
+#     Israeli energy beat) is a substring of מגזר ("sector") and the idiom פול גז
+#     ("full throttle"). Unlike the Russian газ⊂Gaza case, this does NOT close by
+#     source curation — מגזר is core business vocabulary that appears on the very
+#     energy/business desks we retrieve from (measured ~2/11 גז-matches on
+#     globes/themarker/calcalist/bizportal). It is KEPT anyway: the canonical is
+#     "gas" (an already-heavy existing keyword), the residue is a Hebrew-only
+#     business headline occasionally tagged gas, and dropping גז would blind the
+#     scanner to the entire Israeli gas sector (recall > a small, Hebrew-scoped,
+#     visible noise). Documented rather than hidden.
+#   * DROPPED for un-closable substring collisions: צינור ("pipe/pipeline") ⊂
+#     drug-money "conduit" / burst water pipes (60% FP measured); the Houthi stem
+#     חות ⊂ דוחות ("reports") / לקוחות ("customers") / כוחות ("forces") / שיחות
+#     ("talks") — catastrophic, so Houthi is not carried (those refinery-attack
+#     stories already match זיקוק/הורמוז); אופ״ק/אופק ("OPEC"/"horizon") collide
+#     and OPEC is already matched by the Latin "OPEC" keyword; עיצומים is
+#     ambiguous ("labour sanctions"/strikes) so only the loanword סנקציות is used;
+#     דלק ("fuel"/Delek) ⊂ דלקת ("inflammation") / מדליק. None of these leaves a
+#     coverage hole (Latin OPEC + נפט/גז/זיקוק/בנזין/סולר carry the beat).
+# CLEAN (measured, ~0 FP on the business/energy domains): נפט, סולר, זיקוק,
+# מכלית, הורמוז, איראן, בנזין, סנקציות (last two carry the same bounded semantic
+# breadth as the English gasoline/sanction substrings, by design).
+#
+# RETRIEVAL vs MATCHING: retrieval uses the first cap (12) terms; MATCHING uses
+# all of them via the union in pipeline.run_search. נפט גולמי ("crude oil") wins
+# leftmost-longest over נפט ("oil") inside it, tagging the specific concept.
+IW_KEYWORDS: tuple[tuple[str, str], ...] = (
+    # --- retrieval slice (first 12, the OR-block Google receives) ---
+    ("נפט", "oil"),          # oil (bare; substring of הנפט/בנפט/ונפט...)
+    ("גז", "gas"),           # gas (kept at full recall; מגזר collision documented above)
+    ("איראן", "Iran"),       # Iran (highest-yield geopolitics anchor)
+    ("הורמוז", "Hormuz"),    # (Strait of) Hormuz
+    ("בנזין", "gasoline"),   # gasoline / petrol
+    ("סולר", "diesel"),      # diesel
+    ("זיקוק", "refinery"),   # refining / refinery (בית זיקוק = refinery)
+    ("מכלית", "tanker"),     # (oil) tanker
+    ("סנקציות", "sanction"), # sanctions (loanword; aligned to keyword "sanction")
+    ("ברנט", "Brent"),       # Brent (Hebrew spelling; Latin "Brent" left out to keep vocab non-Latin)
+    ("הים האדום", "Red Sea"),# Red Sea (Bab el-Mandeb / Houthi shipping)
+    ("תימן", "Yemen"),       # Yemen (aligned to keyword "Yemen")
+    # --- matching-only slice (beyond cap 12: enrich matched_keywords) ---
+    ("נפט גולמי", "crude"),  # crude oil (leftmost-longest wins over נפט->oil inside it)
+)
+
+# Native Hebrew ENERGY/business publishers queried via GNews `site:` at hl=iw.
+# Measured 2026-08-19: each returns ~100 dated items whose titles are genuine
+# Hebrew energy/markets news, all correctly rendered by GoogleTranslator(source=iw).
+#   * globes.co.il    — Globes, Israel's main business/financial daily (98/100
+#                       genuine-Hebrew title-passes in the measured window).
+#   * themarker.com   — TheMarker (Haaretz group) business daily (100/100; carried
+#                       the Ashdod refinery + oil&gas + earnings stories).
+#   * calcalist.co.il — Calcalist, the other major financial daily (46/47).
+# Rejected (measured, recorded so a later wave doesn't re-test): en.globes.co.il /
+# biz.walla.co.il / energynews.co.il (GNews indexes 0); ynet.co.il / mako.co.il
+# are 100/100 but GENERAL news (more war/politics than O&G) — bizportal.co.il
+# (98/100, very energy-dense) is a strong measured alternative if a 4th is wanted.
+# Bodies of GNews items are unreachable, so these land TITLE-ONLY. GNews supplies
+# the date.
+HEBREW_NO_RSS_DOMAINS: tuple[str, ...] = (
+    "globes.co.il",
+    "themarker.com",
+    "calcalist.co.il",
+)
+
+
 LANGUAGES: dict[str, LangConfig] = {
     # English is now a member of the registry; the old _en path is a special case
     # of it. Its resolver is english_keywords() (intersect the live DB set), so
@@ -1948,8 +2032,31 @@ LANGUAGES: dict[str, LangConfig] = {
         cap=12,
         translate=True,
     ),
-    # fa/he/es are added in Wave B2b+ with the same shape (config + vocab +
+    # Hebrew — Wave B2b. translate=True, standalone curated substring vocabulary.
+    # Key/code/hl/translator all 'iw' (Google's legacy Hebrew tag; source='he'
+    # raises — see IW_KEYWORDS + translate.TRANSLATOR_CODE). hl/gl/ceid measured
+    # at IL:iw (100 genuine-Hebrew items/domain). Business/energy-only sources.
+    "iw": LangConfig(
+        code="iw",
+        hl="iw",
+        gl="IL",
+        ceid="IL:iw",
+        no_rss_domains=HEBREW_NO_RSS_DOMAINS,
+        keyword_priority=IW_KEYWORDS,
+        cap=12,
+        translate=True,
+    ),
+    # es is added below in the same wave with the same shape (config + vocab +
     # measured sources + a translator-code entry) — no code-path change.
+    #
+    # fa (Persian) was MEASURED NOT VIABLE via this mechanism on 2026-08-19 and is
+    # deliberately NOT registered: Google News does not index Iranian domains
+    # (~30 tested — shana/tasnim/mehr/isna/donya-e-eqtesad/... all 0-2 items/30d),
+    # and the Persian-diaspora outlets it does index return their ENGLISH edition
+    # (iranintl.com) or empty titles (dw.com/fa). Every path yields 0, off-beat,
+    # or non-Persian, so a fa config would be a silent-zero source (and would
+    # mistag the occasional English/Arabic leak as fa). Re-open only if a Persian
+    # domain becomes GNews-indexed (e.g. a residential/geo-appropriate runner).
 }
 
 

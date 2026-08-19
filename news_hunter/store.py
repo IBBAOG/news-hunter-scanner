@@ -67,7 +67,7 @@ class Article:
     # fields below are display overlays for FOREIGN items (source_lang not in
     # en/pt/None); the frontend renders `title_en ?? title`. All None for PT/EN
     # rows, so the English/PT write path is unchanged except source_lang.
-    source_lang: str | None = None      # 'ar'/'fa'/'he'/'ru'/'zh'/'es'/'en'/'pt'; None = legacy/native
+    source_lang: str | None = None      # 'ar'/'ru'/'zh'/'iw'/'es'/'en'/'pt'; None = legacy/native
     title_original: str | None = None   # native title as scraped (foreign only)
     title_en: str | None = None         # English translation (None on failure — never drops the row)
     snippet_en: str | None = None       # English snippet translation (foreign only)

@@ -195,7 +195,10 @@ def test_sentinels_survive_the_rewrite():
 # 5. Translation module (fail-soft, code mapping, native guard)
 # ============================================================================
 def test_translator_code_mapping_has_the_gotchas():
-    assert TRANSLATOR_CODE["he"] == "iw"        # NOT 'he' (would raise)
+    # Hebrew's tag IS 'iw' end to end (B2b): GoogleTranslator(source='he') raises,
+    # so the key, source_lang and value are all 'iw', never 'he'.
+    assert TRANSLATOR_CODE["iw"] == "iw"
+    assert "he" not in TRANSLATOR_CODE
     assert TRANSLATOR_CODE["zh"] == "zh-CN"
     assert TRANSLATOR_CODE["ar"] == "ar"
 

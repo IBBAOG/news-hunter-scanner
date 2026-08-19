@@ -24,9 +24,15 @@ from news_hunter.translate import TRANSLATOR_CODE  # noqa: E402
 
 
 # The foreign (translate=True) languages that are supposed to be live. Grows one
-# entry per wave (fa/he/es are the next). If a config is added without a test or
-# dropped by accident, this set diverges and the suite fails.
-EXPECTED_TRANSLATE_LANGS = {"ar", "ru", "zh"}
+# entry per wave. If a config is added without a test or dropped by accident,
+# this set diverges and the suite fails.
+#
+# B2b adds Hebrew ('iw' — Google's legacy Hebrew tag, not 'he') and Spanish
+# ('es'). Persian ('fa') was measured NOT viable on this mechanism (Google News
+# does not index Iranian domains, and the diaspora outlets it indexes serve their
+# English edition), so it is deliberately NOT in this set — see the fa note in
+# sources.LANGUAGES.
+EXPECTED_TRANSLATE_LANGS = {"ar", "ru", "zh", "iw"}
 
 
 def _foreign():

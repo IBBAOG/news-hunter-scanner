@@ -54,6 +54,14 @@ SOURCE_NAMES: dict[str, str] = {
     "jiemian.com": "Jiemian News (界面新闻)",
     "www.jiemian.com": "Jiemian News (界面新闻)",
     "m.jiemian.com": "Jiemian News (界面新闻)",
+    # Hebrew business/energy sources (Wave B2b). GNews items resolve to the apex
+    # or www; both forms registered defensively.
+    "globes.co.il": "Globes (גלובס)",
+    "www.globes.co.il": "Globes (גלובס)",
+    "themarker.com": "TheMarker (דה מרקר)",
+    "www.themarker.com": "TheMarker (דה מרקר)",
+    "calcalist.co.il": "Calcalist (כלכליסט)",
+    "www.calcalist.co.il": "Calcalist (כלכליסט)",
     "valor.globo.com": "Valor Econômico",
     "www.estadao.com.br": "Estadão",
     "estadao.com.br": "Estadão",

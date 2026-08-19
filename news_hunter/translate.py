@@ -20,15 +20,18 @@ log = logging.getLogger(__name__)
 
 # Our source_lang tag -> GoogleTranslator source code. Two gotchas, both
 # measured (design §3.1 + scripts/translate_probe.py):
-#   * Hebrew is 'iw', NOT 'he' — GoogleTranslator(source='he') raises
-#     LanguageNotSupportedException.
+#   * Hebrew's tag IS 'iw' (Google's legacy code), NOT 'he' —
+#     GoogleTranslator(source='he') raises LanguageNotSupportedException, so the
+#     LANGUAGES key, source_lang and this code are ALL 'iw' (identity), never 'he'.
 #   * Chinese is 'zh-CN'.
-# ar/fa/ru/es are identity. Kept as a table now so the 5 later languages are a
-# data change, not a code change. A tag missing here falls back to 'auto'.
+# ar/ru/es/iw are identity. Kept as a table so a new language is a data change,
+# not a code change. A tag missing here falls back to 'auto'. (fa is pre-listed
+# for a possible future Persian wave; no fa source is registered today — see the
+# fa note in sources.LANGUAGES.)
 TRANSLATOR_CODE: dict[str, str] = {
     "ar": "ar",
     "fa": "fa",
-    "he": "iw",
+    "iw": "iw",
     "ru": "ru",
     "zh": "zh-CN",
     "es": "es",
