@@ -25,10 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: pip` here on purpose: the gate installs a single package with
+      # --no-cache-dir and no requirements file, so ~/.cache/pip stays empty and
+      # the setup-python post-cache step would fail the run — masking the real
+      # signal. Without it, a green run == GO and a red run == NO-GO (exit 1).
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
 
       # Only deep-translator is needed for the gate — deliberately NOT the full
       # requirements.txt, to test the translation dependency in isolation.
