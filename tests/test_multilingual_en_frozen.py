@@ -78,33 +78,33 @@ def test_en_shim_is_pure_passthrough_over_the_lang_builder():
 
 
 def test_language_loop_adds_or_drops_no_english_query():
-    """iter_collect/collect now build the English GNews tasks by iterating
-    LANGUAGES instead of calling google_news_site_queries_en(
-    ENGLISH_NO_RSS_DOMAINS, ...) directly. Reproduce that loop over the LIVE
-    domain list and assert it equals the legacy direct call exactly — one URL
-    per English domain, none added or lost."""
+    """iter_collect/collect build the English GNews tasks by iterating LANGUAGES
+    (now en + ar, after Wave B1-d). This pins the ENGLISH contribution regardless
+    of how many languages the registry holds: the URLs produced for
+    LANGUAGES['en'] over the live English domain list must still equal the legacy
+    direct call exactly — one per English domain, none added or lost by the
+    registry mechanism. (The Arabic contribution is asserted separately in
+    tests/test_multilingual_ar.py.)"""
     from news_hunter.sources import LANGUAGES, google_news_site_queries_lang
 
     for hours in (24, 168):
-        via_loop: list[str] = []
-        for cfg in LANGUAGES.values():
-            if cfg.no_rss_domains:
-                via_loop.extend(
-                    google_news_site_queries_lang(
-                        cfg, list(cfg.no_rss_domains), _KWS, hours
-                    )
-                )
+        via_en = google_news_site_queries_lang(
+            LANGUAGES["en"], list(LANGUAGES["en"].no_rss_domains), _KWS, hours
+        )
         legacy = google_news_site_queries_en(list(ENGLISH_NO_RSS_DOMAINS), _KWS, hours)
-        assert via_loop == legacy
-        assert len(via_loop) == len(ENGLISH_NO_RSS_DOMAINS)
+        assert via_en == legacy
+        assert len(via_en) == len(ENGLISH_NO_RSS_DOMAINS)
 
 
-def test_en_is_the_only_active_language_and_does_not_translate():
-    """Scope fence for Wave B1-a: English is the only configured language, and
-    it is a retrieval-language switch, not a translation path."""
+def test_en_config_is_unchanged_and_does_not_translate():
+    """English remains a retrieval-language SWITCH, not a translation path — its
+    config is byte-stable across waves. Wave B1-d deliberately opened the B1-a
+    'en is the only language' scope fence by adding Arabic (translate=True); the
+    English guarantees that matter — code, no-translate, hl/gl/ceid — are pinned
+    here, and the byte-identical URL golden above is untouched."""
     from news_hunter.sources import LANGUAGES
 
-    assert list(LANGUAGES) == ["en"]
+    assert "en" in LANGUAGES
     en = LANGUAGES["en"]
     assert en.code == "en"
     assert en.translate is False

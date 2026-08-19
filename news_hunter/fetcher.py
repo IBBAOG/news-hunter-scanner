@@ -82,6 +82,13 @@ class RawItem:
     # (b) fallback honesto quando o enriquecimento falha.
     title_hint: str = ""
     published_hint: datetime | None = None  # granularidade de DIA (00:00 UTC)
+    # Retrieval language of the query that fetched this item (§1.4 of the
+    # multilingual design). Stamped by iter_collect/collect from the LANGUAGES
+    # registry: 'en'/'ar'/... for a per-language GNews `site:` query, None for
+    # RSS feeds and the Portuguese `site:` block (native PT / untranslated). It
+    # drives Stage 3c translation (only foreign, non-en/pt tags translate) and
+    # the source_lang column persisted on the article.
+    source_lang: str | None = None
 
 
 _PT_MONTH_MAP = {
@@ -596,6 +603,28 @@ _GNEWS_SITE_RE = re.compile(r"site%3A([^\s+&]+)", re.IGNORECASE)
 _LOG_LIST_CAP = 15
 
 
+def _lang_from_query_url(url: str) -> str | None:
+    """Recover a Google News query's source_lang from its ``hl=`` param.
+
+    Defensive twin of the ``lang_by_url`` map built in iter_collect/collect: it
+    maps ``hl=`` back to a LANGUAGES code, so a refactor that forgets to populate
+    the map can't silently UNLABEL foreign items. Only registry languages are
+    recoverable — Portuguese (``hl=pt-BR``) is not in LANGUAGES, so it correctly
+    returns None (native PT / untranslated), and RSS feeds (no ``hl=``) too.
+    """
+    try:
+        qs = parse_qs(urlparse(url).query)
+    except ValueError:
+        return None
+    hl = (qs.get("hl") or [None])[0]
+    if not hl:
+        return None
+    for cfg in LANGUAGES.values():
+        if cfg.hl == hl:
+            return cfg.code
+    return None
+
+
 def feed_label(domain: str, url: str) -> str:
     """Short, stable identifier for a feed task, for logs.
 
@@ -742,20 +771,25 @@ def iter_collect(
     tasks: list[tuple[str, str]] = list(all_rss_feeds())
     # Sitemaps WordPress padrao (istoedinheiro, visaoagro, etc.)
     std_tasks: list[tuple[str, str]] = list(all_standard_sitemaps())
+    # Query URL -> retrieval language (§1.4). Only per-language GNews `site:`
+    # queries are entered; RSS feeds and the PT block stay absent (=> None =
+    # native/untranslated). Items are stamped from this map in the drain loop.
+    lang_by_url: dict[str, str] = {}
     if include_google_news:
         if NO_RSS_DOMAINS:
             for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
                 tasks.append(("news.google.com", url))
-        # Per-language site: queries from the LANGUAGES registry. Only "en" is
-        # configured today, so this loop emits exactly the tasks the explicit
-        # google_news_site_queries_en(ENGLISH_NO_RSS_DOMAINS, ...) call did —
-        # one per English domain, same order (test_multilingual_en_frozen.py).
+        # Per-language site: queries from the LANGUAGES registry (en today; +ar
+        # in B1-d; +5 in B2+). English reproduces the historical direct call
+        # exactly (test_multilingual_en_frozen.py); each query URL is tagged with
+        # its language code so the drain loop can stamp the items it returns.
         for cfg in LANGUAGES.values():
             if cfg.no_rss_domains:
                 for url in google_news_site_queries_lang(
                     cfg, list(cfg.no_rss_domains), keywords, hours
                 ):
                     tasks.append(("news.google.com", url))
+                    lang_by_url[url] = cfg.code
 
     import time as _time
     t_start = _time.time()
@@ -802,6 +836,14 @@ def iter_collect(
                 yield dom, [], f"{dom}: {e!s}"
                 continue
             _feed_counts[(dom, _url)] = len(got or [])
+            # Stamp the retrieval language on each item (§1.4). lang_by_url is
+            # the source of truth; _lang_from_query_url is a defensive fallback
+            # that recovers the tag from hl= if the map ever misses a lang query.
+            lang = lang_by_url.get(_url) or _lang_from_query_url(_url)
+            if lang and got:
+                for it in got:
+                    if it.source_lang is None:
+                        it.source_lang = lang
             newest = _newest_published(got or [])
             if newest is not None:
                 _feed_newest[(dom, _url)] = newest
@@ -889,19 +931,21 @@ def collect(
     RSS/sitemap proprio. Isso mantem o orcamento <10s.
     """
     tasks: list[tuple[str, str]] = list(all_rss_feeds())
+    lang_by_url: dict[str, str] = {}
 
     if include_google_news:
         if NO_RSS_DOMAINS:
             for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
                 tasks.append(("news.google.com", url))
-        # Per-language site: queries from the LANGUAGES registry (en only today);
-        # identical tasks to the previous google_news_site_queries_en block.
+        # Per-language site: queries from the LANGUAGES registry (en + ar today),
+        # each tagged with its language code (parity with iter_collect, §1.4).
         for cfg in LANGUAGES.values():
             if cfg.no_rss_domains:
                 for url in google_news_site_queries_lang(
                     cfg, list(cfg.no_rss_domains), keywords, hours
                 ):
                     tasks.append(("news.google.com", url))
+                    lang_by_url[url] = cfg.code
 
     items: list[RawItem] = []
     errors: list[str] = []
@@ -922,6 +966,11 @@ def collect(
                 continue
             if err:
                 errors.append(err)
+            lang = lang_by_url.get(url) or _lang_from_query_url(url)
+            if lang and got:
+                for it in got:
+                    if it.source_lang is None:
+                        it.source_lang = lang
             items.extend(got)
         for fut in not_done:
             dom, _ = futs[fut]

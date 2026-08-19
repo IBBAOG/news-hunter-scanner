@@ -164,6 +164,15 @@ def _article_to_row(a: "Article", published_override: str | None = None) -> dict
         "published_at": published,
         "found_at": a.found_at.isoformat(),
         "matched_keywords": list(a.matched_keywords),
+        # Multilingual overlay (§4). Included unconditionally: None serializes to
+        # SQL NULL, so PT/EN rows and legacy scans are unaffected. A later scan
+        # that finally gets a translation overwrites title_en/snippet_en on the
+        # normal `on_conflict=url` upsert — these carry no fabricated-timestamp
+        # hazard, so no write-once guard is needed (unlike published_at).
+        "source_lang": a.source_lang,
+        "title_original": a.title_original,
+        "title_en": a.title_en,
+        "snippet_en": a.snippet_en,
     }
 
 

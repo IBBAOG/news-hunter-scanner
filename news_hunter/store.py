@@ -62,6 +62,15 @@ class Article:
     # uma linha que ja existe. Re-aplicar um now() a cada scan e exatamente o
     # que fazia um artigo de 6 dias atras flutuar no topo do feed como "13m ago".
     published_is_approx: bool = False
+    # --- Multilingual overlay (§4) ------------------------------------------
+    # `title`/`snippet` always keep their as-scraped, NATIVE meaning. The four
+    # fields below are display overlays for FOREIGN items (source_lang not in
+    # en/pt/None); the frontend renders `title_en ?? title`. All None for PT/EN
+    # rows, so the English/PT write path is unchanged except source_lang.
+    source_lang: str | None = None      # 'ar'/'fa'/'he'/'ru'/'zh'/'es'/'en'/'pt'; None = legacy/native
+    title_original: str | None = None   # native title as scraped (foreign only)
+    title_en: str | None = None         # English translation (None on failure — never drops the row)
+    snippet_en: str | None = None       # English snippet translation (foreign only)
 
     @property
     def published_iso(self) -> str | None:

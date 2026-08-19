@@ -11,7 +11,7 @@ from .enrich import _resolve_google_news_url, enrich_item, source_name_for
 from .fetcher import RawItem, iter_collect
 
 from .filter import matches_keywords, strip_related, within_window
-from .sources import HOMEPAGE_SCRAPERS, RECENT_ONLY_SCRAPERS
+from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
 from .store import (
     Article,
     finish_run,
@@ -50,6 +50,16 @@ LEDE_RESCUE_WORKERS = 12
 LEDE_RESCUE_DEADLINE = 14.0   # teto para a fase de lede (fetch_html = 6s/item)
 LEDE_RESCUE_CAP = 40          # max fetches de lede por scan (global)
 LEDE_RESCUE_CAP_DOMAIN = 8    # max fetches de lede por dominio por scan
+
+# --- Stage 3c: translation (added Wave B1-d) --------------------------------
+# POST-FILTER translation of the kept FOREIGN items only (source_lang not in
+# en/pt/None): the multilingual design translates for DISPLAY, never in the
+# sieve, and never the firehose (§2.5/§3). Small pool on purpose — Google's free
+# endpoint rate-limits per IP, and the datacenter runner shares that pool. Every
+# failure/timeout is fail-soft: the native title stays, title_en/snippet_en NULL.
+TRANSLATE_WORKERS = 6
+TRANSLATE_DEADLINE = 12.0    # teto da fase inteira (deep-translator ~0.4-2.6s/call)
+TRANSLATE_CAP = 40           # max itens traduzidos por scan (espelha LEDE_RESCUE_CAP)
 
 
 # Sentinela: item de RSS que passou a janela mas nao casou keyword no titulo
@@ -226,6 +236,76 @@ def _run_lede_rescue(
     return rescued
 
 
+def _translate_article(a) -> bool:
+    """Translate one foreign Article's title (+snippet) to English, in place.
+
+    Fail-soft per field: a failed translation leaves that _en field None and the
+    native title/snippet intact. Returns True if anything was translated.
+    """
+    from .translate import translate_to_en
+
+    title_en = translate_to_en(a.title, a.source_lang)
+    if title_en:
+        a.title_en = title_en
+    if a.snippet:
+        snippet_en = translate_to_en(a.snippet, a.source_lang)
+        if snippet_en:
+            a.snippet_en = snippet_en
+    return bool(a.title_en or a.snippet_en)
+
+
+def _run_translation(articles: list, errors: list[str]) -> int:
+    """Stage 3c: translate the kept FOREIGN items' title/snippet to English.
+
+    Operates on the FINAL kept set (to_persist), after enrich + lede rescue, so
+    it never touches the discarded firehose. Only foreign items (source_lang not
+    in en/pt/None) are considered; `title_original` is stamped for every foreign
+    row (native string, decoupled from `title` per §4) even when a translation is
+    deferred over the cap or fails. Bounded by TRANSLATE_CAP + TRANSLATE_DEADLINE
+    + a small pool. NEVER drops a row: on any failure/timeout the native title
+    survives with title_en NULL, and the next scan re-tries (idempotent upsert).
+    """
+    foreign = [
+        a for a in articles
+        if a.source_lang and a.source_lang.lower() not in ("en", "pt")
+    ]
+    if not foreign:
+        return 0
+    # Record the native original for EVERY foreign row (cheap; makes title_original
+    # populated even for rows whose translation is deferred over the cap).
+    for a in foreign:
+        a.title_original = a.title
+
+    selected = foreign[:TRANSLATE_CAP]
+    over_cap = len(foreign) - len(selected)
+    translated = 0
+    timed_out = 0
+    ex = ThreadPoolExecutor(max_workers=TRANSLATE_WORKERS)
+    try:
+        futs = {ex.submit(_translate_article, a): a for a in selected}
+        done, not_done = wait(futs.keys(), timeout=TRANSLATE_DEADLINE)
+        timed_out = len(not_done)
+        for fut in done:
+            a = futs[fut]
+            try:
+                if fut.result():
+                    translated += 1
+            except Exception as e:  # noqa: BLE001
+                # translate_to_en is already fail-soft; this only guards the
+                # future machinery. Native title stays, title_en NULL.
+                errors.append(f"translate {a.url}: {e!s}")
+        for fut in not_done:
+            fut.cancel()  # deadline: native title stays, title_en NULL (fail-soft)
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    log.info(
+        "translate: %d/%d foreign items translated (cap %d, %d over cap deferred, "
+        "%d timed out)",
+        translated, len(selected), TRANSLATE_CAP, over_cap, timed_out,
+    )
+    return translated
+
+
 def run_search(
     *,
     include_google_news: bool = True,
@@ -263,11 +343,35 @@ def run_search(
         hours_override if hours_override is not None else int(cfg["window_hours"])
     )
 
+    # --- Multilingual matching union (§2.3) ---------------------------------
+    # RETRIEVAL stays per-language (iter_collect asks Google for the live PT set
+    # per PT domain and each LangConfig's curated native vocab per foreign
+    # domain). MATCHING, however, must see every foreign native term or a foreign
+    # item can never pass the sieve — so _keep_candidate / Stage 4 / lede rescue
+    # all run over this UNION. Foreign terms are non-Latin substrings, so testing
+    # them against PT/EN text adds zero false positives; exact_keywords is
+    # unchanged (all foreign terms are substring — \b-exact is broken for Arabic).
+    native_terms = [
+        nat
+        for c in LANGUAGES.values() if c.translate
+        for nat, _canon in c.keyword_priority
+    ]
+    match_keywords: list[str] = list(keywords) + native_terms
+    # native term -> canonical English concept, written into matched_keywords so
+    # the /news-hunter feed's keyword scope surfaces a foreign story (§2.4). en
+    # maps to itself (identity), so including it is a harmless no-op.
+    native_to_canon: dict[str, str] = {
+        nat: canon
+        for c in LANGUAGES.values()
+        for nat, canon in c.keyword_priority
+    }
+
     run_id = start_run()
     errors: list[str] = []
     n_new = 0
     n_upserted = 0
     n_lede_ok = 0
+    n_translated = 0
 
     try:
         t0 = time.time()
@@ -323,7 +427,7 @@ def run_search(
                         continue
                     seen_urls.add(key)
                     matched = _keep_candidate(
-                        it, keywords, hours, exact_keywords,
+                        it, match_keywords, hours, exact_keywords,
                         allow_lede_rescue=True,
                     )
                     if matched is None:
@@ -395,6 +499,10 @@ def run_search(
                     published_at=it.published_at,
                     source_domain=resolved_domain,
                     feed_domain=it.feed_domain,
+                    # Carry the language tag across the GNews resolve step, or
+                    # every foreign item (which ALWAYS arrives via the GNews
+                    # `site:` route) would lose it here and never translate.
+                    source_lang=it.source_lang,
                 )
                 fut2 = enrich_ex.submit(
                     enrich_item, resolved_it,
@@ -438,7 +546,7 @@ def run_search(
             if lede_candidates:
                 n_lede_ok = _run_lede_rescue(
                     lede_candidates,
-                    keywords,
+                    match_keywords,
                     exact_keywords,
                     enriched,
                     errors,
@@ -522,7 +630,7 @@ def run_search(
                 published_is_approx = True
 
             final_hay = f"{display_title} \n {snippet}"
-            final_match = matches_keywords(final_hay, keywords, exact_keywords)
+            final_match = matches_keywords(final_hay, match_keywords, exact_keywords)
             if is_topic:
                 # Site ja e topico — se nao casou keyword especifica, marca como #topic.
                 if not final_match:
@@ -535,6 +643,16 @@ def run_search(
                 else:
                     # Re-validacao estrita para fontes genericas.
                     continue
+            # Rewrite native foreign terms to their canonical English concept so
+            # the /news-hunter feed's keyword scope surfaces the item (§2.4):
+            # 'نفط' -> 'oil'. Sentinels (#topic/#pending) and Latin keywords map
+            # to themselves. Dedupe preserving order (both غاز and حقل غاز -> gas).
+            canon_match: list[str] = []
+            for k in final_match:
+                c = native_to_canon.get(k, k)
+                if c not in canon_match:
+                    canon_match.append(c)
+            final_match = canon_match
             to_persist.append(Article(
                 url=normalize_url(resolved_url),
                 domain=resolved_domain,
@@ -545,6 +663,7 @@ def run_search(
                 found_at=now,
                 matched_keywords=final_match,
                 published_is_approx=published_is_approx,
+                source_lang=it.source_lang,
             ))
 
         if n_dropped_blind:
@@ -556,6 +675,11 @@ def run_search(
                 "(enrich falhou; serao re-tentados no proximo scan)",
                 n_dropped_blind,
             )
+
+        # --- Stage 3c: translate the kept FOREIGN items to English (§3) ------
+        # Runs on the final kept set, after enrich + lede — never the firehose.
+        # Fail-soft: leaves title_en NULL and keeps the native row on any error.
+        n_translated = _run_translation(to_persist, errors)
 
         n_new = upsert_articles(to_persist)
         n_upserted = len(to_persist)
@@ -584,6 +708,7 @@ def run_search(
         "keywords_count": len(keywords),
         "exact_keywords_count": len(exact_keywords),
         "lede_rescued": n_lede_ok,
+        "translated": n_translated,
     }
 
 

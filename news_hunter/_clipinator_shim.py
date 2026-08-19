@@ -30,6 +30,14 @@ from curl_cffi import requests as cffi_requests
 # =============================================================================
 
 SOURCE_NAMES: dict[str, str] = {
+    # Arabic pilot sources (Wave B1-d). normalize_url strips www, so items land
+    # under the apex; both forms registered defensively.
+    "attaqa.net": "attaqa (الطاقة)",
+    "www.attaqa.net": "attaqa (الطاقة)",
+    "asharqbusiness.com": "Asharq Business",
+    "www.asharqbusiness.com": "Asharq Business",
+    "alarabiya.net": "Al Arabiya",
+    "www.alarabiya.net": "Al Arabiya",
     "valor.globo.com": "Valor Econômico",
     "www.estadao.com.br": "Estadão",
     "estadao.com.br": "Estadão",

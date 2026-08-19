@@ -1662,6 +1662,77 @@ class LangConfig:
     resolve_keywords: Callable[["LangConfig", list[str]], list[str]] | None = None
 
 
+# -----------------------------------------------------------------------------
+# Arabic (ar) — the Wave B1-d PILOT that proves the whole foreign-language
+# pipeline (retrieve in-language -> match native -> translate-after-filter).
+#
+# VOCABULARY (native Arabic term -> canonical English concept). The canonical is
+# what lands in matched_keywords, so a user whose /news-hunter feed is scoped to
+# "oil" sees the Arabic oil story (§2.4). Canonicals are aligned to existing
+# English keyword strings where one exists (oil/gas/diesel/gasoline/refinery/
+# OPEC/crude/LNG/Brent/sanction/Petrobras) so the feed's keyword scope surfaces
+# them; Middle-East-conflict concepts with no DB keyword (Hormuz/Aramco/Iran/
+# tanker/Red Sea/Houthi/pipeline) carry a natural English concept token.
+#
+# RETRIEVAL vs MATCHING (the asymmetry that makes this cheap):
+#   * RETRIEVAL uses only the first `cap` (12) native terms — the OR-block Google
+#     gets. These are the broad, high-yield energy + conflict words.
+#   * MATCHING uses ALL of them via the union built in pipeline.run_search (§2.3),
+#     as SUBSTRINGS (never \b-exact: Arabic proclitics ال/و/ب/ل attach with no
+#     word boundary, so \b-exact is structurally broken for Arabic — design §2.1).
+# Measured on the runner-equivalent GNews `site:` route at hl=ar (2026-08-19):
+# every registered domain returns 100 dated items with native energy/conflict
+# titles (oil prices, Strait of Hormuz, Aramco, LNG projects, refineries, Houthi,
+# Iran sanctions, oil tankers) — all correctly rendered by GoogleTranslator.
+AR_KEYWORDS: tuple[tuple[str, str], ...] = (
+    # --- retrieval slice (first 12, the OR-block Google receives) ---
+    ("نفط", "oil"),          # oil (bare stem; substring of النفط / والنفط etc.)
+    ("غاز", "gas"),          # gas
+    ("أوبك", "OPEC"),        # OPEC
+    ("أرامكو", "Aramco"),    # Saudi Aramco
+    ("هرمز", "Hormuz"),      # (Strait of) Hormuz — the core conflict chokepoint
+    ("إيران", "Iran"),       # Iran
+    ("مصفاة", "refinery"),   # refinery
+    ("ديزل", "diesel"),      # diesel
+    ("بنزين", "gasoline"),   # gasoline / petrol
+    ("عقوبات", "sanction"),  # sanctions (aligned to the English keyword "sanction")
+    ("ناقلة", "tanker"),     # (oil) tanker
+    ("الحوثي", "Houthi"),    # Houthi (Red Sea / Bab el-Mandeb attacks)
+    # --- matching-only slice (beyond cap 12: enrich matched_keywords, not the
+    #     retrieval OR-block) ---
+    ("خام", "crude"),                # crude
+    ("برنت", "Brent"),               # Brent
+    ("غاز مسال", "LNG"),             # LNG (liquefied gas)
+    ("الغاز المسال", "LNG"),         # LNG (with al- article)
+    ("البحر الأحمر", "Red Sea"),     # Red Sea
+    ("خط أنابيب", "pipeline"),       # pipeline
+    ("أنبوب", "pipeline"),           # pipe / pipeline
+    ("بترول", "oil"),                # petroleum -> oil
+    ("حقل غاز", "gas"),              # gas field -> gas
+    ("حقل نفط", "oil"),             # oil field -> oil
+    ("بتروبراس", "Petrobras"),       # Petrobras (Arabic transliteration)
+)
+
+# Native Arabic publishers queried via GNews `site:` at hl=ar. Measured
+# 2026-08-19: all three return 100 items of on-beat Arabic energy/conflict news.
+#   * attaqa.net       — الطاقة, the first Arabic outlet specialised in ENERGY
+#                        news (highest O&G precision: LNG projects, oil demand,
+#                        oil fields, refineries).
+#   * asharqbusiness.com — الشرق بلومبرغ, the Bloomberg-Arabic business/markets
+#                        desk (oil prices, refinery licences, Libya oil, Hormuz).
+#   * alarabiya.net    — Al Arabiya, broad Gulf news carrying the Middle-East
+#                        oil-geopolitics beat (Hormuz, Iran oil exports, Houthi,
+#                        sanctions, tankers).
+# Bodies of GNews items are unreachable, so these land TITLE-ONLY (empty snippet)
+# — exactly the shape translate-after-filter handles best. GNews supplies the
+# date, so no RSS/date recovery is needed.
+ARABIC_NO_RSS_DOMAINS: tuple[str, ...] = (
+    "attaqa.net",
+    "asharqbusiness.com",
+    "alarabiya.net",
+)
+
+
 LANGUAGES: dict[str, LangConfig] = {
     # English is now a member of the registry; the old _en path is a special case
     # of it. Its resolver is english_keywords() (intersect the live DB set), so
@@ -1677,8 +1748,22 @@ LANGUAGES: dict[str, LangConfig] = {
         translate=False,
         resolve_keywords=lambda cfg, live: english_keywords(live),
     ),
-    # fa/he/ru/zh/es/ar are added in later B1/B2+ sub-waves with the same shape.
-    # No non-English language is configured in this wave (scope fence).
+    # Arabic — Wave B1-d pilot. translate=True (foreign -> English for display),
+    # standalone curated vocabulary (default resolver: no intersection with the
+    # live DB set, so users never type Arabic into the keyword box and the PT
+    # OR-block is never diluted). hl/gl/ceid measured at EG:ar (100 items/domain).
+    "ar": LangConfig(
+        code="ar",
+        hl="ar",
+        gl="EG",
+        ceid="EG:ar",
+        no_rss_domains=ARABIC_NO_RSS_DOMAINS,
+        keyword_priority=AR_KEYWORDS,
+        cap=12,
+        translate=True,
+    ),
+    # fa/he/ru/zh/es are added in Wave B2+ with the same shape (config + vocab +
+    # measured sources + a translator-code entry) — no code-path change.
 }
 
 

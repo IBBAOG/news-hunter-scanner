@@ -7,3 +7,8 @@ python-dateutil>=2.8
 googlenewsdecoder>=0.1.7
 supabase>=2.4
 python-dotenv>=1.0
+# Multilingual News Hunter (Wave B1) — free, no-key Google Translate backend for
+# Stage 3c (foreign headline/snippet -> English). Pinned: the runner installs
+# requirements.txt every scan, and 1.9.1 is the version the datacenter-IP
+# translate gate (scripts/translate_probe.py) validated.
+deep-translator==1.9.1

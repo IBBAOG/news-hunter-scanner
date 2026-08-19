@@ -57,10 +57,11 @@ def _run_once() -> int:
             hours_override=24,
         )
         log.info(
-            "scan done: n_new=%s n_total=%s lede_rescued=%s errors=%s keywords=%s dt=%.1fs",
+            "scan done: n_new=%s n_total=%s lede_rescued=%s translated=%s errors=%s keywords=%s dt=%.1fs",
             result.get("n_new"),
             result.get("n_total"),
             result.get("lede_rescued"),
+            result.get("translated"),
             len(result.get("errors", [])),
             result.get("keywords_count"),
             time.time() - t0,
