@@ -79,12 +79,12 @@ def test_en_shim_is_pure_passthrough_over_the_lang_builder():
 
 def test_language_loop_adds_or_drops_no_english_query():
     """iter_collect/collect build the English GNews tasks by iterating LANGUAGES
-    (now en + ar, after Wave B1-d). This pins the ENGLISH contribution regardless
-    of how many languages the registry holds: the URLs produced for
+    (en + ar + ru + ... as foreign waves land). This pins the ENGLISH contribution
+    regardless of how many languages the registry holds: the URLs produced for
     LANGUAGES['en'] over the live English domain list must still equal the legacy
     direct call exactly — one per English domain, none added or lost by the
-    registry mechanism. (The Arabic contribution is asserted separately in
-    tests/test_multilingual_ar.py.)"""
+    registry mechanism. (Each foreign contribution is asserted separately in
+    tests/test_multilingual_<code>.py + test_multilingual_registry.py.)"""
     from news_hunter.sources import LANGUAGES, google_news_site_queries_lang
 
     for hours in (24, 168):

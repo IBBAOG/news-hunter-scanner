@@ -38,6 +38,14 @@ SOURCE_NAMES: dict[str, str] = {
     "www.asharqbusiness.com": "Asharq Business",
     "alarabiya.net": "Al Arabiya",
     "www.alarabiya.net": "Al Arabiya",
+    # Russian energy sources (Wave B2a). GNews items resolve to the apex
+    # (eprussia also serves www); both forms registered defensively.
+    "neftegaz.ru": "Neftegaz.RU (Нефтегаз)",
+    "www.neftegaz.ru": "Neftegaz.RU (Нефтегаз)",
+    "oilcapital.ru": "Oil Capital (Нефть и Капитал)",
+    "www.oilcapital.ru": "Oil Capital (Нефть и Капитал)",
+    "eprussia.ru": "EPR (Энергетика и промышленность России)",
+    "www.eprussia.ru": "EPR (Энергетика и промышленность России)",
     "valor.globo.com": "Valor Econômico",
     "www.estadao.com.br": "Estadão",
     "estadao.com.br": "Estadão",

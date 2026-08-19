@@ -1733,6 +1733,87 @@ ARABIC_NO_RSS_DOMAINS: tuple[str, ...] = (
 )
 
 
+# -----------------------------------------------------------------------------
+# Russian (ru) — Wave B2a. Config-only, same shape as the Arabic pilot.
+#
+# VOCABULARY (native Russian term -> canonical English concept). Canonicals are
+# aligned to existing English keyword strings where one exists (oil/gas/diesel/
+# gasoline/refinery/OPEC/crude/LNG/Brent/sanction) so a user scoped to "oil"/"gas"
+# sees the Russian story (§2.4); concepts with no DB keyword (Hormuz/Iran/tanker/
+# pipeline/Gazprom/Rosneft/Lukoil/Urals/production) carry a natural English token.
+#
+# RUSSIAN IS HIGHLY INFLECTED, so the native terms are STEMS, matched as
+# SUBSTRINGS (never \b-exact — design §2.1). A bare stem catches every case: нефт
+# is a substring of нефть/нефти/нефтяной/нефтепровод; санкц of санкции/санкций/
+# санкционный; добыч of добыча/добычи/добычу; дизел of дизель/дизельный. That is
+# the whole reason substring beats \b-exact here (a boundary would fall inside the
+# declension ending and miss it).
+#
+# THE ONE COLLISION, and why the domains below are ENERGY-ONLY. The gas stem
+# `газ` (essential — цены на газ, экспорт газа) is, case-folded, a substring of
+# the Gaza declensions Газа/Газе/Газы/Газу (Russian for the Gaza Strip), which is
+# front-page news. Measured 2026-08-19 on the GNews `site:` route: on GENERAL
+# outlets `газ` tagged 6-15 Gaza-war headlines per 7-day window as "gas" (rbc.ru
+# 7, tass.ru 9, ria.ru 15, kommersant.ru 6) — a real off-beat collision of the
+# `crude steel` class. But `газ` is Cyrillic, so it can ONLY ever match text that
+# was retrieved from a Russian-language domain; the matching union never sees it
+# in PT/EN/AR text. Retrieving exclusively from ENERGY publishers (where Gaza is
+# not covered) therefore neutralises it end to end: the same measurement found
+# ZERO Gaza matches on neftegaz.ru / oilcapital.ru / eprussia.ru. So `газ` is kept
+# at full recall and the collision is closed by source curation, not by crippling
+# the stem. Do NOT add a general-news Russian domain here without re-checking this.
+#
+# RETRIEVAL vs MATCHING: retrieval uses the first `cap` (12) broad energy/conflict
+# stems (the OR-block Google gets); MATCHING uses all of them via the union in
+# pipeline.run_search. `провод` (wire/conduct — проводить = "to carry out") is
+# DELIBERATELY NOT a pipeline stem; the safe forms нефтепровод/газопровод are.
+RU_KEYWORDS: tuple[tuple[str, str], ...] = (
+    # --- retrieval slice (first 12, the OR-block Google receives) ---
+    ("нефт", "oil"),          # oil (stem: нефть/нефти/нефтяной/нефтепровод...)
+    ("газ", "gas"),           # gas (stem; Gaza collision closed by energy-only domains)
+    ("ОПЕК", "OPEC"),         # OPEC
+    ("Газпром", "Gazprom"),   # Gazprom
+    ("Роснефт", "Rosneft"),   # Rosneft (also contains нефт -> dual-tagged oil)
+    ("Лукойл", "Lukoil"),     # Lukoil
+    ("санкц", "sanction"),    # sanctions (stem: санкции/санкций/санкционный)
+    ("дизел", "diesel"),      # diesel (stem: дизель/дизельный)
+    ("бензин", "gasoline"),   # gasoline / petrol
+    ("НПЗ", "refinery"),      # refinery (нефтеперерабатывающий завод)
+    ("танкер", "tanker"),     # (oil) tanker
+    ("Ормуз", "Hormuz"),      # (Strait of) Hormuz
+    # --- matching-only slice (beyond cap 12: enrich matched_keywords) ---
+    ("СПГ", "LNG"),               # LNG (сжиженный природный газ)
+    ("нефтепровод", "pipeline"),  # oil pipeline (safe compound; not the провод stem)
+    ("газопровод", "pipeline"),   # gas pipeline (safe compound)
+    ("Брент", "Brent"),           # Brent (Cyrillic; Latin "Brent" left out to keep the vocab non-Latin)
+    ("Юралс", "Urals"),           # Urals crude grade (Cyrillic form only, same reason)
+    ("добыч", "production"),      # production / extraction (stem: добыча/добычи/добычу)
+    ("Иран", "Iran"),             # Iran
+    ("эмбарго", "sanction"),      # embargo -> sanction
+    ("сырая нефт", "crude"),      # crude oil (phrase; also caught by нефт)
+)
+
+# Native Russian ENERGY publishers queried via GNews `site:` at hl=ru. Measured
+# 2026-08-19: each returns 100 dated items whose titles are on-beat Russian
+# energy/markets/geopolitics news, all correctly rendered by GoogleTranslator.
+# Deliberately energy-only (see the Gaza note above): general outlets (rbc/tass/
+# ria/kommersant/vedomosti/interfax) all carry the Gaza-war beat and were rejected.
+#   * neftegaz.ru   — Neftegaz.RU, an O&G industry portal (markets, logistics,
+#                     geopolitics; 59 title-passes/100 in the measured window).
+#   * oilcapital.ru — Нефть и Капитал (Oil & Capital), pure O&G markets/trade
+#                     (81/100 — the densest of the three).
+#   * eprussia.ru   — Энергетика и промышленность России (Energy & Industry of
+#                     Russia), energy-industry/trade wire (16/100 — thinner but
+#                     Gaza-clean and adds resilience against a dropped GNews query).
+# Bodies of GNews items are unreachable, so these land TITLE-ONLY (empty snippet)
+# — the shape translate-after-filter handles best. GNews supplies the date.
+RUSSIAN_NO_RSS_DOMAINS: tuple[str, ...] = (
+    "neftegaz.ru",
+    "oilcapital.ru",
+    "eprussia.ru",
+)
+
+
 LANGUAGES: dict[str, LangConfig] = {
     # English is now a member of the registry; the old _en path is a special case
     # of it. Its resolver is english_keywords() (intersect the live DB set), so
@@ -1762,7 +1843,21 @@ LANGUAGES: dict[str, LangConfig] = {
         cap=12,
         translate=True,
     ),
-    # fa/he/ru/zh/es are added in Wave B2+ with the same shape (config + vocab +
+    # Russian — Wave B2a. translate=True, standalone curated STEM vocabulary
+    # (default resolver, no intersection with the live DB set). hl/gl/ceid measured
+    # at RU:ru (100 items/domain). Energy-only sources (Gaza-collision note in
+    # RU_KEYWORDS). TRANSLATOR_CODE['ru']='ru' (identity).
+    "ru": LangConfig(
+        code="ru",
+        hl="ru",
+        gl="RU",
+        ceid="RU:ru",
+        no_rss_domains=RUSSIAN_NO_RSS_DOMAINS,
+        keyword_priority=RU_KEYWORDS,
+        cap=12,
+        translate=True,
+    ),
+    # fa/he/zh/es are added in Wave B2+ with the same shape (config + vocab +
     # measured sources + a translator-code entry) — no code-path change.
 }
 
