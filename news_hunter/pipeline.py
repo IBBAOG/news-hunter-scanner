@@ -276,8 +276,24 @@ def _run_translation(articles: list, errors: list[str]) -> int:
     for a in foreign:
         a.title_original = a.title
 
-    selected = foreign[:TRANSLATE_CAP]
-    over_cap = len(foreign) - len(selected)
+    # Spend the per-scan cap on genuinely-untranslated rows only. The scanner is
+    # stateless (no local cache), so a re-seen foreign row arrives with title_en
+    # None even when the DB already holds its English — one batched lookup tells
+    # us which URLs are done, and we skip them. Without this the cap is re-spent
+    # every scan on the same front rows (which may already be translated) and the
+    # deferred tail NEVER drains (~155 foreign/scan vs cap 40 = permanent churn).
+    # Fail-soft: None/empty => skip nothing (old behaviour); the write-once guard
+    # in supabase_sync still prevents any NULL clobber.
+    from . import supabase_sync
+    already_done = supabase_sync.already_translated_urls([a.url for a in foreign])
+    pending = (
+        [a for a in foreign if a.url not in already_done]
+        if already_done else foreign
+    )
+    skipped = len(foreign) - len(pending)
+
+    selected = pending[:TRANSLATE_CAP]
+    over_cap = len(pending) - len(selected)
     translated = 0
     timed_out = 0
     ex = ThreadPoolExecutor(max_workers=TRANSLATE_WORKERS)
@@ -299,9 +315,9 @@ def _run_translation(articles: list, errors: list[str]) -> int:
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
     log.info(
-        "translate: %d/%d foreign items translated (cap %d, %d over cap deferred, "
-        "%d timed out)",
-        translated, len(selected), TRANSLATE_CAP, over_cap, timed_out,
+        "translate: %d/%d foreign items translated (cap %d, %d already done skipped, "
+        "%d over cap deferred, %d timed out)",
+        translated, len(selected), TRANSLATE_CAP, skipped, over_cap, timed_out,
     )
     return translated
 

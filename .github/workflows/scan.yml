@@ -16,10 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: pip` on purpose (same class the translate probe hit): the
+      # install below runs with --no-cache-dir, so ~/.cache/pip stays empty and
+      # the setup-python post-cache step fails the JOB with "Cache folder path
+      # ... doesn't exist" even though the scan step exits 0 and writes rows.
+      # Dropping the cache leaves a green scan reading green; the install is
+      # unchanged (it never populated the cache anyway).
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
 
       - run: pip install --no-cache-dir -r requirements.txt
 
