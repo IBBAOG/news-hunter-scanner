@@ -16,7 +16,7 @@ import requests
 from dateutil import parser as date_parser
 
 from .sources import (
-    ENGLISH_NO_RSS_DOMAINS,
+    LANGUAGES,
     NO_RSS_DOMAINS,
     all_homepage_scrapers,
     all_rss_feeds,
@@ -24,7 +24,7 @@ from .sources import (
     feed_stale_hours,
     google_news_queries,
     google_news_site_queries,
-    google_news_site_queries_en,
+    google_news_site_queries_lang,
     is_sitemap_url,
 )
 from .store import normalize_url
@@ -746,9 +746,16 @@ def iter_collect(
         if NO_RSS_DOMAINS:
             for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
                 tasks.append(("news.google.com", url))
-        if ENGLISH_NO_RSS_DOMAINS:
-            for url in google_news_site_queries_en(ENGLISH_NO_RSS_DOMAINS, keywords, hours):
-                tasks.append(("news.google.com", url))
+        # Per-language site: queries from the LANGUAGES registry. Only "en" is
+        # configured today, so this loop emits exactly the tasks the explicit
+        # google_news_site_queries_en(ENGLISH_NO_RSS_DOMAINS, ...) call did —
+        # one per English domain, same order (test_multilingual_en_frozen.py).
+        for cfg in LANGUAGES.values():
+            if cfg.no_rss_domains:
+                for url in google_news_site_queries_lang(
+                    cfg, list(cfg.no_rss_domains), keywords, hours
+                ):
+                    tasks.append(("news.google.com", url))
 
     import time as _time
     t_start = _time.time()
@@ -887,9 +894,14 @@ def collect(
         if NO_RSS_DOMAINS:
             for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
                 tasks.append(("news.google.com", url))
-        if ENGLISH_NO_RSS_DOMAINS:
-            for url in google_news_site_queries_en(ENGLISH_NO_RSS_DOMAINS, keywords, hours):
-                tasks.append(("news.google.com", url))
+        # Per-language site: queries from the LANGUAGES registry (en only today);
+        # identical tasks to the previous google_news_site_queries_en block.
+        for cfg in LANGUAGES.values():
+            if cfg.no_rss_domains:
+                for url in google_news_site_queries_lang(
+                    cfg, list(cfg.no_rss_domains), keywords, hours
+                ):
+                    tasks.append(("news.google.com", url))
 
     items: list[RawItem] = []
     errors: list[str] = []
