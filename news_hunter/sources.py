@@ -1773,7 +1773,7 @@ RU_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("газ", "gas"),           # gas (stem; Gaza collision closed by energy-only domains)
     ("ОПЕК", "OPEC"),         # OPEC
     ("Газпром", "Gazprom"),   # Gazprom
-    ("Роснефт", "Rosneft"),   # Rosneft (also contains нефт -> dual-tagged oil)
+    ("Роснефт", "Rosneft"),   # Rosneft (leftmost-longest wins over нефт inside it, like gasolina>gas)
     ("Лукойл", "Lukoil"),     # Lukoil
     ("санкц", "sanction"),    # sanctions (stem: санкции/санкций/санкционный)
     ("дизел", "diesel"),      # diesel (stem: дизель/дизельный)
@@ -1790,7 +1790,7 @@ RU_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("добыч", "production"),      # production / extraction (stem: добыча/добычи/добычу)
     ("Иран", "Iran"),             # Iran
     ("эмбарго", "sanction"),      # embargo -> sanction
-    ("сырая нефт", "crude"),      # crude oil (phrase; also caught by нефт)
+    ("сырая нефт", "crude"),      # crude oil (nominative phrase; other cases fall to нефт->oil)
 )
 
 # Native Russian ENERGY publishers queried via GNews `site:` at hl=ru. Measured
@@ -1811,6 +1811,82 @@ RUSSIAN_NO_RSS_DOMAINS: tuple[str, ...] = (
     "neftegaz.ru",
     "oilcapital.ru",
     "eprussia.ru",
+)
+
+
+# -----------------------------------------------------------------------------
+# Chinese (zh, Simplified) — Wave B2a. Config-only, same shape as the pilot.
+#
+# VOCABULARY (native Chinese term -> canonical English concept). Canonicals align
+# to existing English keywords where one exists (oil/gas/crude/diesel/gasoline/
+# refinery/OPEC/sanction/tanker/LNG/Brent); the rest carry a natural English token
+# (Hormuz/Iran/PetroChina/Sinopec/Aramco/Houthi/Red Sea/pipeline/production).
+#
+# CHINESE HAS NO WORD BOUNDARIES and no inflection, so terms are whole words
+# matched as SUBSTRINGS (\b-exact is meaningless for a script with no spaces —
+# design §2.1). No stemming is needed: 石油 ("oil") is a substring of 石油公司
+# ("oil company") directly.
+#
+# OFF-BEAT COLLISION AVOIDED (the `crude steel` lesson): the bare 阿美 ("Aramco",
+# clipped from 沙特阿美) is also a common personal name and a substring of 阿美族
+# (the Amis people), so it is DROPPED in favour of the full 沙特阿美 (Saudi
+# Aramco), which is unambiguous. The generic terms 管道 ("pipeline") and 产量
+# ("output/production") are matching-only and, measured 2026-08-19 on the GNews
+# `site:` route (yicai/finance.sina/jiemian), produced ZERO stray matches — the
+# GNews `site:` AND-block already scopes retrieval to energy pages, so they only
+# ever see energy text.
+#
+# NESTED TERMS resolve by LEFTMOST-LONGEST (the matcher sorts its alternation
+# long-first and findall is non-overlapping), exactly like the PT gasolina>gas
+# rule: 液化天然气 ("LNG") wins over the 天然气 ("gas") inside it, and 中石油
+# ("PetroChina") over 石油 ("oil"). So a headline is tagged with the most specific
+# concept present, and the shorter term co-fires ONLY when it also appears in a
+# separate position (e.g. 天然气 … 液化天然气 -> gas + LNG).
+#
+# RETRIEVAL vs MATCHING: retrieval uses the first `cap` (12) broad energy/conflict
+# terms; MATCHING uses all of them via the union in pipeline.run_search.
+ZH_KEYWORDS: tuple[tuple[str, str], ...] = (
+    # --- retrieval slice (first 12, the OR-block Google receives) ---
+    ("石油", "oil"),          # oil / petroleum
+    ("天然气", "gas"),        # natural gas
+    ("原油", "crude"),        # crude oil
+    ("柴油", "diesel"),       # diesel
+    ("汽油", "gasoline"),     # gasoline / petrol
+    ("炼油", "refinery"),     # oil refining / refinery
+    ("欧佩克", "OPEC"),       # OPEC
+    ("制裁", "sanction"),     # sanction(s)
+    ("油轮", "tanker"),       # oil tanker
+    ("霍尔木兹", "Hormuz"),   # (Strait of) Hormuz
+    ("伊朗", "Iran"),         # Iran
+    ("中石油", "PetroChina"), # PetroChina (中国石油; leftmost-longest wins over 石油 inside it)
+    # --- matching-only slice (beyond cap 12: enrich matched_keywords) ---
+    ("中石化", "Sinopec"),        # Sinopec (中国石化)
+    ("液化天然气", "LNG"),        # LNG (leftmost-longest wins over 天然气 inside it)
+    ("管道", "pipeline"),         # pipeline
+    ("布伦特", "Brent"),          # Brent
+    ("沙特阿美", "Aramco"),       # Saudi Aramco (full form; bare 阿美 collides — see note)
+    ("胡塞", "Houthi"),           # Houthi (胡塞武装)
+    ("红海", "Red Sea"),          # Red Sea (Bab el-Mandeb shipping)
+    ("产量", "production"),       # output / production
+)
+
+# Native Chinese ENERGY/finance publishers queried via GNews `site:` at
+# hl=zh-CN. Measured 2026-08-19: each returns 100 dated items whose titles are
+# on-beat Chinese energy/markets news, all correctly rendered by GoogleTranslator.
+#   * yicai.com            — 第一财经 (Yicai / China Business Network), top-tier
+#                            business media (97 title-passes/100; resolves to
+#                            www.yicai.com).
+#   * finance.sina.com.cn  — 新浪财经 (Sina Finance), major finance portal (100/100).
+#   * jiemian.com          — 界面新闻 (Jiemian News), quality digital business news
+#                            (95/100; resolves to www.jiemian.com, some m.jiemian.com).
+# Rejected (measured, recorded so a later wave doesn't re-test): cnenergynews.cn
+# (GNews indexes 0 items), caixin.com and eastmoney.com (fragment across many
+# subdomains — caifuhao.eastmoney.com is user-generated self-media). Bodies of
+# GNews items are unreachable, so these land TITLE-ONLY. GNews supplies the date.
+CHINESE_NO_RSS_DOMAINS: tuple[str, ...] = (
+    "yicai.com",
+    "finance.sina.com.cn",
+    "jiemian.com",
 )
 
 
@@ -1857,7 +1933,22 @@ LANGUAGES: dict[str, LangConfig] = {
         cap=12,
         translate=True,
     ),
-    # fa/he/zh/es are added in Wave B2+ with the same shape (config + vocab +
+    # Chinese (Simplified) — Wave B2a. translate=True, standalone curated
+    # substring vocabulary. hl/gl/ceid measured at CN:zh-Hans (100 items/domain);
+    # note ceid uses zh-Hans while hl is zh-CN (Google's own convention). The
+    # TRANSLATOR_CODE['zh']='zh-CN' gotcha (GoogleTranslator rejects bare 'zh') is
+    # already in translate.py.
+    "zh": LangConfig(
+        code="zh",
+        hl="zh-CN",
+        gl="CN",
+        ceid="CN:zh-Hans",
+        no_rss_domains=CHINESE_NO_RSS_DOMAINS,
+        keyword_priority=ZH_KEYWORDS,
+        cap=12,
+        translate=True,
+    ),
+    # fa/he/es are added in Wave B2b+ with the same shape (config + vocab +
     # measured sources + a translator-code entry) — no code-path change.
 }
 

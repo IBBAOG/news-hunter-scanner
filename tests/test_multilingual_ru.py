@@ -189,6 +189,15 @@ def test_ru_canonical_rewrite_dedupes():
     assert _rewrite(["нефтепровод", "газопровод"]) == ["pipeline"]
 
 
+def test_ru_nested_terms_resolve_leftmost_longest():
+    # Роснефт ("Rosneft") contains нефт ("oil"); longest-first + non-overlapping
+    # matching tags the most specific concept (Rosneft) within the word, not oil —
+    # oil co-fires only if нефт also appears separately.
+    assert _rewrite(matches_keywords("Роснефть нарастила экспорт", _match_keywords([]))) == ["Rosneft"]
+    both = _rewrite(matches_keywords("Роснефть и цены на нефть", _match_keywords([])))
+    assert "Rosneft" in both and "oil" in both
+
+
 def test_union_adds_no_false_positive_to_latin_text():
     # Russian stems are non-Latin, so a PT/EN headline can never hit them.
     live = ["Petrobras", "oil"]

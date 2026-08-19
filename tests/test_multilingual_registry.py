@@ -26,7 +26,7 @@ from news_hunter.translate import TRANSLATOR_CODE  # noqa: E402
 # The foreign (translate=True) languages that are supposed to be live. Grows one
 # entry per wave (fa/he/es are the next). If a config is added without a test or
 # dropped by accident, this set diverges and the suite fails.
-EXPECTED_TRANSLATE_LANGS = {"ar", "ru"}
+EXPECTED_TRANSLATE_LANGS = {"ar", "ru", "zh"}
 
 
 def _foreign():

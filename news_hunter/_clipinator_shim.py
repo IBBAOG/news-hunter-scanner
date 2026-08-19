@@ -46,6 +46,14 @@ SOURCE_NAMES: dict[str, str] = {
     "www.oilcapital.ru": "Oil Capital (Нефть и Капитал)",
     "eprussia.ru": "EPR (Энергетика и промышленность России)",
     "www.eprussia.ru": "EPR (Энергетика и промышленность России)",
+    # Chinese energy/finance sources (Wave B2a). GNews items resolve to www for
+    # yicai/jiemian (+ some m.jiemian.com) and to the finance subdomain for Sina.
+    "yicai.com": "Yicai (第一财经)",
+    "www.yicai.com": "Yicai (第一财经)",
+    "finance.sina.com.cn": "Sina Finance (新浪财经)",
+    "jiemian.com": "Jiemian News (界面新闻)",
+    "www.jiemian.com": "Jiemian News (界面新闻)",
+    "m.jiemian.com": "Jiemian News (界面新闻)",
     "valor.globo.com": "Valor Econômico",
     "www.estadao.com.br": "Estadão",
     "estadao.com.br": "Estadão",
