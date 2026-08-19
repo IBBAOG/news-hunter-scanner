@@ -1,0 +1,37 @@
+name: Translate probe
+
+# Manual-only translation gate for the multilingual News Hunter feature.
+# The whole multilingual design rests on ONE untested assumption: that Google
+# Translate — reached for free (no key) via `deep-translator` — works from the
+# ubuntu-latest datacenter IP. It is fast and correct from a residential IP, but
+# the shared Azure/GHA IP pool can be throttled (HTTP 429/403) where a home
+# connection is not. This runs scripts/translate_probe.py on the SAME runner
+# image the scanner uses to answer GO / NO-GO before any translation code is
+# committed. Harmless ops workflow, like diagnose_feed.yml — no schedule, no
+# secrets, costs nothing at rest. Exit 0 = GO, exit 1 = NO-GO.
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_call_timeout:
+        description: Hard wall-clock cap per translation call (seconds)
+        required: false
+        default: '30'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # Only deep-translator is needed for the gate — deliberately NOT the full
+      # requirements.txt, to test the translation dependency in isolation.
+      - run: pip install --no-cache-dir deep-translator
+
+      - run: python -m scripts.translate_probe --per-call-timeout "${{ inputs.per_call_timeout }}"
