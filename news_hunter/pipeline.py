@@ -77,7 +77,15 @@ SNIPPET_BACKFILL_DEADLINE = 15.0   # teto da fase (fetch_html = 6s/item)
 # por ~70 dominios (~10/hora/dominio) — educado — e e o que faz o backlog drenar
 # em horas em vez de dias. O lede rescue, ao lado, ja gasta 40/scan.
 SNIPPET_BACKFILL_CAP = 60          # max fetches por scan (global)
-SNIPPET_BACKFILL_CAP_DOMAIN = 6
+# 2, nao 6, agora que o backlog drenou. No regime permanente quase tudo que
+# sobra sem corpo e dominio que o WAF recusa (reuters 401/DataDome,
+# investing/alarabiya/arabnews/bloomberg 403) — eles reaparecem em todo scan e
+# nunca preenchem. Com 6 cada um deles queimava seis vagas por scan para nada;
+# com 2 o desperdicio cai 3x e mais dominios sao atendidos por rodada. Fonte
+# alcancavel nao perde nada: ela sai da fila assim que preenche (o snippet
+# gravado e write-once), e o reparo em massa e trabalho do backfill_snippets,
+# que roda com per_domain=40.
+SNIPPET_BACKFILL_CAP_DOMAIN = 2
 # Quantos candidatos entram na pergunta ao banco (metade recencia, metade
 # drenagem). Uma consulta por scan, resposta so de urls.
 SNIPPET_BACKFILL_LOOKUP = 180
