@@ -131,6 +131,52 @@ string in its cache key, and a client `Cache-Control: no-cache` with it. What
 works is a **second path**, since each path is its own cache object: that domain
 registers `/feed/` and `/feed/atom/`, deduped by normalized URL.
 
+## Why an article can reach the feed with no body
+
+Measured 2026-08-20: **1,026 of the 1,383 rows published in the previous 24h
+(74%) carried an empty `snippet`** — the dashboard was showing headlines and
+little else. That single symptom had three unrelated causes, and each needed its
+own fix:
+
+1. **The feed had the body and we never read it.** WordPress publishes the whole
+   article in `<content:encoded>` while `<description>` is a teaser — JOTA ships
+   96 characters of description text against 5,264 of body. `_entry_to_item` now
+   falls back to the body's **lede** (first 3 real paragraphs, the same bound the
+   lede rescue uses) when the description is thin. Free: no HTTP at all.
+   Measure a candidate feed with
+   `grep -c "content:encoded" feed.xml` before assuming it has nothing to give.
+2. **Nobody ever fetched the body of an item that matched on its TITLE.** The
+   lede rescue is a *near-miss* mechanism — it only runs when title AND summary
+   failed to match. An item that matched on the title was persisted as-is, so a
+   source covered only by Google News (Brasil 247, Agência iNFRA, Reuters), which
+   arrives with no description at all, was **guaranteed** to land bodyless
+   forever. Stage 3d (`_run_snippet_backfill`) is the mirror: it takes the
+   already-approved items that still have no snippet, newest first, and fetches a
+   capped subset. It never re-validates keywords — the item already passed, the
+   snippet is display.
+3. **The upsert erased snippets it had already stored.** The scanner is stateless
+   and re-pushes the same row every scan (~355 rows / 5 min against ~7 genuinely
+   new articles). A row whose body was fetched in scan N came back with an empty
+   snippet in scan N+1 and overwrote the stored text — the work undid itself
+   every five minutes. `_split_on_snippet` now sends those rows **without the
+   `snippet` key at all**, so PostgREST leaves the column out of the
+   `ON CONFLICT … DO UPDATE SET` list. Same write-once family as the fabricated
+   `published_at` and the `title_en` overlay.
+
+Two invariants worth keeping in mind before touching any of this:
+
+- **The free lede must stay the same size as the fetched lede.** Widening
+  `_LEDE_PARAGRAPHS` would silently turn every full-text feed into a body-wide
+  keyword match, which is a different (and much noisier) product decision than
+  the one the lede rescue implements.
+- **Stage 3d must ask the database what it already has.** `urls_with_snippet()`
+  is what stops a stateless scanner from re-downloading the same articles every
+  five minutes forever; without it the cap is spent on finished work and a
+  genuinely new article never gets its turn. It deliberately selects only the
+  `url` column — the stored text is already protected by `_split_on_snippet`, and
+  pulling snippets back for ~1,400 rows every 5 minutes would eat the 5 GB/month
+  Supabase egress budget the sink is written around.
+
 ## Listing scrapers: never fabricate a publication date twice
 
 Sources without a feed are covered by `HOMEPAGE_SCRAPERS`, which harvests

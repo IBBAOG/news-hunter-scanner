@@ -170,6 +170,70 @@ def _unwrap_redirect(url: str) -> str:
     return url
 
 
+# Um <description> RSS abaixo disto e "fino": nao rende snippet e quase nunca
+# carrega a keyword. enrich.SNIPPET_MIN_RSS_CHARS importa daqui — um so numero,
+# usado para decidir tanto "vale como snippet" quanto "vale a pena procurar o
+# corpo em content:encoded".
+RSS_THIN_SUMMARY_CHARS = 150
+
+# Quantos paragrafos do corpo formam o "lede". Espelha o lede rescue
+# (pipeline._run_lede_rescue -> enrich_item), que usa paragrafos[:3]: o texto
+# que o feed nos da de graca tem que ser o MESMO texto que teriamos ido buscar
+# na rede, nem mais nem menos. Ampliar isto aqui alargaria silenciosamente a
+# superficie de matching de keyword de todo feed full-text.
+_LEDE_PARAGRAPHS = 3
+_LEDE_MAX_CHARS = 1200
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain_len(html: str) -> int:
+    """Comprimento do TEXTO de um trecho de HTML (tags nao contam).
+
+    Uma <description> de 286 bytes que e 90% <img src=...> tem 96 chars de
+    texto — abaixo do minimo. Medir os bytes crus diria 286 e concluiria, errado,
+    que ja temos snippet.
+    """
+    if not html:
+        return 0
+    return len(_HTML_TAG_RE.sub(" ", html).strip())
+
+
+def _entry_content_html(entry) -> str:
+    """Primeiro <content:encoded> nao-vazio de um entry do feedparser."""
+    for c in entry.get("content") or []:
+        value = (c.get("value") if isinstance(c, dict) else getattr(c, "value", "")) or ""
+        if value.strip():
+            return value
+    return ""
+
+
+def _lede_from_content_html(html: str) -> str:
+    """Extrai o lede (primeiros paragrafos) de um corpo HTML de feed.
+
+    Feeds WordPress publicam o artigo INTEIRO em <content:encoded> enquanto a
+    <description> traz so um resumo curto (as vezes so a imagem destacada). Esse
+    corpo e o mesmo texto que o lede rescue iria buscar na rede — ler daqui sai
+    de graca, sem HTTP nenhum, e serve tanto para o snippet quanto para o match
+    de keyword.
+    """
+    if not html:
+        return ""
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:  # noqa: BLE001
+        return _HTML_TAG_RE.sub(" ", html).strip()[:_LEDE_MAX_CHARS]
+    for tag in soup.find_all(["script", "style", "figure", "figcaption", "aside", "iframe"]):
+        tag.decompose()
+    paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
+    # >40 chars espelha o ultimo recurso de enrich_item: descarta creditos de
+    # foto, "Leia mais" e linhas de assinatura que sao <p> mas nao sao prosa.
+    paragraphs = [p for p in paragraphs if len(p) > 40][:_LEDE_PARAGRAPHS]
+    if not paragraphs:
+        return soup.get_text(" ", strip=True)[:_LEDE_MAX_CHARS]
+    return " ".join(paragraphs)[:_LEDE_MAX_CHARS]
+
+
 def _entry_to_item(entry, feed_domain: str) -> RawItem | None:
     link = (entry.get("link") or "").strip()
     if not link:
@@ -178,6 +242,14 @@ def _entry_to_item(entry, feed_domain: str) -> RawItem | None:
     link = normalize_url(link)
     title = (entry.get("title") or "").strip()
     summary = (entry.get("summary") or entry.get("description") or "").strip()
+    # <description> fina + <content:encoded> presente = o corpo esta no feed e
+    # estavamos jogando fora. Sem isto o item entra sem snippet E so casa
+    # keyword no titulo, mesmo com o artigo inteiro em maos (caso JOTA: 96 chars
+    # de description contra 5.264 de content:encoded).
+    if _plain_len(summary) < RSS_THIN_SUMMARY_CHARS:
+        lede = _lede_from_content_html(_entry_content_html(entry))
+        if len(lede) > _plain_len(summary):
+            summary = lede
     published = _parse_entry_date(entry)
     src_domain = urlparse(link).netloc.lower()
 

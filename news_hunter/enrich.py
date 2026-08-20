@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
-from .fetcher import RawItem
+from .fetcher import RSS_THIN_SUMMARY_CHARS, RawItem
 from .filter import strip_wp_footer
 
 try:
@@ -49,7 +49,11 @@ from ._clipinator_shim import (
 
 
 SNIPPET_MAX_CHARS = 360
-SNIPPET_MIN_RSS_CHARS = 150
+# Um so numero decide "esta description serve de snippet?" (aqui) e "vale a pena
+# ler content:encoded?" (fetcher._entry_to_item). Se divergirem, um feed pode
+# passar pelo fetcher como "ja tem texto" e ser rejeitado aqui como fino,
+# voltando ao snippet vazio sem que nada erre.
+SNIPPET_MIN_RSS_CHARS = RSS_THIN_SUMMARY_CHARS
 
 # Boilerplate que o Google News coloca como summary quando agrega de varias fontes.
 # Descartamos esse texto e tentamos enriquecer via fetch_html.

@@ -226,6 +226,7 @@ class _SupabaseSink:
         unique, date_overrides = self._freeze_approx_dates(list(deduped.values()))
         unique, tx_overrides = self._preserve_translations(unique)
         total = 0
+        n_snippet_protected = 0
         for i in range(0, len(unique), MAX_BATCH):
             chunk = unique[i:i + MAX_BATCH]
             rows = [
@@ -234,13 +235,63 @@ class _SupabaseSink:
                 )
                 for a in chunk
             ]
-            try:
-                self.client.table(self.table).upsert(rows, on_conflict="url").execute()
-                total += len(rows)
-            except Exception as e:  # noqa: BLE001
-                log.warning("Supabase push falhou (%d rows): %s", len(rows), e)
-                return total
+            with_snippet, without_snippet = _split_on_snippet(rows)
+            n_snippet_protected += len(without_snippet)
+            for payload in (with_snippet, without_snippet):
+                if not payload:
+                    continue
+                try:
+                    self.client.table(self.table).upsert(
+                        payload, on_conflict="url"
+                    ).execute()
+                    total += len(payload)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Supabase push falhou (%d rows): %s", len(payload), e)
+                    return total
+        if n_snippet_protected:
+            log.info(
+                "push: %d linhas enviadas SEM a coluna snippet "
+                "(snippet gravado preservado)",
+                n_snippet_protected,
+            )
         return total
+
+
+def _split_on_snippet(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Separa as linhas em (com snippet, sem snippet) — a segunda SEM a coluna.
+
+    Write-once para o snippet nativo, pelo mesmo motivo de _preserve_translations
+    e _freeze_approx_dates, e o caso e ainda mais agudo: o scanner e stateless e
+    RE-ENVIA a mesma linha a cada scan (~355 rows a cada 5 min contra ~7 artigos
+    realmente novos). Um artigo cujo corpo foi buscado no scan N chega no scan
+    N+1 com snippet vazio — porque o feed nao o traz e o item nao foi sorteado
+    dentro do cap de backfill — e um upsert cru gravaria essa string vazia por
+    cima do texto que ja custou um fetch. O trabalho se desfazia sozinho a cada
+    5 minutos.
+
+    A protecao aqui nao custa NENHUMA leitura: em vez de ler o valor gravado e
+    fazer COALESCE (o que _preserve_translations precisa fazer, porque escreve
+    quatro campos), simplesmente OMITIMOS a chave `snippet` do payload. O
+    PostgREST monta a lista de colunas a partir das chaves presentes, entao a
+    coluna some do `ON CONFLICT ... DO UPDATE SET` e o valor gravado fica
+    intacto. Em INSERT de linha nova ela assume o DEFAULT '' da coluna
+    (news_articles.snippet e NOT NULL DEFAULT ''), que e exatamente o que
+    escreveriamos.
+
+    A separacao em duas listas e obrigatoria: o PostgREST normaliza um payload
+    heterogeneo para a UNIAO das chaves e preenche as ausentes — omitir a chave
+    em ALGUMAS linhas de um mesmo batch reintroduziria a escrita vazia. Cada
+    chamada leva um payload de chaves uniformes.
+    """
+    with_snippet: list[dict] = []
+    without_snippet: list[dict] = []
+    for r in rows:
+        if (r.get("snippet") or "").strip():
+            with_snippet.append(r)
+        else:
+            r.pop("snippet", None)
+            without_snippet.append(r)
+    return with_snippet, without_snippet
 
 
 # Overlay multilingue (§4). Estes campos NUNCA podem regredir para NULL por cima
@@ -331,6 +382,45 @@ def _article_to_row(
         "title_en": tx.get("title_en", a.title_en),
         "snippet_en": tx.get("snippet_en", a.snippet_en),
     }
+
+
+def urls_with_snippet(urls: list[str]) -> set[str] | None:
+    """Quais destas URLs JA tem snippet gravado. None se a consulta falhar.
+
+    O scanner e stateless: sem esta pergunta ele nao sabe distinguir "artigo
+    novo, nunca enriquecido" de "artigo cujo corpo ja foi buscado ha tres dias",
+    e gastaria o orcamento de backfill re-baixando os mesmos artigos para sempre.
+
+    Deliberadamente devolve so a coluna `url`, nao o texto: quem chama quer
+    apenas decidir se paga um fetch, e o valor gravado ja esta protegido por
+    _split_on_snippet. Pedir o snippet inteiro multiplicaria por ~4 o trafego de
+    um scan que roda a cada 5 minutos contra uma cota de 5 GB/mes.
+
+    `neq("snippet", "")` cobre os dois estados de "sem snippet": a coluna e
+    NOT NULL DEFAULT '', entao vazio e sempre string vazia.
+    """
+    sink = get_sink()
+    if sink.client is None or not urls:
+        return set()
+    out: set[str] = set()
+    for i in range(0, len(urls), 100):
+        chunk = urls[i:i + 100]
+        try:
+            res = (
+                sink.client.table(sink.table)
+                .select("url")
+                .in_("url", chunk)
+                .neq("snippet", "")
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("lookup de snippets falhou (%d urls): %s", len(chunk), e)
+            return None
+        for r in res.data or []:
+            u = r.get("url")
+            if u:
+                out.add(u)
+    return out
 
 
 def get_sink() -> _SupabaseSink:

@@ -20,6 +20,7 @@ from .store import (
     normalize_url,
     start_run,
     upsert_articles,
+    urls_with_snippet,
 )
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,34 @@ LEDE_RESCUE_WORKERS = 12
 LEDE_RESCUE_DEADLINE = 14.0   # teto para a fase de lede (fetch_html = 6s/item)
 LEDE_RESCUE_CAP = 40          # max fetches de lede por scan (global)
 LEDE_RESCUE_CAP_DOMAIN = 8    # max fetches de lede por dominio por scan
+
+# --- Stage 3d: snippet backfill (added 2026-08-20) --------------------------
+# O lede rescue busca o corpo de quem NAO casou keyword. O espelho disso nunca
+# existiu: um item que casou NO TITULO era guardado com snippet vazio e ninguem
+# mais ia buscar o corpo dele. Como fontes cobertas so por Google News (Brasil
+# 247, Agencia iNFRA, Reuters...) chegam sem description nenhuma, elas entravam
+# SEMPRE assim — 1.026 das 1.383 linhas de 24h (74%) estavam sem snippet quando
+# isto foi medido, e o feed mostrava so manchetes.
+#
+# Esta fase e o espelho: pega os itens JA APROVADOS que ainda estao sem snippet,
+# do mais novo para o mais velho, e busca o corpo de um subconjunto capado.
+# Ordenar por published_at DESC importa: artigo novo e sempre o mais novo, entao
+# ele ganha o cap mesmo quando o backlog e grande.
+#
+# NAO re-valida keyword (o item ja passou) — o snippet aqui e display. E NAO
+# custa um fetch por artigo por scan: urls_with_snippet() pergunta ao banco
+# quais ja tem texto gravado, senao o scanner (stateless) re-baixaria os mesmos
+# artigos a cada 5 minutos para sempre.
+SNIPPET_BACKFILL_WORKERS = 12
+SNIPPET_BACKFILL_DEADLINE = 12.0   # teto da fase (fetch_html = 6s/item)
+SNIPPET_BACKFILL_CAP = 25          # max fetches por scan (global)
+SNIPPET_BACKFILL_CAP_DOMAIN = 6
+# Quantos candidatos (os mais novos) entram na pergunta ao banco. Uma consulta
+# por scan, resposta so de urls: ~9 KB.
+SNIPPET_BACKFILL_LOOKUP = 75
+# Sentinela de ordenacao: artigo sem data vai para o fim da fila do backfill.
+_OLDEST_TS = datetime.min.replace(tzinfo=timezone.utc)
+
 
 # --- Stage 3c: translation (added Wave B1-d) --------------------------------
 # POST-FILTER translation of the kept FOREIGN items only (source_lang not in
@@ -236,6 +265,93 @@ def _run_lede_rescue(
     return rescued
 
 
+def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
+    """Busca o corpo dos artigos aprovados que ainda estao sem snippet.
+
+    Roda sobre o conjunto FINAL (to_persist), depois do stage 4 e antes da
+    traducao — assim um item estrangeiro backfillado ainda ganha snippet_en no
+    mesmo scan.
+
+    Reusa enrich_item(need_snippet=True), o mesmo caminho do lede rescue, em vez
+    de repetir fetch+extractor aqui: quando um extractor de dominio melhora, as
+    duas fases melhoram juntas.
+
+    Retorna quantos snippets foram preenchidos. Fail-soft: qualquer erro deixa o
+    artigo exatamente como estava (sem snippet), que e o comportamento de hoje.
+    """
+    empty = [a for a in articles if not (a.snippet or "").strip()]
+    if not empty:
+        return 0
+    # Mais novo primeiro: o artigo recem-publicado e o unico que NINGUEM pode ter
+    # enriquecido antes, entao ele tem que ganhar o cap por cima de qualquer
+    # backlog de artigos velhos que continuam sem corpo.
+    empty.sort(key=lambda a: a.published_at or _OLDEST_TS, reverse=True)
+    head = empty[:SNIPPET_BACKFILL_LOOKUP]
+
+    known = urls_with_snippet([a.url for a in head])
+    if known is None:
+        # Banco mudo: nao da para saber o que ja foi feito. Em vez de gastar o
+        # cap inteiro re-baixando artigos possivelmente ja enriquecidos, atende
+        # so os poucos mais novos — quase certamente novos de verdade.
+        todo_pool = head[:SNIPPET_BACKFILL_CAP_DOMAIN]
+    else:
+        todo_pool = [a for a in head if a.url not in known]
+
+    todo: list[Article] = []
+    per_domain: dict[str, int] = {}
+    for a in todo_pool:
+        if len(todo) >= SNIPPET_BACKFILL_CAP:
+            break
+        n = per_domain.get(a.domain, 0)
+        if n >= SNIPPET_BACKFILL_CAP_DOMAIN:
+            continue
+        per_domain[a.domain] = n + 1
+        todo.append(a)
+    if not todo:
+        return 0
+
+    filled = 0
+    ex = ThreadPoolExecutor(max_workers=SNIPPET_BACKFILL_WORKERS)
+    try:
+        pending = {
+            ex.submit(
+                enrich_item,
+                RawItem(
+                    url=a.url,
+                    title=a.title,
+                    summary="",
+                    published_at=a.published_at,
+                    source_domain=a.domain,
+                    feed_domain=a.domain,
+                ),
+                resolve_google_news=False,
+                need_snippet=True,
+            ): a
+            for a in todo
+        }
+        done, not_done = wait(pending.keys(), timeout=SNIPPET_BACKFILL_DEADLINE)
+        for fut in done:
+            a = pending[fut]
+            try:
+                snippet, _pub, _url, _dom, _title = fut.result()
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"snippet backfill {a.url}: {e!s}")
+                continue
+            if snippet and snippet.strip():
+                a.snippet = snippet
+                filled += 1
+        for fut in not_done:
+            fut.cancel()
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+
+    log.info(
+        "snippet backfill: %d sem snippet, %d buscados (cap %d/%d-dom), %d preenchidos",
+        len(empty), len(todo), SNIPPET_BACKFILL_CAP, SNIPPET_BACKFILL_CAP_DOMAIN, filled,
+    )
+    return filled
+
+
 def _translate_article(a) -> bool:
     """Translate one foreign Article's title (+snippet) to English, in place.
 
@@ -388,6 +504,7 @@ def run_search(
     n_upserted = 0
     n_lede_ok = 0
     n_translated = 0
+    n_backfilled = 0
 
     try:
         t0 = time.time()
@@ -692,6 +809,12 @@ def run_search(
                 n_dropped_blind,
             )
 
+        # --- Stage 3d: snippet backfill (added 2026-08-20) -------------------
+        # Espelho do lede rescue para quem casou no TITULO: busca o corpo dos
+        # aprovados que continuam sem snippet. Antes da traducao de proposito,
+        # para que um item estrangeiro backfillado ja saia com snippet_en.
+        n_backfilled = _run_snippet_backfill(to_persist, errors)
+
         # --- Stage 3c: translate the kept FOREIGN items to English (§3) ------
         # Runs on the final kept set, after enrich + lede — never the firehose.
         # Fail-soft: leaves title_en NULL and keeps the native row on any error.
@@ -724,6 +847,7 @@ def run_search(
         "keywords_count": len(keywords),
         "exact_keywords_count": len(exact_keywords),
         "lede_rescued": n_lede_ok,
+        "snippets_backfilled": n_backfilled,
         "translated": n_translated,
     }
 

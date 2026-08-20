@@ -235,6 +235,17 @@ def get_cached_snippets(urls) -> dict:
     return {}
 
 
+def urls_with_snippet(urls) -> set:
+    """Passthrough para supabase_sync.urls_with_snippet (ver docstring de la).
+
+    Devolve set() quando o Supabase nao esta configurado (modo local) e None
+    quando a consulta falha — quem chama distingue os dois: set() vazio quer
+    dizer "nada gravado, pode buscar tudo"; None quer dizer "nao sei", e a fase
+    de backfill entao se limita aos itens mais novos em vez de chutar.
+    """
+    return supabase_sync.urls_with_snippet(list(urls))
+
+
 def start_run() -> int:
     """No-op: no runs table in Supabase.  Returns 0 as a placeholder."""
     return 0
