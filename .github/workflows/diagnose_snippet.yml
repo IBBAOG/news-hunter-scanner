@@ -1,0 +1,40 @@
+name: Diagnose snippet
+
+# Manual-only companion to diagnose_feed.yml. That one answers "does this FEED
+# answer 200 from a datacenter IP?"; this one takes one or more ARTICLE URLs and
+# answers why they land in the feed with no body — separating a blocked fetch
+# from an extractor that stopped matching. Those two have completely different
+# fixes (Google News route / cookie vs. a selector in _clipinator_shim), and the
+# stored row looks identical either way.
+#
+# No schedule, no Supabase secrets: it reads the live web and prints, never
+# writes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: Space-separated ARTICLE URLs to diagnose
+        required: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      # URLS travels through the environment, never inlined into the command —
+      # a raw URL pasted into the shell turns its first `&` into a background
+      # operator and silently truncates the query string (the trap already
+      # documented on measure_source.yml).
+      - env:
+          URLS: ${{ inputs.urls }}
+        run: python -m scripts.diagnose_snippet $URLS
