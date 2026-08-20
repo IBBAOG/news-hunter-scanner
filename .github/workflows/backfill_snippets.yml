@@ -1,0 +1,70 @@
+name: Backfill snippets
+
+# Repairs rows that are ALREADY STORED without a body.
+#
+# Stage 3d inside the scanner can only reach articles the current scan still
+# sees, which is a real ceiling: a Google-News-only source is re-collected only
+# while Google keeps returning it. Measured 2026-08-20 — Brasil 247's newest
+# articles filled within minutes of Stage 3d shipping, while its day-old ones
+# had already dropped out of the `site:` result set and became unreachable to
+# the live pipeline forever. The fetch was never the problem.
+#
+# So this job asks the DATABASE instead of the collector. Daily, because that is
+# a repair pass over a backlog, not a freshness mechanism — the live phase is
+# what keeps new articles current.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: published_at window in hours
+        required: false
+        default: '168'
+      limit:
+        description: max articles fetched this run
+        required: false
+        default: '400'
+      domain:
+        description: restrict to one domain (optional)
+        required: false
+        default: ''
+      dry_run:
+        description: fetch and report, write nothing
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    # 03:20 UTC — off the scanner's busiest window, and after the day's news has
+    # settled so a run repairs a whole day at once.
+    - cron: '20 3 * * *'
+
+concurrency:
+  group: backfill-snippets
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HOURS: ${{ inputs.hours || '168' }}
+          LIMIT: ${{ inputs.limit || '400' }}
+          DOMAIN: ${{ inputs.domain }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          ARGS="--hours ${HOURS} --limit ${LIMIT}"
+          if [ -n "${DOMAIN}" ]; then ARGS="$ARGS --domain ${DOMAIN}"; fi
+          if [ "${DRY}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python -m scripts.backfill_snippets $ARGS
