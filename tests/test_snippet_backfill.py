@@ -144,3 +144,56 @@ def test_article_without_a_date_sorts_last_rather_than_crashing(monkeypatch, fet
     arts = [dateless, _article("https://a/dated", domain="d2", minutes_old=600)]
     pipeline._run_snippet_backfill(arts, [])
     assert fetched == ["https://a/dated"]
+
+
+# --- budget allocation across domains ---------------------------------------
+
+
+def test_a_firehose_domain_cannot_starve_a_small_one(monkeypatch, fetched):
+    """The shape measured in production on the day this shipped.
+
+    finance.sina.com.cn accounted for 367 of the ~994 bodyless rows in 24h — more
+    than a third — and its articles are also the freshest, because it publishes
+    constantly. Under pure global recency it swallowed the window and Brasil 247,
+    with THREE articles that day, waited behind a foreign firehose.
+    """
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP", 10)
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP_DOMAIN", 10)
+    arts = [_article(f"https://sina/{i}", domain="finance.sina.com.cn", minutes_old=i) for i in range(60)]
+    arts += [_article(f"https://b247/{i}", domain="www.brasil247.com", minutes_old=200 + i) for i in range(3)]
+    pipeline._run_snippet_backfill(arts, [])
+    assert sum(1 for u in fetched if "b247" in u) == 3
+    assert sum(1 for u in fetched if "sina" in u) == 7
+
+
+def test_the_freshest_domain_still_opens_the_round(monkeypatch, fetched):
+    """Round-robin must not cost recency: whoever just published goes first."""
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP", 2)
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP_DOMAIN", 10)
+    arts = [
+        _article("https://stale/1", domain="velho.com", minutes_old=900),
+        _article("https://stale/2", domain="velho.com", minutes_old=910),
+        _article("https://fresh/1", domain="novo.com", minutes_old=1),
+    ]
+    pipeline._run_snippet_backfill(arts, [])
+    assert fetched[0] == "https://fresh/1"
+
+
+def test_order_keeps_every_candidate_exactly_once():
+    arts = [_article(f"https://a/{i}", domain=f"d{i % 4}.com", minutes_old=i) for i in range(20)]
+    ordered = pipeline._backfill_order(arts)
+    assert sorted(a.url for a in ordered) == sorted(a.url for a in arts)
+    assert len(ordered) == len(arts)
+
+
+def test_a_permanently_blocked_domain_burns_one_slot_not_six(monkeypatch, fetched):
+    """Reuters answers 401 (DataDome) from the runner and can never fill. It is
+    also always among the freshest, so under per-domain-cap-only selection it
+    took six slots per scan, forever, for nothing."""
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP", 6)
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP_DOMAIN", 6)
+    arts = [_article(f"https://reuters/{i}", domain="www.reuters.com", minutes_old=i) for i in range(24)]
+    arts += [_article(f"https://outra/{i}", domain=f"outra{i}.com.br", minutes_old=100 + i) for i in range(5)]
+    pipeline._run_snippet_backfill(arts, [])
+    assert sum(1 for u in fetched if "reuters" in u) == 1
+    assert sum(1 for u in fetched if "outra" in u) == 5

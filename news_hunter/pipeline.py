@@ -265,6 +265,43 @@ def _run_lede_rescue(
     return rescued
 
 
+def _backfill_order(empty: list[Article]) -> list[Article]:
+    """Ordena os candidatos a backfill: round-robin entre dominios, recencia dentro.
+
+    Recencia global pura parece obvia e aloca o orcamento pessimamente: quem
+    publica mais leva tudo. Medido 2026-08-20, com o backfill ja no ar,
+    finance.sina.com.cn respondia por 367 das ~994 linhas sem corpo em 24h — mais
+    de um terco — e junto com alarabiya/yicai/asharq enchia a janela dos mais
+    novos, deixando as fontes brasileiras (Brasil 247 com TRES artigos no dia)
+    esperando atras de uma mangueira de fogo estrangeira.
+
+    Round-robin conserta a alocacao sem nenhuma lista de prioridade para manter:
+    cada dominio manda seu artigo mais novo, depois o segundo, e assim por
+    diante. A ordem entre dominios e pela materia mais nova de cada um, entao a
+    fonte que acabou de publicar continua na frente.
+
+    O efeito colateral que importa: um dominio que NUNCA vai responder (Reuters
+    da 401 de DataDome no runner) gasta uma vaga por scan em vez de seis.
+    """
+    by_domain: dict[str, list[Article]] = {}
+    for a in empty:
+        by_domain.setdefault(a.domain, []).append(a)
+    for items in by_domain.values():
+        items.sort(key=lambda a: a.published_at or _OLDEST_TS, reverse=True)
+    # Dominio com a materia mais nova abre a rodada.
+    queues = sorted(
+        by_domain.values(),
+        key=lambda items: items[0].published_at or _OLDEST_TS,
+        reverse=True,
+    )
+    ordered: list[Article] = []
+    for rank in range(max(len(q) for q in queues)):
+        for q in queues:
+            if rank < len(q):
+                ordered.append(q[rank])
+    return ordered
+
+
 def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
     """Busca o corpo dos artigos aprovados que ainda estao sem snippet.
 
@@ -282,11 +319,7 @@ def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
     empty = [a for a in articles if not (a.snippet or "").strip()]
     if not empty:
         return 0
-    # Mais novo primeiro: o artigo recem-publicado e o unico que NINGUEM pode ter
-    # enriquecido antes, entao ele tem que ganhar o cap por cima de qualquer
-    # backlog de artigos velhos que continuam sem corpo.
-    empty.sort(key=lambda a: a.published_at or _OLDEST_TS, reverse=True)
-    head = empty[:SNIPPET_BACKFILL_LOOKUP]
+    head = _backfill_order(empty)[:SNIPPET_BACKFILL_LOOKUP]
 
     known = urls_with_snippet([a.url for a in head])
     if known is None:
