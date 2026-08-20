@@ -175,6 +175,39 @@ own fix:
    `ON CONFLICT … DO UPDATE SET` list. Same write-once family as the fabricated
    `published_at` and the `title_en` overlay.
 
+### The two passes, and why one is not enough
+
+**Stage 3d (live, in every scan)** covers articles the current scan still sees.
+That is a real ceiling, not a detail: a Google-News-only source is re-collected
+only while Google keeps returning it. Measured 2026-08-20 — Brasil 247's newest
+articles filled within minutes of Stage 3d shipping, while its day-old ones had
+already dropped out of the `site:` result set and were unreachable to the live
+pipeline forever. Nothing was wrong with the fetch: `diagnose_snippet` pulls 357
+chars from that same domain on the runner without trouble. The collector simply
+never offered those rows again.
+
+**`backfill_snippets` (daily, `scripts/backfill_snippets.py`)** asks the
+*database* instead of the collector: rows with an empty snippet, fetch the body,
+write it back. It is the repair pass. It writes with an `UPDATE` keyed on `url`
+and touches **only** `snippet` — never an upsert — so a row keeps its date, its
+`matched_keywords` and its translation overlay, and the repair cannot regress any
+write-once guarantee. Run it by hand for a targeted repair:
+
+```bash
+gh workflow run backfill_snippets.yml -f domain=estadao.com.br -f limit=300
+gh workflow run backfill_snippets.yml -f limit=1200            # general drain
+gh workflow run backfill_snippets.yml -f dry_run=true          # report only
+```
+
+Its per-domain tally is the fastest read on which sources are structurally
+unreachable rather than merely queued. As of 2026-08-20, reliably refusing the
+runner (HTTP 403 / 401 DataDome): `www.reuters.com`, `br.investing.com`,
+`www.alarabiya.net`, `www.arabnews.com`, `asharqbusiness.com`,
+`www.bloomberg.com`, `www.spglobal.com`, `neftegaz.ru`,
+`www.offshore-technology.com`, `interfax.com`. Those land title-only by
+necessity, and no amount of budget changes that — the ceiling is the WAF, and
+lifting it would take a headless tier the scanner does not have.
+
 Two invariants worth keeping in mind before touching any of this:
 
 - **The free lede must stay the same size as the fetched lede.** Widening
