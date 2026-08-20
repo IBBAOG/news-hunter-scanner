@@ -69,13 +69,18 @@ LEDE_RESCUE_CAP_DOMAIN = 8    # max fetches de lede por dominio por scan
 # custa um fetch por artigo por scan: urls_with_snippet() pergunta ao banco
 # quais ja tem texto gravado, senao o scanner (stateless) re-baixaria os mesmos
 # artigos a cada 5 minutos para sempre.
-SNIPPET_BACKFILL_WORKERS = 12
-SNIPPET_BACKFILL_DEADLINE = 12.0   # teto da fase (fetch_html = 6s/item)
-SNIPPET_BACKFILL_CAP = 25          # max fetches por scan (global)
+SNIPPET_BACKFILL_WORKERS = 20
+SNIPPET_BACKFILL_DEADLINE = 15.0   # teto da fase (fetch_html = 6s/item)
+# Cap dimensionado pela latencia MEDIDA no runner, nao por cautela: os fetches
+# do backfill vieram em 0,40-2,19s (diagnose_snippet, 2026-08-20), entao 60
+# fetches em 20 workers cabem folgados nos 15s. Sao ~17k fetches/dia espalhados
+# por ~70 dominios (~10/hora/dominio) — educado — e e o que faz o backlog drenar
+# em horas em vez de dias. O lede rescue, ao lado, ja gasta 40/scan.
+SNIPPET_BACKFILL_CAP = 60          # max fetches por scan (global)
 SNIPPET_BACKFILL_CAP_DOMAIN = 6
-# Quantos candidatos (os mais novos) entram na pergunta ao banco. Uma consulta
-# por scan, resposta so de urls: ~9 KB.
-SNIPPET_BACKFILL_LOOKUP = 75
+# Quantos candidatos entram na pergunta ao banco (metade recencia, metade
+# drenagem). Uma consulta por scan, resposta so de urls.
+SNIPPET_BACKFILL_LOOKUP = 180
 # Sentinela de ordenacao: artigo sem data vai para o fim da fila do backfill.
 _OLDEST_TS = datetime.min.replace(tzinfo=timezone.utc)
 
