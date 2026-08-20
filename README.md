@@ -151,9 +151,21 @@ own fix:
    source covered only by Google News (Brasil 247, Agência iNFRA, Reuters), which
    arrives with no description at all, was **guaranteed** to land bodyless
    forever. Stage 3d (`_run_snippet_backfill`) is the mirror: it takes the
-   already-approved items that still have no snippet, newest first, and fetches a
-   capped subset. It never re-validates keywords — the item already passed, the
-   snippet is display.
+   already-approved items that still have no snippet and fetches a capped subset.
+   It never re-validates keywords — the item already passed, the snippet is
+   display.
+
+   The budget is allocated **round-robin across domains**, recency-first inside
+   each. Pure global recency looks obvious and allocates terribly: whoever
+   publishes most takes everything. On the day this shipped,
+   `finance.sina.com.cn` held 367 of the ~994 bodyless rows in 24h and its
+   articles were also the freshest, so Brasil 247 — three articles that day —
+   queued behind a foreign firehose. Round-robin fixes the allocation with no
+   priority list to maintain, and has a second payoff: a domain that can never
+   answer burns **one** slot per scan instead of six. Reuters is the live case —
+   `diagnose_snippet` on the runner returns 401 (DataDome) for every article of
+   it, so it can never fill and would otherwise sit permanently at the front of
+   the queue.
 3. **The upsert erased snippets it had already stored.** The scanner is stateless
    and re-pushes the same row every scan (~355 rows / 5 min against ~7 genuinely
    new articles). A row whose body was fetched in scan N came back with an empty
