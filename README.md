@@ -69,6 +69,40 @@ gh workflow run diagnose_feed.yml --repo IBBAOG/news-hunter-scanner \
 needs the Google News `site:` route (`NO_RSS_DOMAINS` in `sources.py`) — see
 the Monitor Mercantil entry for a worked example.
 
+### When the feed is fine and the EXTRACTOR is what died
+
+A third failure mode, quieter than both of the above: the feed answers 200,
+returns fresh items, and the outlet still barely appears in the dashboard —
+because `_clipinator_shim`'s extractor for that domain no longer matches
+anything, so the near-miss **lede rescue** reads the meta description instead of
+the article and the source silently degrades to title-only matching. Nothing
+turns red; `no_body` does not even rise, because a body of sorts was returned.
+
+Two shapes seen on 2026-08-20, both fixed in `_clipinator_shim.py`:
+
+- **Page-builder migration.** Agência iNFRA moved to a Hello Elementor theme:
+  `div.entry-content` stopped existing, and the `<article>` elements left on the
+  page are related-post cards holding zero `<p>`. Selector is now the Elementor
+  widget-TYPE class, never the `elementor-element-<hash>` sibling (that hash
+  changes when the page is re-saved in the builder).
+- **Body not in the DOM at all.** JOTA is a Next.js Pages-Router site whose
+  article exists only inside the `__NEXT_DATA__` JSON island; the served page
+  carries exactly one `<p>` and zero `<article>`. `ex_jota` lifts the body out
+  of `props.pageProps.post.content` (see `_next_data_html`).
+
+Cheap check on any suspect domain:
+
+```bash
+curl -sA "Mozilla/5.0" "<article-url>" -o /tmp/a.html
+grep -c "<p[ >]" /tmp/a.html          # a real article page has dozens
+grep -c "__NEXT_DATA__" /tmp/a.html   # 1 => the body is probably in there
+python -c "from news_hunter._clipinator_shim import _extract;   print(len(_extract(open('/tmp/a.html',encoding='utf-8').read(), '<domain>')[1]))"
+```
+
+Zero paragraphs on a page that visibly has a body is the whole diagnosis. The
+same fix has to land twice: `SectorData`'s `src/lib/clipping/sources.ts` carries
+an independent copy of these extractors for the clipping generator.
+
 ### When the feed answers 200 and has simply stopped moving
 
 The harder failure is a feed that keeps working and keeps returning the *same*

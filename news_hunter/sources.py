@@ -42,6 +42,26 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.estadao.com.br": [
         "https://www.estadao.com.br/arc/outboundfeeds/news-sitemap/?outputType=xml",
     ],
+    # JOTA — legal/regulatory outlet (tributario, STF, Congresso, energia).
+    # Registered 2026-08-20: it had NEVER been cadastrada, so `news_articles`
+    # held zero jota.info rows and the dashboard could not surface a single JOTA
+    # story. Only the GENERAL feed exists — /energia/feed, /tributos/feed and
+    # every other per-editoria form answer 404, so the per-editoria preference
+    # documented for Gazeta do Povo does not apply here.
+    # Measured on the runner 2026-08-20 (measure_source, LIVE 121-keyword set,
+    # 72h window): items=25 span=19h fresh=25 pass=1 near=24 rescued=0 no_body=0
+    # fetch=1.7s. One on-beat pass in 19h ("Imposto de Exportacao pune quem
+    # produz e ameaca competitividade do petroleo") is ~1.3/day, i.e. ~9/7d —
+    # above the >=3/7d bar. The feed rolls fast (25 items / 19h), so nothing is
+    # lost between 5-minute scans.
+    # `rescued=0` in that run is a MEASUREMENT artifact, not the ceiling: JOTA
+    # serves no article <p> in the DOM, so the near-miss lede rescue was reading
+    # the meta description. ex_jota (_clipinator_shim) now lifts the body out of
+    # the __NEXT_DATA__ island in the same commit, which is what makes body
+    # matching possible at all here.
+    "www.jota.info": [
+        "https://www.jota.info/feed",
+    ],
     # einvestidor.estadao.com.br REMOVIDO em 2026-08-04. O sitemap
     # /post/sitemap-news-1.xml congelou: 400 entradas, todas entre 2026-05-18 e
     # 2026-05-27 (o sitemap-news-2.xml e ainda mais velho, entao parou o

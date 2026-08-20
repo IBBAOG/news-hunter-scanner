@@ -16,6 +16,7 @@ indexing. Acceptable trade-off para plug-and-play cloud-only.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Callable
 from urllib.parse import urlparse
@@ -91,6 +92,8 @@ SOURCE_NAMES: dict[str, str] = {
     "agencia.petrobras.com.br": "Agência Petrobras",
     "agenciainfra.com": "Agência iNFRA",
     "www.agenciainfra.com": "Agência iNFRA",
+    "jota.info": "JOTA",
+    "www.jota.info": "JOTA",
     "braziljournal.com": "Brazil Journal",
     "www.braziljournal.com": "Brazil Journal",
     "eixos.com.br": "eixos",
@@ -416,7 +419,15 @@ ex_infomoney = _make_extractor([
 ex_bloomberglinea = _make_extractor(["div.article-content", "div.article-body", "article"])
 ex_r7 = _make_extractor(["div.b-article__body", "div.article-content", "article"])
 ex_agencia_petrobras = _make_extractor(["div.entry-content", "article .post-content", "article"])
-ex_agenciainfra = _make_extractor(["div.entry-content", "article .post-content", "article"])
+# Agencia iNFRA migrated to a Hello Elementor theme (seen 2026-08-20): there is
+# no div.entry-content any more, and the eight <article> elements on the page are
+# related-post cards holding zero <p>. The three legacy selectors therefore
+# matched an empty shell and enrich fell through to the meta description. The
+# widget-TYPE class is stable; the elementor-element-<hash> sibling is not.
+ex_agenciainfra = _make_extractor([
+    ".elementor-widget-theme-post-content .elementor-widget-container",
+    "div.entry-content", "article .post-content", "article",
+])
 ex_braziljournal = _make_extractor([
     "div.post-content-text", "section.post-content", "div.entry-content", "article",
 ])
@@ -478,6 +489,53 @@ def ex_jornaldocomercio(soup: BeautifulSoup) -> tuple[str, list[str]]:
     return title, _br_paragraphs(container)
 
 
+def _next_data_html(soup: BeautifulSoup, path: str) -> str | None:
+    """Pull an HTML string out of a Next.js `__NEXT_DATA__` JSON island.
+
+    `path` is dotted, resolved from the root of the parsed object. Returns None
+    for a missing script tag, unparseable JSON, or a path that does not land on
+    a non-empty string — every failure is silent so the caller can fall back to
+    its normal selectors.
+    """
+    tag = soup.find("script", id="__NEXT_DATA__")
+    if tag is None:
+        return None
+    raw = tag.string or tag.get_text() or ""
+    if not raw.strip():
+        return None
+    try:
+        cur = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    for key in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+    return cur if isinstance(cur, str) and cur.strip() else None
+
+
+def ex_jota(soup: BeautifulSoup) -> tuple[str, list[str]]:
+    """JOTA (jota.info) — Next.js Pages Router, body NOT in the served DOM.
+
+    The rendered page carries exactly ONE <p> and zero <article>: the article
+    lives only in the `__NEXT_DATA__` JSON island, at
+    props.pageProps.post.content, as an HTML string (5-8 KB on the three pieces
+    measured 2026-08-20 — news, column, opinion). ex_auto returns nothing here,
+    which would leave enrich matching on the title alone.
+
+    JOTA PRO pieces expose a truncated `content`; those yield a short paragraph
+    list, which is the honest answer — the body genuinely is not served.
+    """
+    title = _title_from_meta(soup)
+    body = _next_data_html(soup, "props.pageProps.post.content")
+    if body:
+        return title, _paragraphs_from(BeautifulSoup(body, "lxml"))
+    # Fallback in case JOTA ever server-renders the body.
+    return title, _paragraphs_from(_first_matching(soup, [
+        'div[itemprop="articleBody"]', "div.entry-content", "article",
+    ]))
+
+
 ex_auto = _make_extractor([
     'div[itemprop="articleBody"]',
     "div.article-content", "div.article-body", "div.article__content",
@@ -519,6 +577,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "agencia.petrobras.com.br": ex_agencia_petrobras,
     "agenciainfra.com": ex_agenciainfra,
     "www.agenciainfra.com": ex_agenciainfra,
+    "jota.info": ex_jota,
+    "www.jota.info": ex_jota,
     "braziljournal.com": ex_braziljournal,
     "www.braziljournal.com": ex_braziljournal,
     "eixos.com.br": ex_eixos,
