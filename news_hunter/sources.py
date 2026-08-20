@@ -729,6 +729,62 @@ RSS_FEEDS: dict[str, list[str]] = {
 }
 
 
+# -----------------------------------------------------------------------------
+# International English RSS sources — the national/international discriminator.
+#
+# INVARIANT (relied on by the dashboard's News Hunter national/international
+# selector): international <=> source_lang in {en, ar, ru, zh, iw, es};
+# national  <=> source_lang in {pt, None}.
+#
+# The per-language Google News `site:` route already stamps source_lang for
+# every FOREIGN query and for the English GNews-en domains (ENGLISH_NO_RSS_DOMAINS,
+# via LANGUAGES["en"] + the lang_by_url map in fetcher.iter_collect/collect). But
+# the international ENGLISH outlets that live in RSS_FEEDS above are fetched
+# through the plain RSS feed path, which does NOT go through that stamping — so
+# without this set they arrive with source_lang=None, indistinguishable from a
+# Brazilian (pt) RSS feed. This frozenset is the authoritative roster of those
+# RSS-registered international English domains; fetcher._entry_to_item stamps
+# source_lang='en' for any item whose resolved source_domain is in it. Tagging
+# them 'en' costs ZERO extra translation — the translate stage
+# (pipeline._run_translation) only translates source_lang not in ('en','pt',None).
+#
+# MEMBERSHIP = the "Surface = RSS" rows of the README "International coverage"
+# section (15 outlets: the 13 added across the four 2026-08-18 waves + CNBC and
+# The Moscow Times, which predated the program). Both apex AND www variants are
+# listed: _entry_to_item resolves source_domain per item and, although
+# normalize_url strips a leading "www.", other item-construction paths may not.
+# Deliberately EXCLUDES the Brazilian (pt) feeds and the ENGLISH_NO_RSS_DOMAINS /
+# foreign-language GNews domains, which are already tagged on the GNews route.
+#
+# KEEP IN SYNC: when an international English RSS source is added to or removed
+# from RSS_FEEDS, add/remove its apex+www forms here in the same change — or it
+# silently reverts to being classified as national.
+# -----------------------------------------------------------------------------
+INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
+    # --- Global trade press & shipping ---
+    "oilprice.com", "www.oilprice.com",                         # OilPrice
+    "oedigital.com", "www.oedigital.com",                       # Offshore Engineer (OE Digital)
+    "gcaptain.com", "www.gcaptain.com",                         # gCaptain
+    "splash247.com", "www.splash247.com",                       # Splash247
+    "hellenicshippingnews.com", "www.hellenicshippingnews.com", # Hellenic Shipping News
+    "lngprime.com", "www.lngprime.com",                         # LNG Prime
+    "cnbc.com", "www.cnbc.com",                                 # CNBC (Energy) — predates the program
+    # --- United States ---
+    "oilandgas360.com", "www.oilandgas360.com",                 # Oil & Gas 360
+    "naturalgasintel.com", "www.naturalgasintel.com",           # Natural Gas Intelligence
+    # --- Europe ---
+    "offshore-energy.biz", "www.offshore-energy.biz",           # Offshore Energy
+    # --- Russia–CIS (English edition) ---
+    "themoscowtimes.com", "www.themoscowtimes.com",             # The Moscow Times — predates the program
+    # --- Middle East ---
+    "thenationalnews.com", "www.thenationalnews.com",           # The National
+    # --- India ---
+    "energy.economictimes.indiatimes.com",                      # ET EnergyWorld (subdomain, no www form)
+    "thehindubusinessline.com", "www.thehindubusinessline.com", # The Hindu BusinessLine
+    "livemint.com", "www.livemint.com",                         # Mint / Livemint
+})
+
+
 # Dominios cadastrados no clipinator mas sem RSS conhecido / confiavel.
 # Cobertura feita pelo Google News com site: operator (hl=pt-BR).
 NO_RSS_DOMAINS: list[str] = [

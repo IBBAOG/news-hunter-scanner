@@ -16,6 +16,7 @@ import requests
 from dateutil import parser as date_parser
 
 from .sources import (
+    INTERNATIONAL_RSS_DOMAINS,
     LANGUAGES,
     NO_RSS_DOMAINS,
     all_homepage_scrapers,
@@ -194,6 +195,14 @@ def _entry_to_item(entry, feed_domain: str) -> RawItem | None:
 
     if not src_domain:
         src_domain = feed_domain
+    # International English RSS sources arrive through THIS feed path, which does
+    # NOT go through the lang_by_url stamping in iter_collect/collect (that only
+    # tags per-language GNews `site:` queries). Stamp 'en' so source_lang is a
+    # reliable national/international discriminator: international <=> source_lang
+    # in {en,ar,ru,zh,iw,es}; national <=> pt/None (see INTERNATIONAL_RSS_DOMAINS).
+    # Zero translation cost — pipeline._run_translation excludes 'en'. Every other
+    # RSS/sitemap/homepage item stays None (the Brazilian default).
+    source_lang = "en" if src_domain in INTERNATIONAL_RSS_DOMAINS else None
     return RawItem(
         url=link,
         title=title,
@@ -201,6 +210,7 @@ def _entry_to_item(entry, feed_domain: str) -> RawItem | None:
         published_at=published,
         source_domain=src_domain,
         feed_domain=feed_domain,
+        source_lang=source_lang,
     )
 
 
