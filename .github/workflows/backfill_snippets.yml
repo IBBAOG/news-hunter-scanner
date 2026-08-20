@@ -49,10 +49,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: pip` here on purpose. Paired with the --no-cache-dir install
+      # below, setup-python's POST step finds no /home/runner/.cache/pip and
+      # fails the whole job in cleanup — a red run on top of a successful
+      # backfill, which is the worst kind of red for a job that runs daily.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
 
       - run: pip install --no-cache-dir -r requirements.txt
 
