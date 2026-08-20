@@ -16,6 +16,7 @@ import logging
 import os
 import threading
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .store import Article
@@ -29,6 +30,49 @@ MAX_BATCH = 100
 _lock = threading.Lock()
 _sink: "_SupabaseSink | None" = None
 _tried_init = False
+
+
+# Um `url=in.(...)` do PostgREST viaja na QUERY STRING, entao o limite real nao e
+# a contagem de urls e sim o comprimento da requisicao depois do percent-encoding
+# — e o encoding NAO e uniforme: uma url latina custa ~150 chars, uma url arabe
+# ou chinesa custa ~257 (cada caractere vira %XX%XX). Chunks de 100 itens fixos
+# passavam com fontes latinas e estouravam quando o lote pegava attaqa/alarabiya/
+# yicai, devolvendo `{"message": "JSON could not be generated", "code": 400}` —
+# uma mensagem que nao menciona tamanho nenhum e nao parece um erro de limite.
+#
+# O efeito era silencioso e caro: `_existing_translations` devolvia None, o
+# `_preserve_translations` caia no ramo defensivo e ADIAVA as linhas em risco
+# (133 por scan, medido 2026-08-20), ou seja, a protecao write-once das
+# traducoes vivia degradada — e a mesma armadilha esperava qualquer lookup novo.
+#
+# Medido contra o projeto (2026-08-20, urls arabes reais): 95 urls / 24.400 chars
+# passam, 100 / 25.680 dao 400. O teto fica em ~25 KB. Orcamos METADE disso, para
+# caber base + demais parametros + headers e sobrar folga se o gateway apertar.
+_MAX_QUERY_URL_CHARS = 12000
+_MAX_QUERY_URLS = 100
+
+
+def _chunk_urls_for_query(urls: list[str]) -> list[list[str]]:
+    """Divide urls em lotes que cabem numa query string do PostgREST.
+
+    Corta por comprimento PERCENT-ENCODED (ver _MAX_QUERY_URL_CHARS), com um teto
+    de itens por lote por seguranca. Uma url sozinha maior que o orcamento ainda
+    sai no seu proprio lote: e melhor tentar e falhar naquela do que descartar
+    silenciosamente uma linha do lookup.
+    """
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for u in urls:
+        cost = len(quote(u, safe="")) + 3  # aspas + virgula
+        if current and (size + cost > _MAX_QUERY_URL_CHARS or len(current) >= _MAX_QUERY_URLS):
+            chunks.append(current)
+            current, size = [], 0
+        current.append(u)
+        size += cost
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 class _SupabaseSink:
@@ -60,8 +104,7 @@ class _SupabaseSink:
         if self.client is None or not urls:
             return {}
         out: dict[str, str] = {}
-        for i in range(0, len(urls), 100):
-            chunk = urls[i:i + 100]
+        for chunk in _chunk_urls_for_query(urls):
             try:
                 res = (
                     self.client.table(self.table)
@@ -129,8 +172,7 @@ class _SupabaseSink:
         if self.client is None or not urls:
             return {}
         out: dict[str, dict] = {}
-        for i in range(0, len(urls), 100):
-            chunk = urls[i:i + 100]
+        for chunk in _chunk_urls_for_query(urls):
             try:
                 res = (
                     self.client.table(self.table)
@@ -403,8 +445,7 @@ def urls_with_snippet(urls: list[str]) -> set[str] | None:
     if sink.client is None or not urls:
         return set()
     out: set[str] = set()
-    for i in range(0, len(urls), 100):
-        chunk = urls[i:i + 100]
+    for chunk in _chunk_urls_for_query(urls):
         try:
             res = (
                 sink.client.table(sink.table)

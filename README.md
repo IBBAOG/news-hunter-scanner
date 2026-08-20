@@ -177,6 +177,39 @@ Two invariants worth keeping in mind before touching any of this:
   pulling snippets back for ~1,400 rows every 5 minutes would eat the 5 GB/month
   Supabase egress budget the sink is written around.
 
+### `url=in.(...)` lookups are limited by ENCODED length, not by item count
+
+Every write-once protection here (dates, translations, and now snippets) works
+by asking Supabase what it already stored, with a `url=in.(...)` filter. That
+filter travels in the **query string**, so the ceiling is the percent-encoded
+request length — and encoding is not uniform: a Latin URL costs ~150 characters,
+an Arabic or Chinese one ~257, because every character becomes `%XX%XX`.
+
+Fixed 100-item chunks therefore passed on Latin sources and failed the moment a
+batch caught attaqa / alarabiya / yicai, with a message that names no limit at
+all:
+
+```
+{'message': 'JSON could not be generated', 'code': 400}
+```
+
+Measured against the live project, 2026-08-20, with real Arabic URLs:
+
+| urls | request chars | result |
+|-----:|--------------:|--------|
+|   25 |         6,480 | 200 |
+|   50 |        12,880 | 200 |
+|   75 |        19,280 | 200 |
+|   95 |        24,400 | 200 |
+|  100 |        25,680 | **400** |
+
+`_chunk_urls_for_query` now cuts by encoded weight with half that wall as its
+budget. The bug was worth hunting because of how quietly it degraded: the lookup
+returned `None`, `_preserve_translations` took its defensive branch, and **133
+rows per scan were silently deferred** — the write-once protection for
+translations had been running blind, and every new lookup would have inherited
+the same trap.
+
 ## Listing scrapers: never fabricate a publication date twice
 
 Sources without a feed are covered by `HOMEPAGE_SCRAPERS`, which harvests
