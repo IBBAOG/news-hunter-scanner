@@ -61,19 +61,33 @@ def test_leaves_an_article_that_already_has_a_snippet_alone(fetched):
     assert fetched == []
 
 
-def test_newest_first_wins_the_cap(monkeypatch, fetched):
+def test_the_newest_article_is_always_served(monkeypatch, fetched):
     """A brand-new article is the only one nobody can have enriched before, so
-    it must beat a backlog of older bodyless ones for the scarce budget."""
-    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP", 2)
+    it must never queue behind the backlog — even a budget of one serves it."""
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP", 1)
     monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP_DOMAIN", 99)
     arts = [
         _article("https://old/1", domain="d1", minutes_old=900),
         _article("https://new/1", domain="d2", minutes_old=1),
         _article("https://old/2", domain="d3", minutes_old=800),
-        _article("https://new/2", domain="d4", minutes_old=5),
     ]
     pipeline._run_snippet_backfill(arts, [])
-    assert sorted(fetched) == ["https://new/1", "https://new/2"]
+    assert fetched == ["https://new/1"]
+
+
+def test_half_the_budget_drains_the_oldest(monkeypatch, fetched):
+    """Recency alone never reaches the backlog, and the reason is circular: the
+    chronically bodyless articles ARE the old ones, so every new story overtakes
+    them forever. Measured 2026-08-20: Brasil 247's ten articles (freshest 14h
+    old) sat outside the 75-candidate window while dozens of domains had fresher
+    news — and the domain stayed blank even though the fetch demonstrably worked
+    from the runner."""
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP", 4)
+    monkeypatch.setattr(pipeline, "SNIPPET_BACKFILL_CAP_DOMAIN", 99)
+    arts = [_article(f"https://a/{i}", domain=f"d{i}.com", minutes_old=i * 60) for i in range(12)]
+    pipeline._run_snippet_backfill(arts, [])
+    assert "https://a/0" in fetched    # freshest
+    assert "https://a/11" in fetched   # oldest still bodyless
 
 
 def test_skips_urls_the_database_already_has_a_snippet_for(monkeypatch, fetched):

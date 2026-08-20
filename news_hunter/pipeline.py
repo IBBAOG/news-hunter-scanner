@@ -265,7 +265,7 @@ def _run_lede_rescue(
     return rescued
 
 
-def _backfill_order(empty: list[Article]) -> list[Article]:
+def _backfill_order(empty: list[Article], *, oldest_first: bool = False) -> list[Article]:
     """Ordena os candidatos a backfill: round-robin entre dominios, recencia dentro.
 
     Recencia global pura parece obvia e aloca o orcamento pessimamente: quem
@@ -283,16 +283,18 @@ def _backfill_order(empty: list[Article]) -> list[Article]:
     O efeito colateral que importa: um dominio que NUNCA vai responder (Reuters
     da 401 de DataDome no runner) gasta uma vaga por scan em vez de seis.
     """
+    newest = not oldest_first
     by_domain: dict[str, list[Article]] = {}
     for a in empty:
         by_domain.setdefault(a.domain, []).append(a)
     for items in by_domain.values():
-        items.sort(key=lambda a: a.published_at or _OLDEST_TS, reverse=True)
-    # Dominio com a materia mais nova abre a rodada.
+        items.sort(key=lambda a: a.published_at or _OLDEST_TS, reverse=newest)
+    # Abre a rodada o dominio com a materia mais nova (ou mais velha, no passe
+    # de drenagem).
     queues = sorted(
         by_domain.values(),
         key=lambda items: items[0].published_at or _OLDEST_TS,
-        reverse=True,
+        reverse=newest,
     )
     ordered: list[Article] = []
     for rank in range(max(len(q) for q in queues)):
@@ -300,6 +302,34 @@ def _backfill_order(empty: list[Article]) -> list[Article]:
             if rank < len(q):
                 ordered.append(q[rank])
     return ordered
+
+
+def _backfill_candidates(empty: list[Article]) -> list[Article]:
+    """Intercala o passe de RECENCIA com o passe de DRENAGEM.
+
+    Recencia sozinha nunca alcanca o backlog, e o motivo e circular: os artigos
+    cronicamente sem corpo sao, por definicao, os que ninguem preencheu — logo
+    sao os mais VELHOS, e toda materia nova passa na frente deles para sempre.
+    Medido 2026-08-20: os 10 artigos do Brasil 247 (o mais novo com 14h) ficavam
+    fora da janela de 75 candidatos porque dezenas de dominios tinham materia
+    mais fresca, e o dominio inteiro seguia em branco mesmo com o fetch
+    funcionando de fato a partir do runner (diagnose_snippet: 357 chars).
+
+    Metade do orcamento vai para o mais novo (uma materia recem-publicada tem que
+    ganhar corpo no mesmo scan) e metade para o mais velho ainda vazio, que e o
+    que faz o backlog realmente drenar. Ambos os passes sao round-robin por
+    dominio, entao nenhum dos lados vira mangueira de fogo de um so dominio.
+    """
+    fresh = _backfill_order(empty)
+    stale = _backfill_order(empty, oldest_first=True)
+    out: list[Article] = []
+    seen: set[str] = set()
+    for a, b in zip(fresh, stale):
+        for cand in (a, b):
+            if cand.url not in seen:
+                seen.add(cand.url)
+                out.append(cand)
+    return out
 
 
 def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
@@ -319,7 +349,7 @@ def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
     empty = [a for a in articles if not (a.snippet or "").strip()]
     if not empty:
         return 0
-    head = _backfill_order(empty)[:SNIPPET_BACKFILL_LOOKUP]
+    head = _backfill_candidates(empty)[:SNIPPET_BACKFILL_LOOKUP]
 
     known = urls_with_snippet([a.url for a in head])
     if known is None:
