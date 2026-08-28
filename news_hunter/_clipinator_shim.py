@@ -448,6 +448,20 @@ ex_gazetadopovo = _make_extractor([
     'div[class*="postBodyContainer"]', 'div[class*="postBody"]',
     'div[class*="postContent"]',
 ])
+# Argus Media runs Next.js and emits NO <article> and NO itemprop markup at all,
+# so every ex_auto selector missed and the domain fell through to the
+# meta-description fallback in enrich — title-only matching on a page whose body
+# is fully served, unauthenticated (measured 2026-08-28: HTTP 200, 209 KB, 24 <p>
+# of which 14 are the body). div#news-body-text matches exactly once on a news
+# page and holds exactly the standfirst + body + byline; the sibling
+# NewsPost_newsPost__<hash> class is a CSS module and rotates on every build, so
+# never select on it. `<article>` is NOT a useful fallback here — the tag does
+# not exist on the page. Podcast (/energy-and-commodity-podcasts/) and
+# video-insight (/video-insights/) pages carry no #news-body-text and no article
+# prose; extracting nothing there is the correct outcome.
+ex_argus = _make_extractor([
+    "div#news-body-text", 'div[itemprop="articleBody"]', "main article", "article",
+])
 
 def _br_paragraphs(container: Tag | None) -> list[str]:
     """Split a <br>-separated body into paragraphs.
@@ -628,8 +642,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.diariodopoder.com.br": ex_auto,
     "www.conjur.com.br": ex_auto,
     "conjur.com.br": ex_auto,
-    "www.argusmedia.com": ex_auto,
-    "argusmedia.com": ex_auto,
+    "www.argusmedia.com": ex_argus,
+    "argusmedia.com": ex_argus,
     "operamundi.uol.com.br": ex_auto,
     "claudiodantas.com.br": ex_auto,
     "www.claudiodantas.com.br": ex_auto,
