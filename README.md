@@ -287,6 +287,60 @@ the feed on 04/08 labelled "13m ago" (481 rows had been poisoned this way since
 
 Regression tests: `tests/test_stale_listing_items.py`.
 
+## Translation: a 200-shaped success carrying an error page
+
+`deep-translator` scrapes `translate.google.com` and parses whatever HTML comes
+back. When Google answers **HTTP 500** it still returns a body, so the parser
+extracts the visible text of Google's error page and hands it back as an
+ordinary non-empty string — no exception, nothing empty. `translate_to_en`'s
+only acceptance test was "non-empty", so it accepted it and the sink stored it.
+Measured on production `news_articles` on 2026-09-01: **2,670 rows (34% of every
+row carrying a `title_en`)** whose English headline read, verbatim and
+identically,
+
+```
+Error 500 (Server Error)!!1500.That's an error.There was an error. Please try again later.That's all we know.
+```
+
+across `ar`/`zh`/`ru`/`iw`/`es`, oldest 2026-08-19 — the day the multilingual
+wave shipped. Same defect family as the fabricated date above: a value invented
+on a failure path and written as if it were a fact. Two properties made it
+permanent rather than transient: the sink's translation overlay is **write-once**
+(a row with a non-empty `title_en` is never overwritten), and old articles are
+never re-scanned.
+
+**The guard** lives in the producer, `news_hunter.translate.looks_like_error_page`,
+because that is the only place that sees the difference. It keys on the *shape of
+Google's error template* — the literal `Error <3 digits> (<reason>)!!1` marker,
+or both of the template's closing sentences together — never on a vocabulary
+word, so a headline containing "error", "server" or a three-digit number still
+passes. A rejection is logged at **WARNING** (before this, an outage of the
+translate endpoint was invisible in the scan log) and falls through to the next
+backend in the chain, so a transient 500 on the first attempt still gets its
+`auto` retry. `title_original` always holds the native headline, so a rejected
+translation costs display quality, never data.
+
+Regression tests: `tests/test_multilingual_error_page_guard.py` — both
+directions, since a guard that merely stops alarming is worse than no guard.
+
+**The repair pass.** Guarding the producer fixes nothing already stored. After a
+database sweep NULLs the poisoned values, `scripts/repair_foreign_titles.py`
+re-translates the rows that need it — foreign `source_lang`, non-empty
+`title_original`, NULL `title_en` — through the *same guarded* `translate_to_en`,
+so a run launched during an outage writes nothing rather than re-poisoning the
+rows it was dispatched to fix (and exits non-zero to say so). It writes with an
+UPDATE keyed on url and filtered `title_en is null`: it only ever fills
+something empty, never overwrites. Idempotent and safe to re-run — a repaired
+row stops matching the predicate, so consecutive runs walk down the backlog.
+
+```bash
+gh workflow run repair_foreign_titles.yml --repo IBBAOG/news-hunter-scanner -f limit=500
+gh workflow run repair_foreign_titles.yml --repo IBBAOG/news-hunter-scanner -f dry_run=true
+gh workflow run repair_foreign_titles.yml --repo IBBAOG/news-hunter-scanner -f lang=ar -f limit=1000
+```
+
+Regression tests: `tests/test_repair_foreign_titles.py`.
+
 ## Brasil Energia cookie refresh
 
 Brasil Energia's `be-auth` session cookie expires roughly every 14 days. The

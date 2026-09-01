@@ -1,0 +1,68 @@
+name: Repair foreign titles
+
+# Re-translates foreign rows whose English overlay is missing.
+#
+# Between 2026-08-19 and 2026-09-01 the translate backend answered HTTP 500 on a
+# large share of calls and deep-translator returned the visible text of Google's
+# error page as an ordinary successful string. `translate_to_en` accepted it and
+# the sink stored it: 2,670 rows (34% of every row carrying a title_en) whose
+# English headline read "Error 500 (Server Error)!!1500.That's an error. ...".
+#
+# The producer is now guarded, so no NEW row can be poisoned. But nothing
+# already stored can self-heal — the sink's overlay is write-once and old
+# articles are never re-scanned. A database sweep NULLs the poisoned values;
+# this job is what puts real English back.
+#
+# workflow_dispatch ONLY, deliberately. This is a repair pass over a finite
+# backlog, not a freshness mechanism: the live pipeline is what keeps new
+# articles translated. Re-dispatch it until it reports 0 candidates.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: max rows repaired this run
+        required: false
+        default: '500'
+      lang:
+        description: restrict to one source_lang (ar/ru/zh/iw/es), optional
+        required: false
+        default: ''
+      dry_run:
+        description: translate and report, write nothing
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: repair-foreign-titles
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `cache: pip` here on purpose. Paired with the --no-cache-dir install
+      # below, setup-python's POST step finds no /home/runner/.cache/pip and
+      # fails the whole job in cleanup — a red run on top of a successful
+      # repair, which is the worst kind of red for a job that writes data.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          LIMIT: ${{ inputs.limit || '500' }}
+          LANG_TAG: ${{ inputs.lang }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          ARGS="--limit ${LIMIT}"
+          if [ -n "${LANG_TAG}" ]; then ARGS="$ARGS --lang ${LANG_TAG}"; fi
+          if [ "${DRY}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python -m scripts.repair_foreign_titles $ARGS
