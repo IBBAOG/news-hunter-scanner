@@ -26,7 +26,7 @@ import argparse
 import sys
 import time
 
-from news_hunter._clipinator_shim import EXTRACTORS, _extract, fetch_html
+from news_hunter._clipinator_shim import _extract, fetch_html, resolve_extractor_domain
 from news_hunter.enrich import enrich_item
 from news_hunter.fetcher import RawItem
 from news_hunter.store import normalize_url
@@ -43,7 +43,13 @@ def diagnose(url: str) -> None:
     domain = _domain(url)
     print(f"\n=== {url} ===", flush=True)
     print(f"domain          : {domain}", flush=True)
-    print(f"in EXTRACTORS   : {domain in EXTRACTORS}", flush=True)
+    # Report the RESOLVED key, not a literal membership test: enrich.py gates
+    # on the resolved host, so a literal test would tell you "not registered"
+    # about a domain the pipeline extracts perfectly well (m.yicai.com).
+    registered = resolve_extractor_domain(domain)
+    print(f"in EXTRACTORS   : {registered is not None}"
+          + (f" (via {registered})" if registered and registered != domain else ""),
+          flush=True)
 
     # 1. Raw fetch — separates "blocked" from "layout changed".
     t0 = time.time()
@@ -63,7 +69,7 @@ def diagnose(url: str) -> None:
         return
 
     # 2. Extractor — how much prose the registered selectors actually find.
-    if domain in EXTRACTORS:
+    if registered is not None:
         try:
             title, paragraphs = _extract(html, domain)
         except Exception as e:  # noqa: BLE001
@@ -90,7 +96,7 @@ def diagnose(url: str) -> None:
 
     if snippet:
         print("verdict         : OK — this article would land with a body.", flush=True)
-    elif domain in EXTRACTORS:
+    elif registered is not None:
         print(
             "verdict         : EXTRACTOR — page fetched, no prose found. Check the "
             "selectors for this domain in _clipinator_shim.EXTRACTORS.",

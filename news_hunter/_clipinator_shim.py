@@ -51,6 +51,10 @@ SOURCE_NAMES: dict[str, str] = {
     # yicai/jiemian (+ some m.jiemian.com) and to the finance subdomain for Sina.
     "yicai.com": "Yicai (第一财经)",
     "www.yicai.com": "Yicai (第一财经)",
+    # Yicai serves a separate mobile host and GNews resolves to it for part of
+    # the traffic, exactly as it does for m.jiemian.com below. Without the key
+    # the outlet renders under its bare domain instead of its name.
+    "m.yicai.com": "Yicai (第一财经)",
     "finance.sina.com.cn": "Sina Finance (新浪财经)",
     "jiemian.com": "Jiemian News (界面新闻)",
     "www.jiemian.com": "Jiemian News (界面新闻)",
@@ -809,6 +813,52 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.globaltimes.cn": ex_auto,
     "scmp.com": ex_auto,
     "www.scmp.com": ex_auto,
+    # Foreign-language outlets (ar / ru / zh / iw / es), added to SOURCE_NAMES in
+    # waves B1-d and B2a/b but never to EXTRACTORS. The consumer in enrich.py
+    # gates on `domain in EXTRACTORS`, so the omission did not raise anything -
+    # it silently skipped the extractor for these 30 domains and fell through to
+    # the meta description, which is a standfirst rather than a body.
+    #
+    # ex_auto is the honest choice for all of them: none needs bespoke selectors
+    # (its container list covers the article shells these CMSs emit) and a
+    # per-domain extractor invented without a measured page would be a guess
+    # wearing a specific name.
+    #
+    # NOT here on purpose: themoscowtimes.com, the other SOURCE_NAMES entry with
+    # no extractor. Its RSS carries full bodies, so the body never comes from a
+    # page fetch and registering an extractor would suggest a path that is never
+    # taken.
+    "attaqa.net": ex_auto,
+    "www.attaqa.net": ex_auto,
+    "asharqbusiness.com": ex_auto,
+    "www.asharqbusiness.com": ex_auto,
+    "alarabiya.net": ex_auto,
+    "www.alarabiya.net": ex_auto,
+    "neftegaz.ru": ex_auto,
+    "www.neftegaz.ru": ex_auto,
+    "oilcapital.ru": ex_auto,
+    "www.oilcapital.ru": ex_auto,
+    "eprussia.ru": ex_auto,
+    "www.eprussia.ru": ex_auto,
+    "yicai.com": ex_auto,
+    "www.yicai.com": ex_auto,
+    "m.yicai.com": ex_auto,
+    "finance.sina.com.cn": ex_auto,
+    "jiemian.com": ex_auto,
+    "www.jiemian.com": ex_auto,
+    "m.jiemian.com": ex_auto,
+    "globes.co.il": ex_auto,
+    "www.globes.co.il": ex_auto,
+    "themarker.com": ex_auto,
+    "www.themarker.com": ex_auto,
+    "calcalist.co.il": ex_auto,
+    "www.calcalist.co.il": ex_auto,
+    "eleconomista.com.mx": ex_auto,
+    "www.eleconomista.com.mx": ex_auto,
+    "ambito.com": ex_auto,
+    "www.ambito.com": ex_auto,
+    "portafolio.co": ex_auto,
+    "www.portafolio.co": ex_auto,
 }
 
 
@@ -841,6 +891,41 @@ DEFAULT_HEADERS = {
 
 def _get_domain(url: str) -> str:
     return urlparse(url).netloc.lower()
+
+
+#: Host prefixes that denote the SAME publication rather than a different one.
+_HOST_PREFIXES = ("www.", "m.", "amp.", "mobile.")
+
+
+def resolve_extractor_domain(domain: str) -> str | None:
+    """Return the EXTRACTORS key for a host, or None if the host is unregistered.
+
+    Registration is per literal host string, so `m.yicai.com` and `www.yicai.com`
+    each need their own entry or they are treated as unknown outlets. The
+    registry cannot keep up with that by hand - every wave has shipped at least
+    one host variant nobody thought of - so the lookup normalises instead:
+    exact host, then the host with a `www.`/`m.`/`amp.`/`mobile.` prefix removed,
+    then the `www.` form of that.
+
+    This must be used by every EXTRACTORS lookup, INCLUDING the membership gate
+    in `enrich.py`. A fallback that lives only inside `_extract` is dead code:
+    the caller's `domain in EXTRACTORS` test rejects the variant first, and the
+    fix never runs.
+    """
+    if not domain:
+        return None
+    host = domain.lower()
+    if host in EXTRACTORS:
+        return host
+    for prefix in _HOST_PREFIXES:
+        if host.startswith(prefix):
+            stripped = host[len(prefix):]
+            if stripped in EXTRACTORS:
+                return stripped
+            if f"www.{stripped}" in EXTRACTORS:
+                return f"www.{stripped}"
+            break
+    return None
 
 
 def _cffi_get(url: str, timeout: int) -> "cffi_requests.Response":
@@ -974,8 +1059,52 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
     return dedup
 
 
+def _json_ld_article_body(soup: BeautifulSoup) -> list[str]:
+    """Paragraphs from a schema.org `articleBody`, if the page publishes one.
+
+    Selector extraction assumes the body is in the markup. A growing share of
+    the registry ships an empty article shell and puts the prose in structured
+    data instead, where every selector in `ex_auto` misses it and the caller
+    falls through to the meta description - a standfirst presented as a body.
+
+    Splitting on blank lines is the shape publishers actually emit; a body that
+    arrives as one unbroken string stays one paragraph rather than being cut at
+    invented boundaries.
+    """
+    for script in soup.find_all("script", attrs={"type": True}):
+        if "ld+json" not in (script.get("type") or "").lower():
+            continue
+        raw = script.string or script.get_text() or ""
+        if not raw.strip():
+            continue
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+
+        stack = [data]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                body = node.get("articleBody")
+                if isinstance(body, str) and body.strip():
+                    parts = [p.strip() for p in re.split(r"\n\s*\n|\n", body) if p.strip()]
+                    if parts:
+                        return parts
+                stack.extend(node.values())
+            elif isinstance(node, list):
+                stack.extend(node)
+    return []
+
+
 def _extract(html: str, domain: str) -> tuple[str, list[str]]:
     soup = BeautifulSoup(html, "lxml")
-    extractor = EXTRACTORS[domain]
+    key = resolve_extractor_domain(domain)
+    if key is None:
+        raise KeyError(domain)
+    extractor = EXTRACTORS[key]
     titulo, paragrafos = extractor(soup)
-    return clean_title(titulo), clean_paragraphs(paragrafos)
+    cleaned = clean_paragraphs(paragrafos)
+    if not cleaned:
+        cleaned = clean_paragraphs(_json_ld_article_body(soup))
+    return clean_title(titulo), cleaned

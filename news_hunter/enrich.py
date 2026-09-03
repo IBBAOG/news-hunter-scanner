@@ -40,11 +40,11 @@ _GNEWS_TIMEOUT = 8.0  # timeout por chamada (gnewsdecoder leva ~1.5s quando sem 
 log = logging.getLogger(__name__)
 
 from ._clipinator_shim import (
-    EXTRACTORS,
     SOURCE_NAMES,
     _extract,
     clean_paragraphs,
     fetch_html,
+    resolve_extractor_domain,
 )
 
 
@@ -254,8 +254,19 @@ def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippe
     if snippet:
         return snippet, published, resolved_url, resolved_domain, extracted_title
 
-    # Tenta extractor do clipinator baseado no dominio resolvido
-    if _extract is not None and clean_paragraphs is not None and resolved_domain in EXTRACTORS:
+    # Tenta extractor do clipinator baseado no dominio resolvido.
+    #
+    # The gate resolves the host instead of testing it literally: EXTRACTORS is
+    # keyed per exact host, so `m.yicai.com` was rejected here even when
+    # `yicai.com` was registered, and the item fell through to the meta
+    # description with nothing logged. `resolve_extractor_domain` applies the
+    # same www./m./amp. normalisation `_extract` now uses, so the gate and the
+    # extractor agree on what "registered" means.
+    if (
+        _extract is not None
+        and clean_paragraphs is not None
+        and resolve_extractor_domain(resolved_domain) is not None
+    ):
         try:
             _, paragrafos = _extract(html, resolved_domain)
             joined = " ".join(paragrafos[:3]).strip()
