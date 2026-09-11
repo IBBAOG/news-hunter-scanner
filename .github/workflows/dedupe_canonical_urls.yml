@@ -1,0 +1,46 @@
+name: Dedupe canonical urls
+
+# Folds news_articles rows that are the same article under different urls
+# (Sina tracking query strings, AMP mirrors) onto the canonical url produced by
+# store.normalize_url, keeping every existing translation. Idempotent: a second
+# run reports 0 groups. See scripts/dedupe_canonical_urls.py.
+#
+# workflow_dispatch ONLY: a one-off repair after a canonicalizer change, not a
+# recurring job. Run with dry_run first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: report only, write nothing
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: dedupe-canonical-urls
+  cancel-in-progress: false
+
+jobs:
+  dedupe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `cache: pip`: see scan.yml (the --no-cache-dir install leaves the
+      # cache folder empty and the setup-python post step would fail the job).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          ARGS=""
+          if [ "${DRY}" = "true" ]; then ARGS="--dry-run"; fi
+          python -m scripts.dedupe_canonical_urls $ARGS

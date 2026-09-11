@@ -484,3 +484,29 @@ cp .env.example .env         # fill in SUPABASE_URL / SUPABASE_SERVICE_KEY
 python news_hunter_service.py --once    # one scan
 python news_hunter_service.py           # daemon loop (SCAN_INTERVAL_SECONDS=30)
 ```
+
+## Translation throttling, retry pass and canonical urls (2026-09-11)
+
+From 2026-09-01 Google throttled the scraped `translate.google.com/m` endpoint
+(verified from the runner AND a residential IP): it answers with its
+`Error 500 (Server Error)!!1` page, which `looks_like_error_page` correctly
+refuses — so rows were left with `title_en` NULL instead of poisoned, but there
+was no other backend and no retry, and the newest foreign headlines on /home
+stayed native.
+
+- `news_hunter/translate.py`: backend chain `google_web` (deep-translator,
+  mapped code then auto) -> `clients5` (Google's JSON dictionary endpoint) ->
+  `mymemory`. Every reply goes through the same guard (Google error page,
+  MyMemory quota warning, echoed input). A per-backend circuit breaker skips a
+  backend for 600s after 3 consecutive failures; each scan logs
+  `translate backends: ...` counters.
+- Stage 3e (`pipeline._run_translation_retry` + `news_hunter/translation_retry.py`):
+  after the upsert, what is left of `TRANSLATE_CAP` (max 20) goes to foreign rows
+  from the last 7 days still missing `title_en`, newest and oldest interleaved.
+  Fill-only UPDATE keyed on url and filtered `title_en IS NULL`.
+- `store.normalize_url` now collapses Sina Finance tracking query strings on
+  article pages, AMP mirrors (`/amp/<path>`, `<path>/amp`, `?amp=1`,
+  `?outputType=amp`) and a few host-specific tracking keys, so one article is one
+  row and one translation. `scripts/dedupe_canonical_urls.py`
+  (+ `dedupe_canonical_urls.yml`, dry-run by default) folds rows already stored
+  onto the canonical url, keeping every existing translation.

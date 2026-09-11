@@ -103,6 +103,16 @@ TRANSLATE_WORKERS = 6
 TRANSLATE_DEADLINE = 12.0    # teto da fase inteira (deep-translator ~0.4-2.6s/call)
 TRANSLATE_CAP = 40           # max itens traduzidos por scan (espelha LEDE_RESCUE_CAP)
 
+# --- Stage 3e: translation retry (added 2026-09-11) -------------------------
+# The live stage only sees what THIS scan collected, so a foreign row whose
+# translation failed stayed native forever once it dropped out of the source
+# feed (news_hunter/translation_retry.py has the measurement). After the upsert,
+# spend what is left of TRANSLATE_CAP on untranslated foreign rows from the
+# DATABASE, newest and oldest of the window interleaved. Fill-only UPDATE.
+TRANSLATE_RETRY_CAP = 20        # max rows retried per scan (inside TRANSLATE_CAP)
+TRANSLATE_RETRY_DAYS = 7        # only rows published in the last N days
+TRANSLATE_RETRY_DEADLINE = 10.0 # teto da fase
+
 
 # Sentinela: item de RSS que passou a janela mas nao casou keyword no titulo
 # nem no summary. Candidato a "lede rescue" (fetch do corpo + re-check).
@@ -446,7 +456,7 @@ def _translate_article(a) -> bool:
     return bool(a.title_en or a.snippet_en)
 
 
-def _run_translation(articles: list, errors: list[str]) -> int:
+def _run_translation(articles: list, errors: list[str], attempted: set | None = None) -> int:
     """Stage 3c: translate the kept FOREIGN items' title/snippet to English.
 
     Operates on the FINAL kept set (to_persist), after enrich + lede rescue, so
@@ -486,6 +496,8 @@ def _run_translation(articles: list, errors: list[str]) -> int:
 
     selected = pending[:TRANSLATE_CAP]
     over_cap = len(pending) - len(selected)
+    if attempted is not None:
+        attempted.update(a.url for a in selected)
     translated = 0
     timed_out = 0
     ex = ThreadPoolExecutor(max_workers=TRANSLATE_WORKERS)
@@ -512,6 +524,55 @@ def _run_translation(articles: list, errors: list[str]) -> int:
         translated, len(selected), TRANSLATE_CAP, skipped, over_cap, timed_out,
     )
     return translated
+
+
+def _run_translation_retry(attempted: set, errors: list[str]) -> int:
+    """Stage 3e: translate untranslated foreign rows already in the database.
+
+    Budget = what the live stage left of TRANSLATE_CAP, capped at
+    TRANSLATE_RETRY_CAP. Rows the live stage attempted this scan are excluded
+    (they just failed or were just written). Fail-soft end to end: a lookup
+    failure, a translation failure or the deadline leave rows exactly as they
+    were, NULL, for the next scan. Returns the number of rows filled.
+    """
+    from . import supabase_sync, translation_retry
+
+    budget = min(TRANSLATE_RETRY_CAP, max(0, TRANSLATE_CAP - len(attempted)))
+    if budget <= 0:
+        return 0
+    sink = supabase_sync.get_sink()
+    rows = translation_retry.select_retry_rows(
+        sink, budget=budget, days=TRANSLATE_RETRY_DAYS, exclude=attempted,
+    )
+    if not rows:
+        return 0
+
+    filled = 0
+    timed_out = 0
+    ex = ThreadPoolExecutor(max_workers=TRANSLATE_WORKERS)
+    try:
+        futs = {ex.submit(translation_retry.translate_missing, r): r for r in rows}
+        done, not_done = wait(futs.keys(), timeout=TRANSLATE_RETRY_DEADLINE)
+        timed_out = len(not_done)
+        for fut in not_done:
+            fut.cancel()
+        for fut in done:
+            row = futs[fut]
+            try:
+                payload = fut.result()
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"translate retry {row.get('url')}: {e!s}")
+                continue
+            if payload and translation_retry.fill_missing(sink, row["url"], payload):
+                if "title_en" in payload:
+                    filled += 1
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+    log.info(
+        "translate retry: %d/%d stored untranslated rows filled (budget %d, last %dd, %d timed out)",
+        filled, len(rows), budget, TRANSLATE_RETRY_DAYS, timed_out,
+    )
+    return filled
 
 
 def run_search(
@@ -580,6 +641,7 @@ def run_search(
     n_upserted = 0
     n_lede_ok = 0
     n_translated = 0
+    n_retried = 0
     n_backfilled = 0
 
     try:
@@ -894,10 +956,24 @@ def run_search(
         # --- Stage 3c: translate the kept FOREIGN items to English (§3) ------
         # Runs on the final kept set, after enrich + lede — never the firehose.
         # Fail-soft: leaves title_en NULL and keeps the native row on any error.
-        n_translated = _run_translation(to_persist, errors)
+        attempted_tx: set[str] = set()
+        n_translated = _run_translation(to_persist, errors, attempted_tx)
 
         n_new = upsert_articles(to_persist)
         n_upserted = len(to_persist)
+
+        # --- Stage 3e: retry stored rows still missing title_en --------------
+        # AFTER the upsert, so the database reflects this scan's results and
+        # the fill-only UPDATE cannot race this scan's own write.
+        n_retried = _run_translation_retry(attempted_tx, errors)
+
+        from .translate import pop_backend_stats
+        tx_stats = pop_backend_stats()
+        if tx_stats:
+            log.info(
+                "translate backends: %s",
+                ", ".join(f"{k}={v}" for k, v in sorted(tx_stats.items())),
+            )
 
     except Exception as e:  # noqa: BLE001
         log.exception("Falha na busca")
@@ -925,6 +1001,7 @@ def run_search(
         "lede_rescued": n_lede_ok,
         "snippets_backfilled": n_backfilled,
         "translated": n_translated,
+        "translation_retried": n_retried,
     }
 
 

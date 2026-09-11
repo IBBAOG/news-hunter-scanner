@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Iterable
@@ -30,11 +31,93 @@ TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "fbclid", "gclid", "mc_cid", "mc_eid", "ref", "ref_src",
     "__twitter_impression",
+    # Added 2026-09-11 from the duplicate audit of news_articles: every one of
+    # these produced 2+ rows for one article, and none identifies the article.
+    "traffic_source",           # aljazeera ?traffic_source=rss
+    "srnd",                     # bloomberg ?srnd=phx-industries
+    "ysclid",                   # Yandex click id (neftegaz)
+    ".tsrc",                    # offshore-technology ?.tsrc=rss
+    "__hstc", "__hssc", "__hsfp",  # HubSpot (tradewinds)
+    "zephr_sso_ott",            # one-time SSO token (tradewinds/upstream)
 }
+
+# AMP switches carried in the query string: dropped only for these exact values,
+# so e.g. an `outputType=json` elsewhere is left alone.
+_AMP_QUERY_VALUES = {
+    "amp": {"", "1", "true"},        # globalenergynetwork ?amp=1
+    "outputtype": {"amp"},           # bloomberglinea ?outputType=amp
+    "ampmode": {"1", "true"},        # investing ?ampMode=1
+}
+
+# Host-specific tracking keys: generic enough to be noise ON THAT HOST, too
+# generic to strip everywhere (`source`, `module`, `chan` can be real ids on
+# another site). Matched on the host or any subdomain of it.
+_HOST_TRACKING_PARAMS: dict[str, frozenset[str]] = {
+    "rigzone.com": frozenset({"rss"}),
+    "intellinews.com": frozenset({"source"}),
+    "reuters.com": frozenset({"chan"}),
+    "cnn.com": frozenset({"cid", "iid", "recs_exp", "tenant_id"}),
+    "scmp.com": frozenset({"module", "pgtype", "tpcc", "uuid"}),
+}
+
+# Hosts whose ARTICLE pages carry nothing but tracking in the query string. Sina
+# Finance appends a different `?cre=tianyi&mod=pchp&loc=NN&rfunc=NN...` for every
+# homepage slot that links the story, plus `?finpagefr=p_108` from the section
+# page — one headline was stored under 8 urls (2026-09-11), each translated
+# separately. Only static article paths (.shtml/.html) are stripped; a dynamic
+# page such as stock.finance.sina.com.cn/.../paper.php?reportid=... keeps its id.
+_DROP_QUERY_ON_ARTICLE_PATH: tuple[str, ...] = ("sina.com.cn",)
+_ARTICLE_PATH = re.compile(r"\.s?html?$", re.IGNORECASE)
+
+# Quintype's AMP scheme (gulfnews.com/amp/story/<encoded path>) has no plain
+# counterpart at the same path, so the /amp/ prefix is only collapsed elsewhere.
+_AMP_PREFIX_KEEP = ("/amp/story/",)
+
+
+def _host_matches(netloc: str, host: str) -> bool:
+    return netloc == host or netloc.endswith("." + host)
+
+
+def _deamp_path(path: str) -> str:
+    """Collapse an AMP mirror path onto the canonical article path.
+
+    Verified against news_articles on 2026-09-11 — for every host below the
+    de-AMP'd path was itself stored as a row, i.e. both are the same article:
+      * prefix  /amp/<path>  -> /<path>   alarabiya, asharqbusiness, aljazeera,
+        neftegaz, portafolio, theedgesingapore, eleconomista
+      * suffix  <path>/amp   -> <path>    tass (/economy/2186047/amp),
+        arabnews (/node/2656503/amp)
+    """
+    lower = path.lower()
+    if lower.startswith("/amp/") and not lower.startswith(_AMP_PREFIX_KEEP):
+        path = path[4:]
+    elif lower.endswith("/amp") and len(path) > len("/amp"):
+        path = path[: -len("/amp")]
+    elif lower.endswith("/amp/") and len(path) > len("/amp/"):
+        path = path[: -len("/amp/")]
+    return path
+
+
+def _keep_param(netloc: str, key: str, value: str) -> bool:
+    k = key.lower()
+    if k in TRACKING_PARAMS or k.startswith("utm_"):
+        return False
+    amp_values = _AMP_QUERY_VALUES.get(k)
+    if amp_values is not None and value.lower() in amp_values:
+        return False
+    for host, keys in _HOST_TRACKING_PARAMS.items():
+        if k in keys and _host_matches(netloc, host):
+            return False
+    return True
 
 
 def normalize_url(url: str) -> str:
-    """Remove fragment, tracking params e 'www.' do host para dedupe estavel."""
+    """Canonical form of an article url, used as the news_articles primary key.
+
+    Removes the fragment, tracking params, AMP mirrors and 'www.' so the same
+    article reached through different links is ONE row — and therefore one
+    translation, not one per link variant.
+    """
     try:
         p = urlparse(url)
     except ValueError:
@@ -42,8 +125,15 @@ def normalize_url(url: str) -> str:
     netloc = p.netloc.lower()
     if netloc.startswith("www."):
         netloc = netloc[4:]
-    query = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if k.lower() not in TRACKING_PARAMS]
-    return urlunparse((p.scheme, netloc, p.path.rstrip("/") or p.path, p.params, urlencode(query), ""))
+    path = _deamp_path(p.path)
+    if any(_host_matches(netloc, h) for h in _DROP_QUERY_ON_ARTICLE_PATH) and _ARTICLE_PATH.search(path):
+        query: list[tuple[str, str]] = []
+    else:
+        query = [
+            (k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+            if _keep_param(netloc, k, v)
+        ]
+    return urlunparse((p.scheme, netloc, path.rstrip("/") or path, p.params, urlencode(query), ""))
 
 
 @dataclass
