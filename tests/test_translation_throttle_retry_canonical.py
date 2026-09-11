@@ -401,3 +401,41 @@ def test_retry_window_uses_published_at(monkeypatch):
     now = datetime(2026, 9, 11, 12, tzinfo=timezone.utc)
     translation_retry.select_retry_rows(sink, budget=1, days=7, now=now)
     assert seen["published_at"].startswith("2026-09-04T12:00")
+
+
+# ============================================================================
+# 4. Hash-routed pages: the fragment IS the article (found by the dry-run)
+# ============================================================================
+PLATTS_A = ("https://core.spglobal.com/#platts/insightsArticle"
+            "?articleID=00212e76-5daa-4d3c-8f2d-2ed2063dbf4f&insightsType=News")
+PLATTS_B = ("https://core.spglobal.com/#platts/insightsArticle"
+            "?articleID=00f5c6d6-eff8-460e-9902-3c72e044fcce&insightsType=Market%20Commentary")
+
+
+def test_platts_hash_route_is_kept_and_stable():
+    """The 2026-09-11 dry-run would have deleted 370 distinct Platts articles.
+
+    Every Platts url shares scheme+host+path; only the fragment differs. It must
+    survive normalization unchanged, or all of them collapse onto one key.
+    """
+    assert normalize_url(PLATTS_A) == PLATTS_A
+    assert normalize_url(PLATTS_B) == PLATTS_B
+    assert normalize_url(PLATTS_A) != normalize_url(PLATTS_B)
+
+
+def test_in_page_fragments_are_still_dropped():
+    assert normalize_url("https://example.com/story#comments") == "https://example.com/story"
+    assert normalize_url("https://example.com/app#/news/42") == "https://example.com/app#/news/42"
+    assert normalize_url("https://example.com/app#!/news/42") == "https://example.com/app#!/news/42"
+
+
+def test_plan_groups_never_folds_distinct_platts_articles():
+    assert plan_groups([PLATTS_A, PLATTS_B]) == {}
+
+
+def test_plan_groups_refuses_a_fold_across_distinct_fragments(monkeypatch):
+    """Even if a future canonicalizer regressed and mapped both to one key."""
+    import scripts.dedupe_canonical_urls as dedupe_mod
+
+    monkeypatch.setattr(dedupe_mod, "normalize_url", lambda u: "https://core.spglobal.com")
+    assert dedupe_mod.plan_groups([PLATTS_A, PLATTS_B]) == {}

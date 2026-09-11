@@ -63,10 +63,21 @@ def plan_groups(urls: list[str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = defaultdict(list)
     for u in urls:
         groups[normalize_url(u)].append(u)
-    return {
-        canon: members for canon, members in groups.items()
-        if len(members) > 1 or members[0] != canon
-    }
+    out: dict[str, list[str]] = {}
+    for canon, members in groups.items():
+        if not (len(members) > 1 or members[0] != canon):
+            continue
+        # Defense in depth for an irreversible DELETE: members that differ by
+        # a non-empty fragment may be different pages (hash-routed portals put
+        # the article id there). normalize_url already keeps route fragments;
+        # if a future rule ever regresses that, this refuses the fold instead
+        # of deleting distinct articles.
+        fragments = {u.partition("#")[2] for u in members if "#" in u}
+        if len(fragments) > 1:
+            log.warning("skipping group %s: %d distinct fragments", canon, len(fragments))
+            continue
+        out[canon] = members
+    return out
 
 
 def _rank(row: dict) -> tuple:

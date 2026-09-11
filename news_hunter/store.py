@@ -111,12 +111,32 @@ def _keep_param(netloc: str, key: str, value: str) -> bool:
     return True
 
 
+def _route_fragment(fragment: str) -> str:
+    """Keep a fragment only when it IS the page address (hash-routed SPA).
+
+    A normal fragment (`#top`, `#comments`) points inside one page and is
+    dropped. But S&P Global's Platts portal routes every article through the
+    fragment — `core.spglobal.com/#platts/insightsArticle?articleID=<uuid>` —
+    so there the fragment is the only thing telling 371 stored articles apart
+    (measured 2026-09-11; it is the only domain in news_articles with a
+    fragment at all). Dropping it would fold all of them onto one url, and the
+    dedupe job would DELETE 370 distinct articles. Kept when the fragment
+    carries its own query string, or is a `#/` or `#!` route.
+    """
+    if not fragment:
+        return ""
+    if "?" in fragment or fragment.startswith(("/", "!")):
+        return fragment
+    return ""
+
+
 def normalize_url(url: str) -> str:
     """Canonical form of an article url, used as the news_articles primary key.
 
-    Removes the fragment, tracking params, AMP mirrors and 'www.' so the same
-    article reached through different links is ONE row — and therefore one
-    translation, not one per link variant.
+    Removes in-page fragments, tracking params, AMP mirrors and 'www.' so the
+    same article reached through different links is ONE row — and therefore one
+    translation, not one per link variant. A hash-route fragment that
+    identifies the page is kept (see _route_fragment).
     """
     try:
         p = urlparse(url)
@@ -133,7 +153,10 @@ def normalize_url(url: str) -> str:
             (k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
             if _keep_param(netloc, k, v)
         ]
-    return urlunparse((p.scheme, netloc, path.rstrip("/") or path, p.params, urlencode(query), ""))
+    return urlunparse((
+        p.scheme, netloc, path.rstrip("/") or path, p.params, urlencode(query),
+        _route_fragment(p.fragment),
+    ))
 
 
 @dataclass
