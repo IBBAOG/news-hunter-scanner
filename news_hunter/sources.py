@@ -756,7 +756,86 @@ RSS_FEEDS: dict[str, list[str]] = {
     # without conflicts. Empty is the correct state until a wave lands.
     # =======================================================================
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
-    # (empty until wave A appends its entries here)
+    # Measured 2026-09-14 on the runner (measure_source.yml) against the LIVE
+    # keyword set -- which is now 187 terms (78 exact / 109 substring), not the
+    # 91 the README paragraph quotes. Window 168h, --lede on.
+    #
+    # SURFACE RULE APPLIED IN THIS WAVE: keep RSS when the outlet's own feed is
+    # SECTION-scoped and its measured yield is within reach of the keyword-scoped
+    # GNews surface; go GNews when the feed is WAF-blocked, frozen, a stub, or a
+    # general firehose whose yield is a fraction of it (the Gulf News /
+    # Al Jazeera call of 2026-08-18). Only 3 of this wave's 24 candidates kept
+    # RSS; the other 21 are in ENGLISH_NO_RSS_DOMAINS, each with its numbers.
+    #
+    # NOTE FOR THE WHOLE WAVE: display names live in SOURCE_NAMES
+    # (_clipinator_shim.py), which carries NO Wave 5 anchor, so every outlet this
+    # wave registers renders as its bare domain (enrich.source_name_for falls
+    # back to the domain) until a post-merge pass adds the names in one change.
+    #
+    # Financial Times (ft.com) -- paywalled, but both section feeds answer from
+    # the runner, are dated and carry title+summary, which is all a title/summary
+    # match needs. Two feeds registered, the same narrow-over-general call as The
+    # Hindu BusinessLine:
+    #   - commodities: the anchor. items=25 span=109h fresh=25 pass=21 near=4
+    #     rescued=0 no_body=0 fetch=0.52s -- twenty-one passes in the 7d window,
+    #     ~all on-beat (Saudi East-West pipeline shut, oil at $109, record US
+    #     diesel, IEA "lost period" in oil demand, Houthis in the Red Sea, Shell
+    #     upstream, the KPMG / State Oil audit probe).
+    #   - companies/energy: items=25 span=109h fresh=25 pass=19 near=6 rescued=0
+    #     no_body=0 fetch=0.34s. Overlaps commodities heavily but is NOT a subset
+    #     -- the Russia/Ukraine energy-truce claim, the Musk gas-turbine piece and
+    #     the coal-vs-gas analysis land only here, while "Oil is scary again",
+    #     the $109 bond sell-off and the Houthi island seizure land only in
+    #     commodities. Both registered, for the union.
+    #   - rss/home (the site-wide firehose) measured items=13 span=14h fresh=13
+    #     pass=5 -- a 13-item stub of the front page. NOT registered.
+    # GNews site:ft.com measured pass=36/7d: higher recall (it also sees FT copy
+    # outside these two sections) but title-only. RSS wins here because the feeds
+    # are section-scoped, fast (0.34-0.52s) and carry summaries. Feed and article
+    # links are www, so normalize_url strips to the apex ft.com.
+    "www.ft.com": [
+        "https://www.ft.com/commodities?format=rss",
+        "https://www.ft.com/companies/energy?format=rss",
+    ],
+    # The Guardian (theguardian.com) -- the highest-precision feed of this wave.
+    # /business/oil/rss is the outlet's own oil tag: items=20 span=290h fresh=15
+    # pass=11 near=4 rescued=0 no_body=0 fetch=0.49s -- eleven of the fifteen
+    # fresh items pass, ~10 on-beat (Saudi pipeline satellite imagery, Houthis
+    # taking an island on the oil route, oil above $100/bbl, the Dangote refinery
+    # IPO, the ECB warning that the Iran war fuels inflation, the Venezuela oil
+    # deal). The recurring false positive is a UK air-traffic-control live blog
+    # on the substring `gas`; bounded (title-only, url-keyed, lands once).
+    # Also measured, NOT registered (recorded so no later wave re-tests them):
+    # business/commodities items=20 fresh=13 pass=7 (six of the seven are the
+    # same stories as business/oil); environment/energy items=20 fresh=14 pass=7,
+    # of which ~3 are offshore-WIND / climate-study copy on the substrings
+    # `offshore` and `ethane`; business (site-wide) items=20 fresh=16 pass=6, all
+    # duplicates. GNews site:theguardian.com measured pass=23/7d -- more recall
+    # across the world / environment desks, but title-only and noisier; the oil
+    # tag IS the beat, so RSS. Links are www -> apex theguardian.com.
+    "www.theguardian.com": [
+        "https://www.theguardian.com/business/oil/rss",
+    ],
+    # CBS News (cbsnews.com) -- registered on RSS deliberately, AGAINST the much
+    # bigger GNews number, because the two surfaces carry different things:
+    #   - RSS /latest/rss/world (registered): items=30 span=197h fresh=29 pass=7
+    #     near=22 rescued=0 no_body=5 fetch=0.10s -- five of the seven are the
+    #     global energy beat (Hormuz talks stalling, an Iranian vessel struck in
+    #     Hormuz, Iran proxies compounding the oil shock, Trump on Russian
+    #     refineries, Houthis widening control of the shipping lane); the other
+    #     two are `missile` defence copy. /latest/rss/moneywatch measured pass=3
+    #     (on-beat but a subset) and /latest/rss/main pass=4, so `world` is it.
+    #   - GNews site:cbsnews.com measured pass=60/7d -- the largest number in the
+    #     wave and mostly NOT usable: ~30 of the 60 are CBS local-affiliate pump
+    #     copy (Michigan / Philadelphia / Sacramento / Bay Area gas prices) and
+    #     ~6 are gas-station crime / food false positives ("gas station heroin",
+    #     cinnamon rolls at a Sacramento station, a station shooting). Path
+    #     scoping kills the noise but also the volume: site:cbsnews.com/news
+    #     items=35 span=150h fresh=35 pass=8 near=27, clean but title-only and no
+    #     better than the feed. Hence RSS. Links are www -> apex cbsnews.com.
+    "www.cbsnews.com": [
+        "https://www.cbsnews.com/latest/rss/world",
+    ],
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -855,7 +934,14 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # without conflicts. Empty is the correct state until a wave lands.
     # =======================================================================
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
-    # (empty until wave A appends its entries here)
+    # The three outlets this wave kept on RSS (full numbers and the surface
+    # rationale live next to their RSS_FEEDS entries above). The other 21 Wave 5A
+    # candidates are GNews-en and are tagged on that route, so they must NOT be
+    # listed here -- test_international_rss_source_lang asserts the two rosters
+    # are disjoint.
+    "ft.com", "www.ft.com",                                     # Financial Times
+    "theguardian.com", "www.theguardian.com",                   # The Guardian
+    "cbsnews.com", "www.cbsnews.com",                           # CBS News
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1428,7 +1514,285 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # without conflicts. Empty is the correct state until a wave lands.
     # =======================================================================
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
-    # (empty until wave A appends its entries here)
+    # Global wires & US mainstream, measured 2026-09-14 on the runner
+    # (measure_source.yml) against the LIVE keyword set -- 187 terms today
+    # (78 exact / 109 substring), not the 91 the README paragraph quotes.
+    # Window 168h. Every number below is the GNews en-US title-pass count over
+    # those 7 days unless said otherwise, and each entry also records what the
+    # outlet's OWN feed did, so no later wave re-tests a surface this one killed.
+    #
+    # 24 candidates measured, 24 registered, 0 rejected: 3 kept RSS (Financial
+    # Times, The Guardian, CBS News -- see RSS_FEEDS) and the 21 below are
+    # GNews-en. Bodies stay unreachable on this route, so items land title-only
+    # (empty snippet).
+    #
+    # Adding 21 domains takes ENGLISH_NO_RSS_DOMAINS past EN_GNEWS_QUERIES_PER_SCAN
+    # (34), which is expected and safe: the scan then rotates the list over
+    # ceil(n/34) cohorts, one per 5-minute scan, and every domain is still queried
+    # two orders of magnitude inside its 24h `when:` window.
+    #
+    # TWO NOISE CLASSES RECUR ACROSS THIS WHOLE COHORT, both bounded (title-only,
+    # url-keyed, each lands at most once): (a) PERENNIAL quote / chart / SEC-filing
+    # pages on the markets sites, the TradingView pathology -- lethal on
+    # marketwatch.com (fixed with a path scope below), mild on barrons.com /
+    # foxbusiness.com / businessinsider.com; (b) proper nouns and idioms hitting
+    # the exact keywords -- "Brent Spence" (a bridge), "Brent Headrick" (a
+    # pitcher), "Vin Diesel", "snake oil salesman", "gas station" crime copy.
+    #
+    # Associated Press (apnews.com) -- the US wire, and the anchor of this
+    # cohort. GNews pass=33/7d (items=100 fresh=100 near=67), ~28 on-beat and
+    # broad: the Saudi East-West pipeline drone strike, US diesel past $6,
+    # Houthis seizing Red Sea islands, oil above $100, Yemen sliding to war,
+    # Cameron Parish LNG litigation, Lula cutting fuel taxes. No RSS: index.rss,
+    # hub/business.rss and hub/climate-and-environment.rss all return HTTP 403
+    # from the runner (WAF). Articles resolve to apnews.com.
+    "apnews.com",
+    # The Wall Street Journal (wsj.com) -- paywalled, and its Dow Jones feeds are
+    # not blocked but FROZEN, the "answers 200 and has simply stopped moving"
+    # class: feeds.a.dj.com/rss/RSSWorldNews.xml items=0; RSSMarketsMain.xml
+    # items=20 span=57h fresh=0; WSJcomUSBusiness.xml items=20 span=12h fresh=0
+    # (a dated payload whose newest item is older than the 7d window). GNews
+    # pass=34/7d (items=100 fresh=100 near=66), ~30 on-beat and squarely the desk
+    # we want: "What Is Saudi Arabia's East-West Pipeline and Why Is It Rocking
+    # Oil Markets?", record diesel, US natural-gas futures, the Hormuz bypass.
+    # Articles resolve to www.wsj.com.
+    "wsj.com",
+    # The New York Times (nytimes.com) -- GNews pass=22/7d (items=100 fresh=100
+    # near=78), essentially 100% on-beat (Saudi oil exports plunging, Gulf tankers
+    # running out of export routes, diesel above $6, the North Sea drilling
+    # decision, Houthis on the oil route). Its RSS is alive but far thinner and
+    # is what loses the comparison: rss.nytimes.com/services/xml/rss/nyt/
+    # Business.xml items=49 span=98h fresh=49 pass=6 near=43 no_body=12, and
+    # .../EnergyEnvironment.xml items=20 span=313h fresh=11 pass=1 -- that single
+    # pass also appears in Business, so the sector feed adds nothing. 6 vs 22.
+    # Articles resolve to www.nytimes.com.
+    "nytimes.com",
+    # The Washington Post (washingtonpost.com) -- the richest of the US
+    # mainstream: GNews pass=40/7d (items=100 fresh=100 near=60), ~34 on-beat
+    # (how much oil really moves through Hormuz, the Saudi pipeline shutdown,
+    # Gulf states racing to bypass Hormuz, $6 diesel, US sanctions on Iranian
+    # airlines). Its own feeds are BOTH slow and a stub -- they time out at the
+    # 4s default and return 3-11 items at ~9-10s; the full autopsy and the
+    # decision not to buy them an override are in FEED_TIMEOUT_OVERRIDES.
+    # Bounded noise: the daily "Tracking Trump" roundups, whose blurb mentions
+    # oil. Articles resolve to www.washingtonpost.com.
+    "washingtonpost.com",
+    # The Economist (economist.com) -- paywalled weekly, so a low absolute number
+    # was expected and the GNews route still beats its feed 19 to 1. GNews
+    # pass=19/7d (items=100 fresh=95 near=76; span reads 21268h because Google
+    # surfaced a few archive pages, but 95 of the 100 are inside the window).
+    # CAVEAT: ~12 of the 19 are the daily "World in Brief" digest, whose blurb
+    # names Brent / the Saudi pipeline / oil routes -- on-beat but one story a
+    # day, heavily repetitive. The remaining ~6 are the real thing: "How an
+    # oil-supply crisis could bring about an investment boom", "Is traffic
+    # through Hormuz really back to normal?", "The Houthis' advance puts oil
+    # markets on edge". RSS measured: business/rss.xml items=300 span=6806h
+    # fresh=8 pass=1, finance-and-economics fresh=6 pass=0, international fresh=2
+    # pass=0 -- 300-item archives with ~8 fresh items a week. Articles resolve to
+    # www.economist.com.
+    "economist.com",
+    # BBC News (bbc.com) -- GNews pass=23/7d (items=100 fresh=100 near=77),
+    # ~19 on-beat (the Saudi pipeline drone attack, rising oil prices as winter
+    # looms, the Dangote refinery share sale, how the Houthi advance hits trade
+    # and oil). Its feeds work but are general-news: feeds.bbci.co.uk/news/
+    # business/rss.xml items=57 span=2372h fresh=40 pass=3 (two distinct stories,
+    # one repeated) and news/world/rss.xml items=32 fresh=32 pass=3 -- the Gulf
+    # News call of 2026-08-18, a keyword-scoped query over the whole site beats
+    # downloading a general feed every poll. FP to watch: "'Wannabe Vin Diesel'
+    # has Volkswagen seized at Castle Donington car meet" on the substring
+    # `diesel`. Articles resolve to www.bbc.com (and bbc.co.uk for UK copy).
+    "bbc.com",
+    # The Times / The Sunday Times (thetimes.com) -- hard paywall, so Google
+    # indexes little: GNews pass=7/7d (items=100 fresh=98 near=91), but 6 of the
+    # 7 are on-beat and distinctly British-desk (Ukraine hitting Siberian gas
+    # plants in the deepest drone strikes of the war, what the Houthi advance
+    # means, oil above $100, the US destroying Iranian tankers, the Saudi
+    # pipeline shutdown); the seventh is West Bank sanctions on `sanction`.
+    # No RSS: www.thetimes.com/business-money/rss is not a feed at all -- the
+    # fetcher gets an HTML page and dies on `<unknown>:2:411: mismatched tag`.
+    # Kept at the paywall-source floor. Articles resolve to www.thetimes.com.
+    "thetimes.com",
+    # The Telegraph (telegraph.co.uk) -- GNews pass=21/7d (items=100 fresh=99
+    # near=78), ~15 on-beat and unusually good on the shipping/chokepoint angle
+    # ("The shock Houthi mission to strangle global oil", the Saudi pipeline
+    # breadcrumb trail, diesel at a four-year high, the North Sea drilling delay,
+    # coal demand at a record as the Iran war cuts gas). RSS is effectively
+    # frozen: telegraph.co.uk/business/rss.xml items=120 span=7991h fresh=2
+    # pass=0. Bounded noise: UK-politics `sanction` copy and one one-word "Oil"
+    # section stub. Articles resolve to www.telegraph.co.uk.
+    "telegraph.co.uk",
+    # Sky News (news.sky.com) -- NOTE THE HOST: articles live on the news.
+    # subdomain, not the sky.com apex, and that is the form measured. GNews
+    # pass=13/7d (items=72 fresh=72 near=59), ~8 on-beat (Ed Conway's oil-routes
+    # analysis, oil at $100 with diesel at all-time highs, Iran retaliating over
+    # its tankers, the Saudi pipeline satellite imagery, Trump on North Sea oil).
+    # Its feeds are useless for this beat: feeds.skynews.com/feeds/rss/
+    # business.xml items=10 fresh=9 pass=0, and world.xml items=8 fresh=8 pass=1
+    # where the single pass is a `drone` false positive (an alert that turned out
+    # to be a flock of birds). The residual noise here is Ukraine drone copy.
+    "news.sky.com",
+    # POLITICO (politico.com) -- registered at the floor, and deliberately: its
+    # energy desk E&E News (eenews.net) is already in this list from Wave 3 at
+    # pass=15/7d and carries the US policy beat, so this apex is only the
+    # marginal main-site pickup. GNews pass=6/7d (items=100 fresh=97 near=91) of
+    # which 3 are on-beat (the oil benchmark topping $100, CENTCOM destroying
+    # five Iranian tankers, the "Out of time on oil" newsletter) and 3 are
+    # off-beat (Israel-settlement sanctions x2, plus "Campaigns hit the gas", an
+    # idiom on the exact keyword `gas`). RSS measured: rss.politico.com/
+    # energy.xml items=30 span=936h fresh=6 pass=1 (the same $100 story) and
+    # economy.xml items=3 fresh=0. Articles resolve to www.politico.com.
+    "politico.com",
+    # POLITICO Europe (politico.eu) -- the EU energy-policy angle. GNews
+    # pass=6/7d (items=57 fresh=56 near=50): 2-3 on-beat (Trump asking Ukraine to
+    # halt strikes on Russian oil refineries, Houthis seizing a Red Sea port) and
+    # 3 EU-sanctions-on-Israel items passing on the substring `sanction` -- a
+    # 50-67% off-beat rate, high but inside the rejection bar, and the on-beat
+    # items are Brussels-desk copy no other registered source carries. RSS
+    # measured: politico.eu/feed/ items=10 span=6h fresh=10 pass=1 (a 10-item
+    # front-page stub) and /section/energy-uk/feed/ items=31 span=790h fresh=6
+    # pass=2. Articles resolve to www.politico.eu.
+    "politico.eu",
+    # Axios (axios.com) -- GNews pass=12/7d (items=52 fresh=48 near=36), ~7
+    # on-beat and genuinely additive on the US fuels/macro read (record diesel
+    # stoking food inflation, the EIA raising its 2027 diesel outlook, "Oil's
+    # 'new normal' is looking more expensive", MBS pressing Trump to strike the
+    # Houthis, home heating-oil bills). The rest is Axios LOCAL copy ("Vacant
+    # Birmingham gas station site getting $8M makeover", coffee in an old gas
+    # station) plus the wave's best exact-keyword trap: "The Brent Spence project
+    # is finally underway" -- a BRIDGE matching `Brent`. Its own feed is worse,
+    # not better: api.axios.com/feed/ items=100 span=250h fresh=75 pass=16
+    # near=59 looks richer, but only ~6 of the 16 are on-beat because the feed
+    # ships full newsletter blurbs, so unrelated items match on the SUMMARY (a
+    # Vance campaign profile matched eight keywords at once). api.axios.com/feed/
+    # energy-climate is HTTP 404. Articles resolve to www.axios.com.
+    "axios.com",
+    # Forbes (forbes.com) -- GNews pass=11/7d (items=100 fresh=100 near=89), ~8
+    # on-beat (oil crossing $100 as tankers are struck, Houthi attacks opening a
+    # new front, "The Houthis Do Not Need To Close Bab El-Mandeb", four separate
+    # diesel-record pieces, the Hormuz escape route under attack). Two proper-noun
+    # FPs, both quotable: "Insomniac Explains Wolverine's Already-Infamous 'Fart
+    # Gas Trails'" on `gas` and a New York Yankees profile of "Brent Headrick" on
+    # the exact `Brent`. RSS: forbes.com/energy/feed/ is HTTP 404 (the energy
+    # section has no feed) and forbes.com/business/feed/ is a 2-hour firehose
+    # window -- items=25 span=2h fresh=25 pass=1, and that one pass is an EPA
+    # greenhouse-`gas` item. Articles resolve to www.forbes.com.
+    "forbes.com",
+    # Fortune (fortune.com) -- GNews pass=21/7d (items=100 fresh=94 near=73),
+    # ~19 on-beat and strong on the US-macro transmission of the oil shock
+    # (California diesel overwhelming pump displays, US diesel 60% above pre-war,
+    # oil topping $100, the Canada trade-deficit-is-oil explainer, Ryanair on
+    # fares above $100 oil, Chevron/Occidental earnings calls). CAVEAT: six of
+    # the 21 are the perennial daily series "Current price of oil as of <date>"
+    # -- on-beat, but one per day and url-keyed, so it lands once a day forever.
+    # RSS: fortune.com/feed/fortune-feeds/?id=3230629 items=10 span=36h fresh=10
+    # pass=1. Articles resolve to fortune.com.
+    "fortune.com",
+    # Business Insider (businessinsider.com) -- pass=36/7d (items=100 fresh=100
+    # near=64), ~28 on-beat and the most ADDITIVE domain of the wave: BI's Africa
+    # desk is a beat nothing else in the roster carries (the Dangote refinery IPO
+    # in five separate stories, Dangote buying 16 Mbbl of Nigerian crude,
+    # TotalEnergies' $10bn Angola plan, ExxonMobil's 20th Angola discovery, a new
+    # West African licensing round, Algeria/Nigeria revenue exposure), on top of
+    # the global beat (the Saudi pipeline, China buying Angolan/Congolese crude).
+    # Noise: one perennial quote page ("Palm Oil PRICE Today | Live Price of Palm
+    # Oil per Ounce" -- the TradingView pathology, on the substring `oil`) and a
+    # few press releases syndicated from markets.businessinsider.com. RSS is a
+    # non-starter: markets.businessinsider.com/rss/news items=10 span=0h fresh=10
+    # pass=1 (a ten-item, minutes-wide Benzinga syndication window) and
+    # www.businessinsider.com/rss items=20 span=5h fresh=20 pass=0. Articles
+    # resolve to www.businessinsider.com (and markets.businessinsider.com).
+    "businessinsider.com",
+    # MarketWatch (marketwatch.com/story) -- PATH-SCOPED, the rigzone.com/news
+    # precedent, and the clearest measured case in this wave for doing it. The
+    # bare domain looks like the richest source anywhere -- site:marketwatch.com
+    # pass=75/7d (items=100 fresh=98 near=23) -- but ~45 of those 75 are PERENNIAL
+    # quote / chart / filing pages that trivially carry a ticker keyword
+    # ("Download AYXCN31 Data | Mars (Argus) vs. WTI Trade Month Jul 2031 Price
+    # Data", "BRNM36 | Brent Crude Jun 2036 Overview", "OSA | Osaka Gas Co. Ltd.
+    # Profile", "MUR | Murphy Oil Corp. SEC Filings"), plus robo-posts ("Imperial
+    # Oil Ltd. stock rises Tuesday, outperforms market"). Scoped to the article
+    # path: site:marketwatch.com/story items=100 span=160h fresh=100 pass=54
+    # near=46 -- 54 passes, every one a real article (the Houthi front in the oil
+    # war, refining bottlenecks as the next big problem, $6 diesel, Enbridge
+    # buying Tallgrass' crude business, the EIA diesel outlook, Venture Global's
+    # China LNG deal, US crude stockpiles). RSS is frozen or a stub:
+    # feeds.content.dowjones.io/public/rss/mw_topstories items=10 span=2h fresh=10
+    # pass=1, mw_marketpulse items=30 span=9433h fresh=0, mw_realtimeheadlines
+    # items=10 span=11274h fresh=0. Articles resolve to www.marketwatch.com.
+    "marketwatch.com/story",
+    # Barron's (barrons.com) -- paywalled markets weekly. GNews pass=20/7d
+    # (items=100 fresh=99 near=79), ~17 on-beat and buy-side-shaped: "The Saudi
+    # Arabia Pipeline Attacks Just Redefined Middle East Oil Risk", European
+    # natural gas at a four-year high lifting energy stocks, $6 diesel simplifying
+    # the Fed's decision, 12 energy dividend stocks, Brent back above $100, Baker
+    # Hughes' worst day in a year. Noise: ~3 perennial quote pages ("Halliburton
+    # Co. Stock Grades | HAL", "Montero Mining & Exploration Advanced Charts") --
+    # the same class that forced a path scope on MarketWatch, but 3 of 20 instead
+    # of 45 of 75, so the bare domain stands. No RSS: barrons.com/feed/
+    # rssheadlines and feeds.a.dj.com/rss/RSSBarronsTopStories.xml are both HTTP
+    # 403 from the runner. Articles resolve to www.barrons.com.
+    "barrons.com",
+    # NPR (npr.org) -- GNews pass=19/7d (items=100 fresh=100 near=81), ~15
+    # on-beat (Houthi attacks igniting fires at Saudi oil facilities, why Houthi
+    # gains push gas prices higher, crude topping $100 at the pump, diesel past
+    # $6, whether the Gulf and Iran can negotiate Hormuz without the US, Iranians
+    # losing jobs under sanctions). Noise: NPR's newscast/roundup titles repeat
+    # one story across shows ("U.S. military destroys 5 Iranian oil tankers. And,
+    # the Smithsonian head resigns" x3, url-keyed so each lands once) and one FP,
+    # "Step Off the Gas and Charge : The Academic Minute". RSS: feeds.npr.org/
+    # 1006/rss.xml (Business) items=10 span=74h fresh=10 pass=2, and 1025/rss.xml
+    # (Energy) items=10 span=346h fresh=2 pass=0 -- ten-item windows. Articles
+    # resolve to www.npr.org.
+    "npr.org",
+    # ABC News (abcnews.com) -- NOTE THE DOMAIN FORM, it is the finding here:
+    # site:abcnews.go.com returns items=0 (Google does not index the outlet under
+    # the .go.com host), while site:abcnews.com measures pass=52/7d (items=100
+    # fresh=100 near=48), ~40 on-beat. abcnews.com is also the host the outlet's
+    # OWN feed links to, so both surfaces resolve the same source_domain. RSS was
+    # viable and still lost: feeds.abcnews.com/abcnews/businessheadlines items=25
+    # span=75h fresh=25 pass=10 near=15 fetch=0.54s (~22/7d once normalised to a
+    # 7-day window) with good precision, and /abcnews/topstories items=25 fresh=25
+    # pass=3 -- but 52 > 22 and the GNews route also reaches the international
+    # desk the business feed never carries.
+    "abcnews.com",
+    # NBC News (nbcnews.com) -- GNews pass=28/7d (items=100 fresh=100 near=72),
+    # ~24 on-beat (the 10-year yield topping 5% as oil surges and diesel hits an
+    # all-time high, Saudi Arabia's shutdown of the key pipeline, "Hormuz,
+    # Houthis and pipeline strikes", the federal gas tax on Trump's hit list,
+    # Iran raising gasoline prices). Noise to watch: two PERENNIAL trackers
+    # ("Tracking ship traffic through the Strait of Hormuz. Updated regularly",
+    # "Tracking U.S., state and county gas prices, in maps and charts. Updated
+    # daily") -- live pages with a moving date, bounded by the url key. RSS:
+    # feeds.nbcnews.com/nbcnews/public/business items=25 span=3810h fresh=23
+    # pass=7 (all on-beat) and .../public/world items=20 fresh=19 pass=8; 7-8
+    # against 28. Articles resolve to www.nbcnews.com.
+    "nbcnews.com",
+    # Fox Business (foxbusiness.com) -- GNews pass=20/7d (items=100 fresh=99
+    # near=79), ~16 on-beat (oil topping $103 on the Saudi pipeline shutdown,
+    # soaring diesel threatening the timber industry, "Diesel prices are the ones
+    # to watch, not oil", Brent at a six-week high on the Hormuz threat, state
+    # blocks on natural-gas pipelines, the US disabling ten Iranian tankers). It
+    # is also the roster's most POLITICAL read on prices (Trump's forecasts), so
+    # treat headline claims as quotes. Noise: two perennial ticker pages ("united
+    # states oil fund - usd acc - USO", "oil refineries ltd - OILRF") and a "snake
+    # oil salesman" idiom. RSS measured and rejected: moxie.foxbusiness.com/
+    # google-publisher/latest.xml items=25 span=74h fresh=25 pass=2, economy.xml
+    # items=25 span=308h fresh=7 pass=1, markets.xml items=25 span=1126h fresh=2
+    # pass=0, and feedburner/latest.xml serves the same payload as latest.xml.
+    # Articles resolve to www.foxbusiness.com.
+    "foxbusiness.com",
+    # --- Wave 5A REJECTED (measured 2026-09-14 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # NONE. All 24 candidates cleared the 2026-09 acceptance rule (pass >= 1 over
+    # 7d on some surface) and none was >= 80% off-beat. What WAS rejected is a
+    # surface per outlet, and each dead surface is written down in its entry
+    # above: AP / Barron's RSS (HTTP 403), the WSJ + MarketWatch Dow Jones feeds
+    # and Telegraph business (frozen: dated payload, fresh=0 or 2), The Times
+    # "feed" (HTML, mismatched tag), forbes.com/energy/feed/ and
+    # api.axios.com/feed/energy-climate (HTTP 404), the Washington Post feeds
+    # (9-10s for a 3-11 item stub), site:abcnews.go.com (0 items -- use
+    # abcnews.com), and the bare site:marketwatch.com (45 of 75 passes are
+    # perennial quote pages -- use the /story path).
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1670,7 +2034,18 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # without conflicts. Empty is the correct state until a wave lands.
     # =======================================================================
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
-    # (empty until wave A appends its entries here)
+    # EMPTY ON PURPOSE. Every feed this wave registered is fast: FT 0.34-0.52s,
+    # The Guardian 0.49s, CBS News 0.10s -- all well inside the 4s FEED_TIMEOUT,
+    # so no host here needs a longer budget.
+    # Recorded so a later wave does not re-open it: The Washington Post's feeds
+    # (feeds.washingtonpost.com/rss/{business,world,national}) DO time out at the
+    # 4s default and DO answer at 9.13-10.13s when re-measured with
+    # feed_timeout=12 -- and were still NOT given an override, because what
+    # arrives after those ten seconds is a stub: items=3 span=10h pass=0
+    # (business), items=11 span=44h pass=3 (world), items=7 span=40h pass=0
+    # (national). Spending ~10s of a 22s COLLECT_DEADLINE shared by ~65 feeds to
+    # collect three passes, when GNews site:washingtonpost.com measures
+    # pass=40/7d, is a bad trade. WaPo is in ENGLISH_NO_RSS_DOMAINS instead.
     # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----

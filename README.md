@@ -488,8 +488,43 @@ state until a wave lands.
 
 ### Global wires & US mainstream
 
+24 candidates measured on the runner 2026-09-14 (window 7d, live 187-keyword
+set), 24 registered, 0 rejected. Three kept RSS; the other 21 are GNews en-US,
+because their own feed is WAF-blocked (AP, Barron's), frozen (WSJ/Dow Jones,
+Telegraph, MarketWatch), absent or malformed (The Times, Forbes energy), a slow
+stub (Washington Post: 9-10s for 3-11 items) or a general firehose yielding a
+fraction of the keyword-scoped query (BBC 3 vs 23, NBC 7 vs 28, NPR 2 vs 19).
+`marketwatch.com/story` is path-scoped on purpose: the bare domain measures
+pass=75 but ~45 of those are perennial quote/chart/filing pages. ABC News is
+registered as `abcnews.com`, not `abcnews.go.com` (that host returns 0 GNews
+items and is not what the outlet's own feed links to).
+
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
+| Associated Press | apnews.com | GNews en-US | 33 |
+| Financial Times | ft.com | RSS | 21 commodities / 19 companies-energy |
+| The Wall Street Journal | wsj.com | GNews en-US | 34 |
+| The New York Times | nytimes.com | GNews en-US | 22 |
+| The Washington Post | washingtonpost.com | GNews en-US | 40 |
+| The Economist | economist.com | GNews en-US | 19 (~12 are the daily World in Brief) |
+| BBC News | bbc.com | GNews en-US | 23 |
+| The Guardian | theguardian.com | RSS | 11 (business/oil tag, 15 fresh) |
+| The Times | thetimes.com | GNews en-US | 7 |
+| The Telegraph | telegraph.co.uk | GNews en-US | 21 |
+| Sky News | news.sky.com | GNews en-US | 13 |
+| POLITICO | politico.com | GNews en-US | 6 |
+| POLITICO Europe | politico.eu | GNews en-US | 6 |
+| Axios | axios.com | GNews en-US | 12 |
+| Forbes | forbes.com | GNews en-US | 11 |
+| Fortune | fortune.com | GNews en-US | 21 |
+| Business Insider | businessinsider.com | GNews en-US | 36 |
+| MarketWatch | marketwatch.com/story | GNews en-US | 54 |
+| Barron's | barrons.com | GNews en-US | 20 |
+| NPR | npr.org | GNews en-US | 19 |
+| ABC News | abcnews.com | GNews en-US | 52 |
+| NBC News | nbcnews.com | GNews en-US | 28 |
+| CBS News | cbsnews.com | RSS | 7 (world feed; GNews 60 is half local pump copy) |
+| Fox Business | foxbusiness.com | GNews en-US | 20 |
 
 <!-- --- Wave 5A (2026-09-14): Global wires & US mainstream --- END -->
 
