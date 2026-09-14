@@ -82,9 +82,21 @@ def _truncate(s: str, max_chars: int = SNIPPET_MAX_CHARS) -> str:
 
 
 def source_name_for(domain: str) -> str:
+    """Display name for a host, falling back to the host itself.
+
+    The fallback strips a "www." PREFIX. It used to call `lstrip("www.")`,
+    which strips CHARACTERS from the set {w, .} and therefore mangled every
+    host starting with a w: "www.wsj.com" -> "sj.com", "worldoil.com" ->
+    "orldoil.com", "www3.nhk.or.jp" -> "3.nhk.or.jp". The damage was invisible
+    because a mangled host misses the dict and the function returns the raw
+    domain either way - which is exactly the "outlet renders as its bare
+    domain" symptom - so the registry had to key both forms of every outlet to
+    compensate. `removeprefix` makes the fallback do what its name says; the
+    registry keeps both keys anyway, so no existing lookup changes.
+    """
     if domain in SOURCE_NAMES:
         return SOURCE_NAMES[domain]
-    stripped = domain.lstrip("www.")
+    stripped = domain.removeprefix("www.")
     if stripped in SOURCE_NAMES:
         return SOURCE_NAMES[stripped]
     return domain
