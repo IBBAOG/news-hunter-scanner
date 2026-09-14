@@ -414,6 +414,21 @@ def _listing_hints(anchor) -> tuple[str, datetime | None]:
     return title, published
 
 
+def _same_site(feed_domain: str, netloc: str) -> bool:
+    """Is `netloc` the same site as `feed_domain`? www-insensitive both ways.
+
+    Was `netloc in (feed_domain, f"www.{feed_domain}", feed_domain.lstrip("www."))`
+    until 2026-09-14. `str.lstrip` takes a SET OF CHARACTERS, not a prefix, so
+    it eats every leading `w` and `.`: "worldpipelines.com" became
+    "orldpipelines.com" (a netloc nobody owns, accepted as same-site) while
+    "www.worldpipelines.com" never produced its own apex, so the outlet's real
+    article links were dropped as foreign. Silent on every domain that does not
+    start with `w`, which is why it survived.
+    """
+    apex = feed_domain.removeprefix("www.")
+    return netloc.lower() in (feed_domain, apex, f"www.{apex}")
+
+
 def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:
     """Scrapa homepage com curl_cffi e extrai links de artigos.
 
@@ -453,7 +468,7 @@ def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], st
             continue
         # Descarta URLs de outros dominios ou de categorias/tags
         parsed = urlparse(href)
-        if parsed.netloc.lower() not in (feed_domain, f"www.{feed_domain}", feed_domain.lstrip("www.")):
+        if not _same_site(feed_domain, parsed.netloc):
             continue
         path = parsed.path.rstrip("/")
         segments = [s for s in path.split("/") if s]
