@@ -1386,11 +1386,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # fourteen outlets of the wave are WAF-blocked, dateless, credential-walled
     # or feed-frozen and live in ENGLISH_NO_RSS_DOMAINS.
     #
-    # FOLLOW-UP this wave could not do: FEED_STALE_HOURS has no Wave 5 anchor, so
-    # it was left untouched -- eia.gov (newest item 102h old at measurement, one
-    # Today-in-Energy note per weekday) will nag against the 48h default every
-    # run until it gets an entry, and worldpipelines / tanksterminals (~1.3-1.7
-    # days between items) will nag occasionally.
+    # FOLLOW-UP this wave could not do, DONE 2026-09-14 post-merge:
+    # FEED_STALE_HOURS had no Wave 5 anchor, so the wave left it untouched and
+    # eia.gov (one Today-in-Energy note per weekday) nagged against the 48h
+    # default every run, with worldpipelines / tanksterminals (~1.3-1.7 days
+    # between items) nagging occasionally. All three now have a budget in the
+    # FEED_STALE_HOURS "Wave 5" block, keyed on the RSS_FEEDS key.
     # =======================================================================
     # LNG Industry (lngindustry.com) -- Palladian Publications' pure-LNG trade
     # daily; on-beat by construction. items=20 span=146h fresh=20 pass=20 near=0
@@ -3590,6 +3591,33 @@ FEED_STALE_HOURS: dict[str, float] = {
     "www.gazetadopovo.com.br": 7 * 24.0,
     "obastidor.com.br": 5 * 24.0,
     "www.theagribiz.com": 5 * 24.0,
+    # --- Wave 5 (2026-09-14) ---
+    # The international expansion added 40+ feeds and, with them, the first
+    # feeds on the roster that are legitimately slower than the 48h default.
+    # These six were nagging in production logs within hours of the merge. The
+    # KEY IS THE RSS_FEEDS KEY: feed_stale_hours() is a plain dict lookup on the
+    # registry key the fetcher carries (unlike FEED_TIMEOUT_OVERRIDES, which is
+    # www-insensitive), so "eia.gov" here would be a silent no-op.
+    #
+    # Budgets are the observed publishing rhythm plus room for a holiday week --
+    # a budget that nags every run is a wrong budget, and a nag nobody reads is
+    # worth nothing when the feed really dies.
+    # US EIA Today in Energy: one note per weekday, most of them electricity /
+    # renewables; newest item measured 4.3d old, and 15 items spanning 912h.
+    "www.eia.gov": 7 * 24.0,
+    # Calgary Herald /business/energy section feed: 3.4d at measurement, a
+    # regional daily's single-section desk.
+    "calgaryherald.com": 7 * 24.0,
+    # Energy Monitor (GlobalData): analysis desk, 3.3d at measurement.
+    "www.energymonitor.ai": 5 * 24.0,
+    # Palladian trade titles -- 20-item feeds spanning 599h (World Pipelines)
+    # and 792h (Tanks and Terminals), i.e. ~30-40h between items on average and
+    # several days across a quiet week.
+    "www.worldpipelines.com": 14 * 24.0,
+    "www.tanksterminals.com": 14 * 24.0,
+    # The Guardian business/oil TAG feed (not the business section): 20 items
+    # over 290h. A tag feed moves only when the desk files on that tag.
+    "www.theguardian.com": 4 * 24.0,
 }
 
 
