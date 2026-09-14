@@ -842,7 +842,191 @@ RSS_FEEDS: dict[str, list[str]] = {
     #
     #
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
-    # (empty until wave B appends its entries here)
+    # =========================================================================
+    # US regional, Europe, Canada, Oceania mainstream -- Wave 5B (2026-09-14).
+    # Nine of this wave's twenty registered outlets have a runner-reachable,
+    # dated RSS feed that beats their Google News surface and are registered
+    # here; the other eleven are GNews-only and live in ENGLISH_NO_RSS_DOMAINS,
+    # and four candidates were rejected outright (their numbers are in the
+    # ENGLISH_NO_RSS_DOMAINS Wave 5B REJECTED block). Yields measured on the
+    # runner (measure_source.yml, live 91-keyword set, 7d window, --lede)
+    # 2026-09-14.
+    #
+    # SURFACE PICK for this wave, since almost every candidate has BOTH a feed
+    # and a GNews surface: take the higher measured 7-DAY yield, normalising a
+    # feed whose span is shorter than the window (pass x 168/span -- legitimate
+    # because the scanner polls every ~5 min and therefore sees essentially
+    # every item of a 10-30 slot rolling feed), and TIE-BREAK TO RSS whenever
+    # GNews is less than 2x richer, because an RSS item lands with a summary
+    # while a GNews item lands title-only. Both numbers are recorded per entry
+    # so the call stays auditable and reversible.
+    # =========================================================================
+    # Investing.com, English edition (investing.com) -- global markets /
+    # commodities wire. DO NOT CONFUSE with br.investing.com, which is a
+    # DIFFERENT HOST and stays in NO_RSS_DOMAINS as a Brazilian (pt-BR) source:
+    # normalize_url only strips a leading "www.", so the BR subdomain never
+    # resolves to this key and keeps its national classification.
+    # /rss/news_11.rss (commodities & futures news): items=10 span=2h fresh=10
+    # pass=6 near=4 rescued=0 no_body=4 fetch=0.10s -- SIX passes inside a TWO
+    # HOUR span, all pure sector (oil settles higher after Saudi strikes,
+    # Natural Gas live levels, Crude Oil WTI, London Gas Oil, Brent, NW European
+    # gasoline margins), i.e. ~500/7d normalised against GNews pass=94/7d
+    # (items=100 fresh=100 near=6). Part of the feed is auto-generated "Live
+    # levels" technical-level copy: repetitive in shape but on-beat, and
+    # url-keyed, so each lands at most once.
+    # NOT registered: /rss/commodities.rss -- items=10 pass=6 but span="-", i.e.
+    # DATELESS (every item printed [-1.0h]); the scanner cannot persist an item
+    # without published_at, the same autopsy as World Oil.
+    "www.investing.com": [
+        "https://www.investing.com/rss/news_11.rss",
+    ],
+    # France 24, English edition (france24.com) -- French public international
+    # broadcaster. /en/rss is the English front page: items=24 span=10h fresh=24
+    # pass=6 near=18 rescued=0 fetch=0.31s -- six passes in a TEN HOUR span
+    # (~100/7d normalised) against GNews pass=46/7d, so the feed wins by >2x.
+    # Pass set is the supply-chokepoint beat (coal re-routing around a shut
+    # Strait of Hormuz, Yemen displacement, an Iranian missile/drone "axis"
+    # analysis, Russian strikes on Ukraine). One false positive in six, on the
+    # substring `gas`: "tear gas" at a Turkish protest -- bounded, title-only,
+    # url-keyed.
+    # NOT registered: /en/business-tech/rss -- items=29 span=1547h fresh=6
+    # pass=4 and ALL FOUR passes are false positives (champagne on `gas`,
+    # Canadian retaliatory tariffs on `embargo`, Bombardier on `gasoline`, a VW
+    # defence plant on `missile`). A section feed usually beats the front page
+    # (the Gazeta do Povo lesson); here it is measurably the worse pick.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # france24.com.
+    "www.france24.com": [
+        "https://www.france24.com/en/rss",
+    ],
+    # Le Monde in English (lemonde.fr) -- the English edition of the French
+    # daily, published under /en/. The language check this programme requires
+    # (GNews hl=en-US site:lemonde.fr) came back in ENGLISH, and so does the
+    # feed, so the domain qualifies as an international English source.
+    # /en/rss/une.xml (English front page): items=18 span=13h fresh=18 pass=3
+    # near=15 rescued=0 fetch=0.08s -- three passes in a THIRTEEN HOUR span
+    # (~39/7d normalised) against GNews pass=11/7d, all three on-beat (Houthi
+    # control of the Bab al-Mandab strait, a Strait of Hormuz reportage, the
+    # Russian drone strike on a train near the Polish border).
+    # NOT registered: /en/economy/rss_full.xml -- items=20 span=118h fresh=20
+    # pass=1, and its single pass (the Bab al-Mandab piece) is already carried
+    # by une.xml; the economy section alone is thinner than the front page.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # lemonde.fr.
+    "www.lemonde.fr": [
+        "https://www.lemonde.fr/en/rss/une.xml",
+    ],
+    # The Irish Times (irishtimes.com) -- Irish daily of record; the Arc
+    # outboundfeeds BUSINESS section. items=100 span=168h fresh=99 pass=10
+    # near=89 rescued=0 fetch=2.42s against GNews pass=16/7d (items=100
+    # fresh=100): GNews is 1.6x richer, i.e. inside this wave's 2x tie-break, so
+    # RSS wins for the summary it carries. Pass set is Irish energy policy plus
+    # the global price tape (Ireland "seriously considering" fracked US gas for
+    # a Clare LNG reserve, Hormuz, oil past $100 / $105, Brent near $101, diesel
+    # above EUR 2 and home heating oil). Two false positives in ten: a UK GDP
+    # item where `oil` appears in passing, and a salmon-tag story matching the
+    # substring `upstream`.
+    # FETCH-TIME WATCH: 2.42s is the slowest feed of this wave against the
+    # scanner's 4s FEED_TIMEOUT. It is inside budget, so it deliberately gets NO
+    # FEED_TIMEOUT_OVERRIDES entry (that dict is for feeds measured ABOVE 4s) --
+    # but if this outlet ever reads as dead, re-measure with --feed-timeout 12
+    # before blaming a WAF.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # irishtimes.com.
+    "www.irishtimes.com": [
+        "https://www.irishtimes.com/arc/outboundfeeds/feed-business/?outputType=xml",
+    ],
+    # City A.M. (cityam.com) -- London financial daily. WordPress /feed/:
+    # items=30 span=13h fresh=30 pass=3 near=27 rescued=0 fetch=0.40s -- three
+    # passes in a THIRTEEN HOUR span (~39/7d normalised) against GNews
+    # pass=4/7d, the widest RSS-over-GNews margin of this wave. Pass set: the
+    # regulator triple probe into Prax Group oil audits (the Lindsey refinery
+    # owner -- a UK downstream story no other registered source carries), FTSE
+    # 100 with oil at a four-month high, and UK sanctions on Israeli
+    # settlements. One false positive in three: a London-buses column whose
+    # summary matches the substring `refin` (refinancing) -- bounded,
+    # title/summary-only, url-keyed.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # cityam.com.
+    "www.cityam.com": [
+        "https://www.cityam.com/feed/",
+    ],
+    # Financial Post (financialpost.com) -- Postmedia Canadian business daily
+    # and the strongest Calgary-oil-patch candidate of this wave. TWO feeds
+    # registered, the same narrow + general pair as The Hindu BusinessLine:
+    #   - /feed/ (site-wide): items=10 span=2h fresh=10 pass=1 near=9 rescued=0
+    #     fetch=0.44s -- one pass inside a TWO HOUR span (~84/7d normalised)
+    #     against GNews pass=16/7d, so the feed wins by >2x. A 10-slot feed on a
+    #     2h churn is only usable BECAUSE the scanner polls every ~5 min.
+    #   - /category/commodities/energy/feed/: items=10 span=569h fresh=4 pass=2
+    #     near=2 rescued=0 fetch=0.51s -- a low-frequency section (4 fresh in
+    #     7d) but 2/2 on-beat and Alberta-specific (the Tamarack / Headwater
+    #     $10-billion oil-play consolidation; Alberta energy ambitions vs
+    #     caribou habitat), exactly the class the 10-slot site-wide feed rolls
+    #     past between polls.
+    # GNews pass set for reference (16/7d): Enbridge buying Tallgrass, OPEC+
+    # quotas, Trans Mountain flows to Asia, IEA demand warnings.
+    # Feed and article links are apex (no www), so the key is the apex.
+    "financialpost.com": [
+        "https://financialpost.com/feed/",
+        "https://financialpost.com/category/commodities/energy/feed/",
+    ],
+    # Calgary Herald (calgaryherald.com) -- Postmedia Calgary daily, i.e. the
+    # oil patch hometown paper. ENERGY SECTION ONLY:
+    # /category/business/energy/feed/ items=10 span=238h fresh=5 pass=2 near=3
+    # rescued=0 fetch=0.70s -- both passes are Chris Varcoe oil-patch columns
+    # ("Wind at their backs": public support for exporting Canadian oil as crude
+    # jumps above $100; Tamarack acquiring Headwater in a $3.2B deal), 100%
+    # on-beat.
+    # NOT registered: the site-wide /feed/ -- items=10 span=23h fresh=10 pass=0,
+    # a general city-news firehose that yielded NOTHING in a 23h window.
+    # GNews alternative: pass=2/7d (items=37 fresh=34), and one of those two is
+    # a drone-manufacturing false positive -- so the section feed matches it on
+    # volume and beats it on precision.
+    # Low volume is intrinsic (a city daily); registered for the Varcoe column
+    # and the Alberta deal flow the national wires do not carry.
+    # Feed and article links are apex (no www), so the key is the apex.
+    "calgaryherald.com": [
+        "https://calgaryherald.com/category/business/energy/feed/",
+    ],
+    # ABC News Australia (abc.net.au) -- the Australian public broadcaster,
+    # BUSINESS section feed (/news/feed/51120/rss.xml): items=25 span=12h
+    # fresh=25 pass=2 near=23 rescued=0 fetch=0.32s -- two passes in a TWELVE
+    # HOUR span (~28/7d normalised) against GNews pass=34/7d, inside the 2x
+    # tie-break; and the feed is measurably CLEANER, because the GNews pass set
+    # carries a recurring emergency-services class ("Smell of Gas (MIRRABOOKA,
+    # CITY OF STIRLING, ... CAD-ID: 815747)", 2 of the first 12) that the
+    # business feed never produces. Both feed passes on-beat (Houthis seizing
+    # more Red Sea islands, NATO on Russian border drones); the domestic
+    # gas-reservation policy fight that dominates the GNews set also lands here
+    # between polls.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # abc.net.au.
+    "www.abc.net.au": [
+        "https://www.abc.net.au/news/feed/51120/rss.xml",
+    ],
+    # Australian Financial Review (afr.com) -- Australia business daily, hard
+    # paywall. The paywall does not matter on this surface: both feeds carry a
+    # dated title + summary, which is where the match lands (same shape as the
+    # paywalled GNews sources, but with a summary). TWO feeds registered:
+    #   - /rss/markets.xml: items=20 span=109h fresh=20 pass=7 near=13
+    #     rescued=0 fetch=0.15s -- ~10.8/7d normalised, 7/7 on-beat (the ASX
+    #     against the oil spike, oil toward US$110/bbl, Woodside, traders
+    #     pricing no end to high oil as the Houthis reach the Red Sea).
+    #   - /rss/feed.xml (front page): items=20 span=9h fresh=20 pass=3 near=17
+    #     rescued=0 fetch=0.05s -- three passes in a NINE HOUR span (~56/7d
+    #     normalised), two of them Hormuz policy pieces (Australia should
+    #     mobilise Asian partners to reopen the strait; Trump on reimbursement)
+    #     that markets.xml does not carry.
+    # Together far above GNews pass=17/7d (items=100 fresh=78).
+    # NOT feeds: /rss/companies/energy, /rss/business.xml, /rss.xml and /feed
+    # are all HTTP 404 -- the AFR feed index is /rss/<name>.xml only.
+    # Feed and article links are www, so normalize_url strips to the apex
+    # afr.com.
+    "www.afr.com": [
+        "https://www.afr.com/rss/markets.xml",
+        "https://www.afr.com/rss/feed.xml",
+    ],
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -948,7 +1132,18 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
-    # (empty until wave B appends its entries here)
+    # --- US regional, Europe, Canada, Oceania mainstream (Wave 5B, 2026-09-14):
+    #     the NINE outlets this wave registered in RSS_FEEDS. Apex AND www for
+    #     each -- without both forms the outlet is classified as national.
+    "investing.com", "www.investing.com",                       # Investing.com (English edition; br.investing.com stays pt/national)
+    "france24.com", "www.france24.com",                         # France 24 (English edition)
+    "lemonde.fr", "www.lemonde.fr",                             # Le Monde in English (/en/)
+    "irishtimes.com", "www.irishtimes.com",                     # The Irish Times
+    "cityam.com", "www.cityam.com",                             # City A.M.
+    "financialpost.com", "www.financialpost.com",               # Financial Post
+    "calgaryherald.com", "www.calgaryherald.com",               # Calgary Herald
+    "abc.net.au", "www.abc.net.au",                             # ABC News Australia
+    "afr.com", "www.afr.com",                                   # Australian Financial Review
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1799,7 +1994,232 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     #
     #
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
-    # (empty until wave B appends its entries here)
+    # =======================================================================
+    # US regional, Europe, Canada, Oceania mainstream -- Wave 5B (2026-09-14).
+    # Same shape as the Wave 1/2/3/4 GNews blocks above: English-only editions
+    # reached via Google News site: (hl=en-US) + the 12-term english_keywords()
+    # subset, because their own feed is WAF-blocked, absent, malformed, frozen
+    # or simply thinner than Google. Bodies stay unreachable, so items land
+    # title-only (empty snippet). Eleven outlets here; the other nine of this
+    # wave had a feed that BEAT their GNews surface and are in RSS_FEEDS.
+    # Yields are the GNews title-pass count over 7d, measured on the runner
+    # (measure_source.yml) against the live 91-keyword set on 2026-09-14.
+    #
+    # SURFACE PICK (recorded once, applied per entry): higher measured 7-day
+    # yield, normalising a short-span feed as pass x 168/span, tie-break to RSS
+    # when GNews is under 2x richer. Every entry below therefore carries BOTH
+    # numbers -- what its feed did and what GNews did -- so the decision can be
+    # re-audited without re-measuring.
+    #
+    # ACCEPTANCE BAR: this wave ran under the 2026-09-14 rule (pass >= 1 over
+    # 7d, or >= 3 over 48h; reject only on zero items on EVERY surface or on a
+    # >= 80% off-beat pass set), which is deliberately LOWER than the
+    # 2026-08-18 bar of ">= 3 on-beat passes per 7d". Two domains below
+    # (houstonchronicle.com, and euractiv.com in the REJECTED sub-block) were
+    # already measured under the OLD bar in Wave 3 and are RE-MEASURED here.
+    # -----------------------------------------------------------------------
+    # Houston Chronicle (houstonchronicle.com) -- Hearst daily of the US oil
+    # capital. RE-TEST of the Wave 3 REJECTED note above, under the lowered
+    # 2026-09-14 bar: GNews pass=35/7d (items=100 span=164h fresh=100 near=65),
+    # nearly 6x the pass=6 measured on 2026-08-18. The 2026-08-18 objection
+    # (generic AP wire duplicates) still partly holds -- the Wall-Street-vs-oil
+    # tape (~12 of 35) is syndicated AP that CNN / USA Today / LA Times also
+    # carry, and it is url-keyed so each copy lands at most once -- but the
+    # remainder is genuine Texas energy reporting no other registered source
+    # has: a Texas oil CEO resuming a fraud scheme, the EPA killing the
+    # power-plant greenhouse-gas rule, Houston pump prices via GasBuddy, US
+    # diesel past $6/gal and record diesel hitting farmers. Registered.
+    # Path-scoping remains unavailable (site:houstonchronicle.com/business/energy
+    # returns 0 items -- Google honours a /news path for Rigzone but ignores
+    # this deeper one), and the site RSS is dead from the runner
+    # (/rss/feed/Business-Energy-593.php and /rss/feed/Business-287.php both
+    # HTTP 403), so the bare domain is the only surface. Articles resolve to
+    # www.houstonchronicle.com.
+    "houstonchronicle.com",
+    # Los Angeles Times (latimes.com) -- US West Coast daily of record. GNews
+    # pass=21/7d (items=100 fresh=93 near=72): California-specific energy
+    # policy (the city cleaning up its biggest gas power plant, LA cost of
+    # living) plus the Middle-East supply beat (Hormuz exclusion zone, Houthis
+    # in the Red Sea, US strikes on Iranian tankers, record diesel hitting the
+    # harvest). Its OWN feeds are runner-reachable but yield NOTHING on beat:
+    # /business/rss2.0.xml items=92 span=633h fresh=22 pass=0 near=22, and
+    # /world-nation/rss2.0.xml items=98 span=672h fresh=22 pass=0 near=22 --
+    # 44 fresh items, zero passes, so RSS is not a surface here at all. One
+    # bounded false-positive class in the GNews set: `gas` as tear gas / a SWAT
+    # standoff. Articles resolve to www.latimes.com.
+    "latimes.com",
+    # USA Today (usatoday.com) -- the US mass-market daily (Gannett). GNews
+    # pass=36/7d (items=100 fresh=99 near=63). Its own feed host is BROKEN, not
+    # blocked: rssfeeds.usatoday.com/usatoday-NewsTopStories parses as
+    # "<unknown>:2:0: syntax error" from the runner (malformed XML), so GNews is
+    # the only surface. The pass set is the US pump-price beat this programme
+    # wants -- why gas prices are rising and who controls them, oil at $100 and
+    # what it means for gasoline, US strikes destroying five Iranian tankers,
+    # Houthi/Iranian attacks and oil prices, Trump on keeping Iranian oil.
+    # LARGEST NAMED-ENTITY FALSE POSITIVE OF THE WHOLE PROGRAMME, and it must be
+    # written down: ~8 of 36 passes are "Brent" the FIRST NAME -- Brent Venables
+    # (Oklahoma football coach) and Brent Peterson (NHL) -- matching the exact
+    # keyword `Brent`. Plus a "Gas station store Crossword Clue". All bounded
+    # (title-only, url-keyed, at most one landing each) and still leaves ~25
+    # on-beat, so the domain clears the bar; if this class ever becomes the
+    # majority, drop the domain rather than weakening the `Brent` keyword, which
+    # every other source depends on. Articles resolve to www.usatoday.com.
+    "usatoday.com",
+    # Deutsche Welle, English edition (dw.com) -- the German public
+    # international broadcaster. GNews pass=23/7d (items=100 fresh=98 near=75):
+    # the Saudi pipeline attack from Iraq and its effect on gas prices, oil
+    # prices as the Middle East escalates, US strikes on tankers off Iran,
+    # Germany targeting the Russian shadow fleet, Houthis taking a Red Sea
+    # chokepoint, Trump blaming Ukraine for record US diesel. Its own English
+    # BUSINESS feed (rss.dw.com/xml/rss-en-bus) IS runner-reachable and dated
+    # but nearly idle: items=20 span=672h fresh=4 pass=2 fetch=1.17s -- four
+    # fresh items in 7d against 23 GNews passes, i.e. GNews by >10x, well past
+    # the 2x tie-break. Two bounded false positives in the GNews set: "The Day
+    # with Brent Goff" (the anchor, on the exact keyword `Brent`) and a palm-oil
+    # biotech feature. NOTE this is the ENGLISH edition; dw.com/fa was measured
+    # NOT VIABLE for Persian in 2026-08-19 (see the `fa` note in LANGUAGES) --
+    # different host path, different verdict, no conflict. Articles resolve to
+    # www.dw.com.
+    "dw.com",
+    # Euronews (euronews.com) -- pan-European news network, English edition, and
+    # the best EU-energy-policy read of this wave. GNews pass=23/7d (items=100
+    # fresh=100 near=77) and the pass set is ~90% on-beat and genuinely
+    # European: oil past $108 after the Hormuz attack and the Saudi pipeline
+    # shutdown, which European countries import the most crude, diesel records
+    # in Portugal and the Italian excise cut, Europe outspending its 2025
+    # Russian Arctic gas bill, Cypriot gas to Europe via Egypt and Greece, EU
+    # gas prices as the IEA calls for emergency reserves, Qatar deficit on LNG
+    # disruption. Its own business theme feed
+    # (/rss?level=theme&name=business) is clean but thin: items=50 span=270h
+    # fresh=30 pass=6 fetch=0.14s -- 6/7d against 23/7d, GNews by 3.8x, past the
+    # 2x tie-break, so GNews it is (the feed remains the fallback if Google ever
+    # de-indexes the domain). Articles resolve to www.euronews.com.
+    "euronews.com",
+    # Swissinfo (swissinfo.ch) -- SWI, the Swiss public international service,
+    # English edition. GNews pass=12/7d (items=62 fresh=54 near=42). NO RSS
+    # EXISTS ANY MORE: every WordPress-era feed path now answers HTTP 410 Gone
+    # from the runner (/eng/rss, /eng/feed/) and the newer ones 404
+    # (/service/rss/all/rss.xml, /eng/rss.xml) -- 410 is the publisher saying
+    # "deliberately removed", so do not re-probe. Pass set is mostly the
+    # Bloomberg "Markets Wrap" syndication SWI republishes, where oil is named
+    # as the day driver (8 of 12) -- the same bounded index-wrap class accepted
+    # for Moneycontrol, title-only and url-keyed -- plus the genuinely Swiss and
+    # additive items this domain is registered FOR: higher crude prices lifting
+    # Swiss import costs, a UBS economist on $200 oil if Hormuz stays shut, and
+    # Mercuria / Glencore on a Venezuela deal. Articles resolve to
+    # www.swissinfo.ch.
+    "swissinfo.ch",
+    # The Globe and Mail (theglobeandmail.com) -- Canada national daily and the
+    # RICHEST surface of this wave: GNews pass=98/7d (items=100 fresh=100
+    # near=2), i.e. essentially every indexed item matches. Pass set spans the
+    # Canadian energy file (Alberta mulling a Crown corporation for gas
+    # pipelines, the oil-patch M&A boom, Enbridge Line 5 tunnel permits, TC
+    # Energy) and the global tape (Brent breaching US$100, the shut Saudi
+    # pipeline, Houthis in the Bab el-Mandeb, the IEA on a widening 2026 supply
+    # gap). Its Arc business feed is real and reachable -- items=100 span=261h
+    # fresh=99 pass=15 fetch=0.98s -- but 15/7d against 98/7d is GNews by 6.5x,
+    # far past the 2x tie-break. Volume caveat: at ~14 items/day this is the
+    # loudest single domain of the wave (louder than Energy Intelligence at 65);
+    # it is url-keyed so nothing duplicates, but if the English feed ever needs
+    # thinning, this is the first domain to reconsider -- and the Arc business
+    # feed above is the ready-made quieter replacement. Articles resolve to
+    # www.theglobeandmail.com.
+    "theglobeandmail.com",
+    # CBC News (cbc.ca) -- the Canadian public broadcaster. GNews pass=39/7d
+    # (items=100 fresh=99 near=60), pass set on-beat and Canada-specific: the
+    # oil windfall against tariff losses, skyrocketing diesel reaching grocery
+    # prices, the Ottawa 167-project pitch (pipelines to AI), TC Energy on
+    # "generational" gas demand, Newfoundland collecting $500M from the oil
+    # price, plus the Houthi / Hormuz supply beat. Its own business feed
+    # (/webfeed/rss/rss-business) is clean but small: items=20 span=167h
+    # fresh=20 pass=5 fetch=0.32s -- 5/7d against 39/7d, GNews by 7.8x. One
+    # bounded false positive in the GNews set: a drone sighting that turned out
+    # to be a flock of birds. Articles resolve to www.cbc.ca.
+    "cbc.ca",
+    # The Australian (theaustralian.com.au) -- News Corp national daily, hard
+    # paywall. GNews pass=46/7d (items=100 span=166h fresh=100 near=54) and the
+    # pass set is the densest Australian-domestic gas coverage of the wave:
+    # Santos on the gas-reservation scheme (three separate pieces), an
+    # LNG exporter winning a reprieve from it, plus the global tape (Houthis
+    # invading a Saudi shipping port, the shut Saudi pipeline, oil spikes vs the
+    # ASX, Trump on Venezuelan oil, the diesel war). Its own feed is a SILENT
+    # ZERO, which is exactly the class this programme counts rather than
+    # trusting a status code: /business/rss answers HTTP 200 and parses, but
+    # items=0 span=- fresh=0 -- an empty channel, not a feed. Articles resolve
+    # to www.theaustralian.com.au.
+    "theaustralian.com.au",
+    # Energy News Bulletin (energynewsbulletin.net) -- Aspermont Australian
+    # oil & gas trade press, and the highest-PRECISION source of this wave:
+    # GNews pass=8/7d (items=34 fresh=33 near=25) with the pass set ~100%
+    # on-beat and Australia-upstream, a beat nothing else registered carries --
+    # the gas-reservation exposure draft and the ministerial-discretion critique
+    # (three pieces), the Slugcatcher column on the Hormuz refinery squeeze,
+    # Santos vs LNG competitors, Cutifani leaving the Woodside board, Woodside
+    # Goodwyn Alpha maintenance, the Narrabri pipeline plan. Its feed is
+    # unreachable from the runner: /rss answers HTTP 404 there (a residential
+    # probe gets 403 from the same paths -- an Aspermont WAF that varies by
+    # origin), and /feed/ and /rss.xml are 403 residentially too. Low volume by
+    # nature (a trade weekly-ish cadence), registered for the beat, not the
+    # count. Articles resolve to www.energynewsbulletin.net.
+    "energynewsbulletin.net",
+    # Norwegian Offshore Directorate (sodir.no) -- the Norwegian upstream
+    # regulator (ex-NPD), i.e. an INSTITUTION, not a newsroom: it publishes
+    # licensing rounds, production figures and exploration results a few times a
+    # week. Measured accordingly: GNews pass=1/7d (items=5 fresh=3 near=2), the
+    # single pass being "Growing exploration interest" -- exactly the kind of
+    # primary-source item this programme wants. That clears the 2026-09-14 bar
+    # (pass >= 1 over 7d) and nothing else; it would have FAILED the 2026-08-18
+    # bar of >= 3, which is why it is registered now and was not before. Its own
+    # site is behind a Cloudflare interstitial from the runner AND residentially
+    # (/en/rss, /en/whats-new/news/rss.xml, /api/rss all HTTP 403 with a "Just a
+    # moment" challenge body), so GNews is the only surface. Expect long silent
+    # stretches: a zero week here is normal, NOT a dead source -- verify with
+    # --persisted before touching it. Articles resolve to www.sodir.no.
+    "sodir.no",
+    # --- Wave 5B REJECTED (measured 2026-09-14 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # Voice of America (voanews.com): DEAD PUBLISHER, not a blocked one, and
+    # the two surfaces agree. GNews site:voanews.com returns items=0 (nothing
+    # indexed in the 7d window at all). Its RSS feeds are reachable and parse
+    # fine but are FROZEN: the Economy feed (/api/zyboql-vomx-tpetvmi) gives
+    # items=20 span=260h fresh=0 and the Middle East feed
+    # (/api/zrbopl-vomx-tpeovm_) items=20 span=51h fresh=0 -- i.e. 20 items
+    # each, none inside 7 days. Reading the raw pubDates: the newest item on
+    # both feeds, and on the USA feed, is from MARCH 2025. Two independent
+    # sections frozen at the same date is a shut-down newsroom, and a frozen
+    # feed is the silent-zero shape this programme measures for. Re-open only if
+    # a fresh pubDate ever appears.
+    # "voanews.com",
+    # Der Spiegel International (spiegel.de): the English section exists but
+    # publishes below this scanner resolution. Its feed is reachable and dated
+    # -- /international/index.rss items=20 span=3041h fresh=0 pass=0 -- but the
+    # NEWEST English item at measurement was 3 Sep 2026, ELEVEN DAYS old, so
+    # nothing falls inside a 7d window. GNews agrees: site:spiegel.de returns
+    # items=2 span=17035h fresh=0 pass=0 (Google indexes almost nothing of the
+    # English edition; the German edition is out of scope, this programme adds
+    # no non-English languages). Zero fresh on BOTH surfaces = reject. Re-open
+    # only if Spiegel International returns to a daily English cadence.
+    # "spiegel.de",
+    # Euractiv (euractiv.com): RE-TEST of the Wave 3 REJECTED note above under
+    # the lowered 2026-09-14 bar -- and it fails WORSE than in 2026-08-18, so
+    # the rejection is now double-measured and should be considered settled.
+    # RSS: https://www.euractiv.com/feed/ is HTTP 403 from the runner (it is
+    # HTTP 200 with 100 items from a residential IP -- the classic WAF variant A
+    # that makes a home probe lie). GNews: site:euractiv.com items=19 fresh=16
+    # pass=0 near=16 -- ZERO passes over 7d, down from pass=2 in 2026-08-18.
+    # Sixteen fresh EU-policy items, not one of which matches on title/summary.
+    # Path-scoping is still unavailable (Google ignores the deeper path, same as
+    # Houston Chronicle). Every surface at zero = reject even under the lower
+    # bar.
+    # "euractiv.com",
+    # The Local Norway (thelocal.no): an English-language expat news site, not
+    # an energy source, and it measures like one. RSS
+    # (feeds.thelocal.com/rss/builder/no) is reachable and parses: items=20
+    # span=38760h fresh=10 pass=0 near=10 -- ten fresh items in 7d, zero
+    # passes. GNews: items=1 fresh=1 pass=0. Both surfaces zero over 7d.
+    # Norwegian upstream news is covered by Upstream / Offshore Energy /
+    # TradeWinds and (from this wave) sodir.no.
+    # "thelocal.no",
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -2052,7 +2472,15 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
-    # (empty until wave B appends its entries here)
+    # --- Wave 5B (2026-09-14): NO override needed, measured not assumed. The
+    #     slowest feed this wave registered is The Irish Times business feed at
+    #     fetch=2.42s, inside the 4s FEED_TIMEOUT; every other registered feed
+    #     came back in 0.05-0.98s (afr 0.05 / 0.15s, lemonde 0.08s, investing
+    #     0.10s, france24 0.31s, abc 0.32s, cityam 0.40s, financialpost 0.44 /
+    #     0.51s, calgaryherald 0.70s). The three candidates with no fetch time
+    #     at all were BLOCKED, not slow -- euractiv.com HTTP 403, sodir.no HTTP
+    #     403, energynewsbulletin.net HTTP 404 -- so a longer budget would not
+    #     have helped them and none is registered here.
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
