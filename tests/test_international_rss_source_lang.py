@@ -263,6 +263,13 @@ _WAVE5_ITEM_URLS: tuple[tuple[str, str], ...] = (
     ("www.seatrade-maritime.com", "https://www.seatrade-maritime.com/containers/gemini-brings-four-services-back-to-red-sea-suez-route"),
     ("www.kpler.com", "https://www.kpler.com/blog/crude-tanker-rates-hit-new-highs-as-hormuz-risk-escalates"),
     ("www.eia.gov", "https://www.eia.gov/todayinenergy/detail.php?id=68125"),
+    # Promoted from GNews to RSS on 2026-09-14:
+    # intellinews's feed answers 403 to everything except the GitHub runner, so
+    # this URL is a real article taken from production rows (the GNews route
+    # captured it) rather than from the feed; globalenergynetwork's is the first
+    # item of its feed, fetched 2026-09-14 (apex host, not www).
+    ("www.intellinews.com", "https://www.intellinews.com/uganda-appoints-vitol-to-market-pearl-sweet-crude-ahead-of-2027-exports-466128"),
+    ("globalenergynetwork.net", "https://globalenergynetwork.net/news-item/wood-secures-long-term-construction-services-contract-with-exxonmobil-png/"),
 )
 
 

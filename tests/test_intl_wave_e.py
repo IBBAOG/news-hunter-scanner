@@ -13,9 +13,10 @@ merges). What they catch is the failure this programme keeps producing silently:
     (or drop it) and the feed silently returns 0 items again, exactly as it did
     on 2026-08-18. This asserts the resolved seconds, not the dict contents.
 """
+from urllib.parse import urlparse
+
 from news_hunter.sources import (
     ENGLISH_NO_RSS_DOMAINS,
-    FEED_TIMEOUT_OVERRIDES,
     INTERNATIONAL_RSS_DOMAINS,
     RSS_FEEDS,
     feed_timeout,
@@ -104,15 +105,66 @@ def test_eia_feed_gets_its_measured_budget_through_the_www_key():
     assert feed_timeout("www.lngindustry.com", default) == default
 
 
-def test_globalenergynetwork_override_is_registered_for_the_pending_promotion():
-    """Recorded by this wave; the GNews entry stays until the CTO swaps it.
+def test_globalenergynetwork_feed_gets_more_than_the_default_budget():
+    """The 1000-entry (~6.8 MB) archive feed must get MORE than the 4s default.
 
-    The override is inert while the domain is GNews-only (feed_timeout is only
-    consulted on the feed path), so this pins the number, not a behaviour.
+    Deliberately NOT an equality pin: 14.0 is a measurement (fetch=10.65s plus
+    headroom) and re-measuring it is the healthy thing to do, so a test that
+    forbids the number from moving is a test that punishes the right behaviour.
+    What must never regress is the relation — and that it resolves on BOTH
+    spellings, since the registry key is the apex and the wave that recorded the
+    override wrote it as the apex too.
     """
-    assert FEED_TIMEOUT_OVERRIDES["globalenergynetwork.net"] == 14.0
-    assert feed_timeout("www.globalenergynetwork.net", 4.0) == 14.0
-    assert "globalenergynetwork.net" in ENGLISH_NO_RSS_DOMAINS
-    # intellinews re-measured at 0.48s on 2026-09-14: an override would be a
-    # no-op, so the wave deliberately did NOT add one.
-    assert "intellinews.com" not in FEED_TIMEOUT_OVERRIDES
+    default = 4.0
+    assert feed_timeout("www.globalenergynetwork.net", default) > default
+    assert feed_timeout("globalenergynetwork.net", default) > default
+
+
+def test_the_two_2026_08_18_timeout_casualties_are_now_rss_only():
+    """intellinews and globalenergynetwork were promoted GNews -> RSS 2026-09-14.
+
+    Each was lost to the 4s FEED_TIMEOUT on 2026-08-18 and re-measured by this
+    wave (0.53s and 10.65s). Registered on RSS they carry BODIES, which the
+    GNews route never did, and they give two `site:` queries back to the EN
+    burst budget — but only if the GNews line is really gone: a domain on both
+    surfaces is fetched twice and lands the same story from two routes.
+    """
+    for apex, feed_key in (
+        ("intellinews.com", "www.intellinews.com"),
+        ("globalenergynetwork.net", "globalenergynetwork.net"),
+    ):
+        assert feed_key in RSS_FEEDS, f"{apex}: RSS_FEEDS entry missing"
+        assert RSS_FEEDS[feed_key], f"{apex}: registered with no feed url"
+        assert apex in INTERNATIONAL_RSS_DOMAINS, f"{apex} would be NATIONAL"
+        assert f"www.{apex}" in INTERNATIONAL_RSS_DOMAINS, f"www.{apex} missing"
+        assert apex not in ENGLISH_NO_RSS_DOMAINS, f"{apex} still double-registered"
+
+
+def test_intellinews_needs_no_timeout_override():
+    """Re-measured at 0.53s: the default budget is ~8x what it needs.
+
+    Stated as the BEHAVIOUR (the feed resolves to the default) rather than as
+    `"intellinews.com" not in FEED_TIMEOUT_OVERRIDES`: what would hurt is an
+    inflated budget on a fast host eating the shared 22s COLLECT_DEADLINE, not
+    the presence of a key.
+    """
+    default = 4.0
+    assert feed_timeout("www.intellinews.com", default) == default
+    assert feed_timeout("intellinews.com", default) == default
+
+
+def test_every_wave_5e_feed_url_is_served_by_its_own_host():
+    """A feed URL whose netloc is not the registered host is a registration bug.
+
+    Checked on the NETLOC, not with `apex in url`: the substring form passes for
+    a URL that merely mentions the domain in a path or query (the three
+    Palladian titles — lngindustry, worldpipelines, tanksterminals — all serve
+    /rss/<name>.xml, so the apex appears twice in each URL and a substring
+    assertion proves nothing about the host).
+    """
+    for apex, key in WAVE_5E_RSS.items():
+        for url in RSS_FEEDS[key]:
+            netloc = urlparse(url).netloc.lower()
+            assert netloc == apex or netloc.endswith("." + apex), (
+                f"{key}: {url} is served by {netloc!r}, not by {apex}"
+            )

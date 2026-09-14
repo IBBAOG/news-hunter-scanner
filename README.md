@@ -409,7 +409,7 @@ false-positive caveats. `pass` here is the title/summary pass count over a
 | Upstream | upstreamonline.com | GNews en-US | 60 |
 | TradeWinds | tradewindsnews.com | GNews en-US | 44 |
 | Argus Media | argusmedia.com | GNews en-US | 8 |
-| Global Energy Network | globalenergynetwork.net | GNews en-US | 18 |
+| Global Energy Network | globalenergynetwork.net | RSS (14s timeout override) | 19 (promoted from GNews 2026-09-14; GNews was 18) |
 | CNN | cnn.com / edition.cnn.com | GNews en-US | ~16–29/30d |
 | The Edge Singapore | theedgesingapore.com | GNews en-US | 19 (24h) |
 
@@ -439,7 +439,7 @@ false-positive caveats. `pass` here is the title/summary pass count over a
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
 | The Moscow Times | themoscowtimes.com | RSS | 17 |
-| bne IntelliNews | intellinews.com | GNews en-US | 11 |
+| bne IntelliNews | intellinews.com | RSS | 4 (8h; promoted from GNews 2026-09-14, GNews was 11) |
 | Interfax | interfax.com | GNews en-US | 11 |
 | TASS | tass.com | GNews en-US | 8 |
 
@@ -744,7 +744,11 @@ gh workflow run measure_source.yml -f urls="https://site.com/feed/" -f feed_time
 
 If it yields at 12s, the host belongs in `sources.FEED_TIMEOUT_OVERRIDES` with
 the measured `fetch=N.NNs` plus headroom (the default is 4s and the 2026-08-18
-waves lost eia.gov, intellinews and globalenergynetwork.net to it).
+waves lost eia.gov, intellinews and globalenergynetwork.net to it). All three
+were recovered on 2026-09-14 by re-measuring: eia.gov (10.14s) and
+globalenergynetwork.net (10.65s, a 1000-entry archive feed) with an override,
+intellinews with none — at 0.53s its "timeout" had been a slow-origin episode.
+A one-off timeout is not a verdict.
 
 ### (b) A Google News en-US candidate
 

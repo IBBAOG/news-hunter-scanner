@@ -1531,6 +1531,49 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.eia.gov": [
         "https://www.eia.gov/rss/todayinenergy.xml",
     ],
+    # --- PROMOTED FROM GNews ON 2026-09-14 (post-merge follow-up the wave could
+    #     not do inside its own anchors). Both are 2026-08-18 FEED_TIMEOUT
+    #     casualties that Wave 5E re-measured and found affordable again; the
+    #     wave could only record the numbers because RSS_FEEDS /
+    #     INTERNATIONAL_RSS_DOMAINS / ENGLISH_NO_RSS_DOMAINS edits crossed other
+    #     waves' blocks. Their GNews lines are now REMOVED (commented out with
+    #     the reason), which also gives 2 EN `site:` queries back to the burst
+    #     budget -- and RSS carries bodies, which the GNews route never did.
+    # bne IntelliNews (intellinews.com) -- CIS / emerging-markets energy &
+    # sanctions wire. Re-measured on the runner 2026-09-14 (feed_timeout=12) and
+    # AGAIN on 2026-09-14 post-merge through measure_source.yml:
+    # items=10 span=8h fresh=10 pass=4 near=6 fetch=0.53s (www) / 0.38s (apex)
+    # -- "Nigeria's Dangote Refinery launches $1.6bn IPO in Africa's largest
+    # share sale", "Missile War Monitor: Trump tells Ukraine to stop hitting
+    # Russian diesel", "Iran warns insurers over Hormuz blacklist ships", plus an
+    # Iran sanctions item. That is ~8x inside the 4s default, so the 2026-08-18
+    # "Read timed out" was a slow-origin episode, NOT a standing budget problem:
+    # NO FEED_TIMEOUT_OVERRIDES entry, on purpose. GNews measured pass=11/7d but
+    # title-only; a 10-slot feed that turns over every 8h is harvested
+    # continuously by the 5-minute scan and lands with bodies.
+    # NOTE for whoever re-measures: the feed answers 403 from residential IPs and
+    # from generic cloud fetchers -- it is 200 from the GitHub runner. Measure it
+    # through measure_source.yml or you will conclude it is dead.
+    "www.intellinews.com": [
+        "https://www.intellinews.com/feed/",
+    ],
+    # Global Energy Network (globalenergynetwork.net) -- international upstream
+    # wire (the rebranded home of OGV Energy; ogv.energy redirects here). The
+    # richest single source of Wave 2: re-measured 2026-09-14 with
+    # feed_timeout=12 -- items=1000 span=4193h fresh=21 pass=19 near=2
+    # fetch=10.65s, pass set ~100% on-beat (Petrobras Equatorial Margin / Amapa,
+    # Chevron Angola CABGOC, Venezuela gas licences, ExxonMobil Mozambique,
+    # Technip Malaysia LNG, US Gulf subsea tie-back). Slow because the feed is
+    # the full 1000-entry archive (~6.8 MB), not because the host is slow --
+    # hence its FEED_TIMEOUT_OVERRIDES entry (14.0s), which this promotion makes
+    # LIVE instead of inert. GNews was pass=18/7d and title-only; the feed also
+    # dwarfs the 24h `when:` window, so nothing is missed between scans.
+    # The APEX is registered, not www: www.globalenergynetwork.net 301s to the
+    # apex (measured 10.89s with the redirect vs 6.12s direct) and every one of
+    # the 1000 item links is https://globalenergynetwork.net/news-item/... .
+    "globalenergynetwork.net": [
+        "https://globalenergynetwork.net/feed/",
+    ],
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1705,6 +1748,9 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     "seatrade-maritime.com", "www.seatrade-maritime.com",       # Seatrade Maritime News
     "kpler.com", "www.kpler.com",                               # Kpler (Insights blog feed)
     "eia.gov", "www.eia.gov",                                   # US EIA (Today in Energy)
+    # Promoted from GNews to RSS on 2026-09-14 (see their RSS_FEEDS entries):
+    "intellinews.com", "www.intellinews.com",                   # bne IntelliNews
+    "globalenergynetwork.net", "www.globalenergynetwork.net",   # Global Energy Network (articles are apex)
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1977,7 +2023,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # it TIMES OUT against the scanner's 4s FEED_TIMEOUT from the runner (Read
     # timed out, 2026-08-18) -- not WAF, just slow -- so GNews is the reliable
     # surface. Articles resolve to www.intellinews.com.
-    "intellinews.com",
+    # PROMOTED TO RSS 2026-09-14: re-measured at fetch=0.53s, items=10 span=8h
+    # pass=4 -- the 2026-08-18 timeout was a slow-origin episode, not a budget
+    # problem. The feed is now registered in RSS_FEEDS (Wave 5E block, with the
+    # numbers) and this GNews line is retired: RSS carries bodies, GNews did not,
+    # and removing it returns one `site:` query to the EN burst budget. Left as a
+    # comment so the 2026-08-18 history is not lost.
+    # "intellinews.com",
     # TASS (tass.com) -- Russian state wire, English edition. GNews pass=8/7d
     # (items=100 near=92): Brent crude, Kazakhstan oil exports, Russian LNG,
     # OPEC+ output, Arctic LNG, Hormuz, Western sanctions. Its RSS FIREHOSE
@@ -2093,8 +2145,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # ~6.6s, so it TIMES OUT against the scanner's 4s FEED_TIMEOUT (same class as
     # intellinews), and site:ogv.energy returns 0 GNews items (content is indexed
     # under the new domain), so this apex is the reliable surface. Articles
-    # resolve to www.globalenergynetwork.net.
-    "globalenergynetwork.net",
+    # resolve to globalenergynetwork.net (apex -- the www form 301s to it).
+    # PROMOTED TO RSS 2026-09-14: re-measured at fetch=10.65s with
+    # feed_timeout=12 (items=1000 fresh=21 pass=19), and the 14.0s
+    # FEED_TIMEOUT_OVERRIDES entry Wave 5E added makes that affordable. The feed
+    # is now registered in RSS_FEEDS (Wave 5E block) with bodies, so this GNews
+    # line is retired -- one `site:` query back to the EN burst budget. Left as a
+    # comment so the 2026-08-18 history is not lost.
+    # "globalenergynetwork.net",
     # --- Wave 2 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
     # Neftegaz.RU (neftegaz.ru): no viable surface from the runner. Its RSS
@@ -3657,12 +3715,11 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # rich. items=1000 span=4193h fresh=21 pass=19 near=2 fetch=10.65s -- the
     # feed is the full 1000-entry archive (~6.8 MB), which is WHY it is slow; the
     # host itself is not. 14.0s covers it with headroom.
-    # Its GNews entry in ENGLISH_NO_RSS_DOMAINS (pass=18/7d) is deliberately LEFT
-    # IN PLACE: this wave only proves the feed is affordable again. Promoting it
-    # to RSS (an RSS_FEEDS entry + the apex/www pair in INTERNATIONAL_RSS_DOMAINS
-    # + removing the GNews line) touches lines outside this wave's blocks, so it
-    # is a follow-up call. Until then this entry is inert -- feed_timeout() is
-    # only consulted on the feed path.
+    # NO LONGER INERT (2026-09-14, post-merge): the follow-up this wave could not
+    # do landed -- globalenergynetwork.net is now an RSS_FEEDS registration (Wave
+    # 5E block) with its apex/www pair in INTERNATIONAL_RSS_DOMAINS and its GNews
+    # line retired. This entry is what makes that registration return items at
+    # all; delete it and the feed silently goes back to 0.
     "globalenergynetwork.net": 14.0,
     # bne IntelliNews (intellinews.com) -- the THIRD 2026-08-18 casualty, and the
     # one that needs NO entry here. Re-measured 2026-09-14 with feed_timeout=12,
@@ -3670,9 +3727,11 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # fresh=10 pass=4 near=6. That is ~8x inside the 4s default, so the
     # 2026-08-18 "Read timed out" was a transient / slow-origin episode, not a
     # standing budget problem, and an override would be a no-op. Recorded here as
-    # a COMMENT (not an entry) so the next wave does not re-measure it; its GNews
-    # entry stays untouched and the RSS promotion is the same follow-up call as
-    # globalenergynetwork.net above.
+    # a COMMENT (not an entry) so the next wave does not re-measure it.
+    # Confirmed 2026-09-14 post-merge (fetch=0.53s www / 0.38s apex) and the
+    # outlet was PROMOTED to RSS in the same change; it still needs no entry
+    # here. Do not add one "to be safe": an unnecessary override raises the worst
+    # case one feed can spend out of the 22s COLLECT_DEADLINE shared by ~65 feeds.
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----

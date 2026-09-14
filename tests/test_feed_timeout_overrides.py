@@ -5,7 +5,9 @@ global deadline across ~65 feeds and wrong for the handful of feeds that answer
 200 with a full, dated, on-beat payload in 6-13s: those are recorded as a
 ReadTimeout and the outlet looks unreachable. The 2026-08-18 international waves
 lost eia.gov (9-13s), intellinews.com and globalenergynetwork.net (~6.6s) that
-way and downgraded them to GNews title-only coverage or rejected them.
+way and downgraded them to GNews title-only coverage or rejected them. All three
+are back on RSS since 2026-09-14 - two with an override, intellinews with none
+(re-measured at 0.53s).
 
 sources.FEED_TIMEOUT_OVERRIDES lets one host declare a measured budget. What is
 pinned here:
