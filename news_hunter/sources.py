@@ -784,7 +784,162 @@ RSS_FEEDS: dict[str, list[str]] = {
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # (empty until wave E appends its entries here)
+    # =======================================================================
+    # O&G / refining / shipping trade press & institutions (English) -- Wave 5E
+    # (2026-09-14). Every number below was measured ON THE RUNNER
+    # (measure_source.yml, live 91-keyword set, hours=168, --lede) on
+    # 2026-09-14, under the LOWERED acceptance bar of the 2026-09 international
+    # programme (register any surface with pass >= 1 over 7d; reject only a
+    # candidate whose every surface returns 0 items or whose passes are >=80%
+    # off-beat). The eleven below have a runner-reachable, DATED feed; the other
+    # fourteen outlets of the wave are WAF-blocked, dateless, credential-walled
+    # or feed-frozen and live in ENGLISH_NO_RSS_DOMAINS.
+    #
+    # FOLLOW-UP this wave could not do: FEED_STALE_HOURS has no Wave 5 anchor, so
+    # it was left untouched -- eia.gov (newest item 102h old at measurement, one
+    # Today-in-Energy note per weekday) will nag against the 48h default every
+    # run until it gets an entry, and worldpipelines / tanksterminals (~1.3-1.7
+    # days between items) will nag occasionally.
+    # =======================================================================
+    # LNG Industry (lngindustry.com) -- Palladian Publications' pure-LNG trade
+    # daily; on-beat by construction. items=20 span=146h fresh=20 pass=20 near=0
+    # rescued=0 no_body=0 fetch=0.55s -- twenty of twenty items inside the 7d
+    # window match on title/summary alone (floating-LNG pre-FEED, PETRONAS /
+    # JOGMEC, Rovuma LNG, LNG bunkering, LNG carriers, Williams / Momentum
+    # midstream). Feed and article links are www, so normalize_url strips to the
+    # apex lngindustry.com -- where SOURCE_NAMES would be keyed.
+    "www.lngindustry.com": [
+        "https://www.lngindustry.com/rss/lngindustry.xml",
+    ],
+    # World Pipelines (worldpipelines.com) -- Palladian's midstream / pipeline
+    # title, same CMS and same /rss/<title>.xml feed shape as LNG Industry.
+    # items=20 span=599h fresh=4 pass=4 near=0 rescued=0 fetch=0.53s -- a slow
+    # title (20 items spread over 25 days), so only four items fall inside the 7d
+    # window, and all four pass: Baker Hughes / Venture Global gas infrastructure,
+    # Black & Veatch FLNG liquefaction, and two pipeline-integrity features. Two
+    # of the four are vendor / technical features rather than news, which is what
+    # a pipeline-engineering title publishes; kept for the midstream-equipment
+    # beat no other registered source carries. Feed and article links are www ->
+    # apex worldpipelines.com.
+    "www.worldpipelines.com": [
+        "https://www.worldpipelines.com/rss/worldpipelines.xml",
+    ],
+    # Tanks and Terminals (tanksterminals.com) -- Palladian's storage / terminals
+    # title. items=20 span=792h fresh=6 pass=5 near=1 rescued=0 no_body=1
+    # fetch=0.56s -- five of the six items inside the 7d window pass (Wood /
+    # ExxonMobil PNG construction, Covestro-Fertiglobe ammonia supply chain,
+    # Argent LNG Albania, AFR tank-farm FEED, Petromidia refinery storage). The
+    # slowest of the three Palladian titles (20 items over 33 days). It shares
+    # stories with LNG Industry above (the Argent LNG and Wood / ExxonMobil items
+    # ran in both); news_articles is url-keyed, so each copy lands at most once.
+    # Feed and article links are www -> apex tanksterminals.com.
+    "www.tanksterminals.com": [
+        "https://www.tanksterminals.com/rss/tanksterminals.xml",
+    ],
+    # Drilling Contractor (drillingcontractor.org) -- the IADC's drilling
+    # journal, plain WordPress /feed. items=10 span=95h fresh=10 pass=10 near=0
+    # rescued=0 fetch=0.45s -- ten of ten on-beat (Touchstone Trinidad campaign,
+    # Southern Energy Williamsburg test well, ConocoPhillips' 126-well Willow
+    # plan, Var Energi / Deepsea Bergen, ExxonMobil's 20th Angola Block 15
+    # discovery, Utica gas wells). Apex links (no www), so the resolved
+    # source_domain is drillingcontractor.org.
+    "drillingcontractor.org": [
+        "https://drillingcontractor.org/feed",
+    ],
+    # RBN Energy (rbnenergy.com) -- US midstream / refining daily analysis blog,
+    # the densest analytical feed of the wave. items=30 span=408h fresh=13
+    # pass=11 near=2 rescued=0 fetch=0.12s -- eleven of the thirteen items inside
+    # the 7d window pass, all on-beat (diesel cracks above $100/bbl, US refiners
+    # already running hard, Summit's Double E Permian gas expansion, record Gulf
+    # Coast propane inventories, Venezuela crude deals, US LNG feedgas, Canadian
+    # rig counts). Apex links.
+    "rbnenergy.com": [
+        "https://rbnenergy.com/rss.xml",
+    ],
+    # Fuels & Lubes / F+L Daily (fuelsandlubes.com) -- downstream fuels, base-oil
+    # and lubricants trade daily. items=20 span=182h fresh=18 pass=17 near=1
+    # rescued=0 fetch=0.78s -- seventeen passes, the core of them the fuels /
+    # base-oil beat no other registered source carries (Group III base-oil prices
+    # +235% since the Gulf conflict began, EIA's raised Brent forecast,
+    # re-refined base oil, PETRONAS / Tata used-oil recycling, Malaysia's engine-
+    # oil certification order). Bounded false-positive class (title-only,
+    # url-keyed, each lands at most once): the trade's data-centre-cooling and
+    # coolant items, which match on `lubricant` / `propylene` without being O&G
+    # news -- roughly a quarter of the pass set. Feed and article links are www
+    # -> apex fuelsandlubes.com.
+    "www.fuelsandlubes.com": [
+        "https://www.fuelsandlubes.com/feed/",
+    ],
+    # Energy Monitor (energymonitor.ai) -- GlobalData's energy-transition title
+    # (sister to Offshore Technology, which is GNews-covered above). items=10
+    # span=55h fresh=10 pass=4 near=6 rescued=0 no_body=6 fetch=0.16s -- four
+    # passes: two O&G (oil and gas electrification's power problem; Big Oil
+    # profits vs clean aviation) and two the transition beat matching on a shared
+    # keyword (offshore WIND economics on `offshore`, a solar-drone piece on
+    # `drone`). 50% off-beat is under the >=80% rejection threshold, and the
+    # on-beat half is the transition-vs-oil read that Recharge (rejected
+    # 2026-08-18 as ~86% offshore wind) could not provide -- registered WITH the
+    # caveat that an `offshore` hit here may well be wind. no_body=6: the
+    # near-misses' bodies are unreachable from the runner, so pass is the
+    # ceiling, not a floor. Feed and article links are www -> apex
+    # energymonitor.ai.
+    "www.energymonitor.ai": [
+        "https://www.energymonitor.ai/feed/",
+    ],
+    # Ship & Bunker (shipandbunker.com) -- marine-fuels / bunker price wire.
+    # items=10 span=72h fresh=10 pass=10 near=0 rescued=0 fetch=0.33s -- ten of
+    # ten on-beat (bunker supply under the Hormuz disruption, Hormuz transits in
+    # single digits, the first operational ammonia bunker vessel, truck-to-ship
+    # LNG bunkering, IMO ammonia seminar). The bunker-price beat no other
+    # registered source carries. Feed and article links are www -> apex
+    # shipandbunker.com.
+    "www.shipandbunker.com": [
+        "https://www.shipandbunker.com/rss",
+    ],
+    # Seatrade Maritime News (seatrade-maritime.com) -- Informa's shipping daily.
+    # items=50 span=176h fresh=42 pass=19 near=23 rescued=0 fetch=0.43s --
+    # nineteen passes, essentially all the tanker / chokepoint beat (Iran's
+    # 77-ship Hormuz blacklist, a tanker on fire after a Hormuz attack, sky-high
+    # large-tanker rates, Suez returns and bunching fears, Houthis at Bab
+    # al-Mandeb, the US cutting off bunkering for ships in Iranian trade).
+    # near=23 is container / dry-bulk copy that never carries a keyword in the
+    # title -- the correct miss, not a gap. Feed and article links are www ->
+    # apex seatrade-maritime.com.
+    "www.seatrade-maritime.com": [
+        "https://www.seatrade-maritime.com/rss.xml",
+    ],
+    # Kpler (kpler.com) -- commodity-flow analytics house. Registered as RSS, not
+    # GNews, deliberately: its /blog/rss.xml is a real dated feed of the Insights
+    # desk. items=100 span=624h fresh=13 pass=13 near=0 rescued=0 fetch=0.12s --
+    # thirteen passes inside the 7d window (crude tanker rates vs escalating
+    # Hormuz risk, Iran's reach over Saudi's east-west pipeline, Rosneft's Vostok
+    # exports via Sever bay, US refiners answering the global product call,
+    # China's road-fuel demand -1.3 Mbd, Dangote July maintenance, LPG freight
+    # through the Panama Canal). Measured the same day, site:kpler.com on GNews
+    # gave pass=18/7d -- higher, but a third of it is PERENNIAL nav pages
+    # ("Market Insights", "Tech", "Press", "Defense Intelligence") matching on
+    # the `Kpler` keyword itself, and GNews lands title-only; the feed carries
+    # articles with bodies, so it is the better surface. One bounded false
+    # positive inside the feed set: a US labour-market note matching on `Kpler`
+    # alone. Feed and article links are www -> apex kpler.com.
+    "www.kpler.com": [
+        "https://www.kpler.com/blog/rss.xml",
+    ],
+    # US EIA -- Today in Energy (eia.gov). The 2026-08-18 waves LOST this feed to
+    # the 4s FEED_TIMEOUT (it measured 9-13s then and was recorded as an error);
+    # re-measured 2026-09-14 with feed_timeout=15 it is alive, dated and
+    # unchanged: items=15 span=912h fresh=2 pass=2 near=0 rescued=0 fetch=10.14s
+    # -- the US government's own energy-data desk (record US crude oil production
+    # in 2026; New England natural-gas prices at record discounts to Henry Hub).
+    # Two passes over 7d clears the 2026-09 bar; volume is LOW by construction --
+    # one Today-in-Energy note per weekday and most are electricity / renewables.
+    # Registered WITH its FEED_TIMEOUT_OVERRIDES entry (10.14s + headroom);
+    # without that entry this registration silently returns 0 items again, which
+    # is exactly how the outlet was lost the first time. Feed and article links
+    # are www -> apex eia.gov.
+    "www.eia.gov": [
+        "https://www.eia.gov/rss/todayinenergy.xml",
+    ],
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -883,7 +1038,20 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # (empty until wave E appends its entries here)
+    # --- Wave 5E (2026-09-14): the eleven RSS registrations of the O&G /
+    # refining / shipping trade-press wave. Apex AND www for each, per the
+    # invariant above; without these the outlets are classified as NATIONAL.
+    "lngindustry.com", "www.lngindustry.com",                   # LNG Industry
+    "worldpipelines.com", "www.worldpipelines.com",             # World Pipelines
+    "tanksterminals.com", "www.tanksterminals.com",             # Tanks and Terminals
+    "drillingcontractor.org", "www.drillingcontractor.org",     # Drilling Contractor (IADC)
+    "rbnenergy.com", "www.rbnenergy.com",                       # RBN Energy
+    "fuelsandlubes.com", "www.fuelsandlubes.com",               # Fuels & Lubes (F+L Daily)
+    "energymonitor.ai", "www.energymonitor.ai",                 # Energy Monitor (GlobalData)
+    "shipandbunker.com", "www.shipandbunker.com",               # Ship & Bunker
+    "seatrade-maritime.com", "www.seatrade-maritime.com",       # Seatrade Maritime News
+    "kpler.com", "www.kpler.com",                               # Kpler (Insights blog feed)
+    "eia.gov", "www.eia.gov",                                   # US EIA (Today in Energy)
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1456,7 +1624,211 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # (empty until wave E appends its entries here)
+    # =======================================================================
+    # O&G / refining / shipping trade press & institutions -- Wave 5E
+    # (2026-09-14), GNews half. Same shape as the Wave 1-4 GNews blocks above:
+    # English-only publishers whose own feed is WAF-blocked, absent, DATELESS,
+    # credential-walled or frozen, so the surface is Google News site: (hl=en-US)
+    # + the 12-term english_keywords() subset. Bodies stay unreachable, so items
+    # land title-only (empty snippet). Every yield is the GNews title-pass count
+    # over 7d, measured on the runner (measure_source.yml) against the live
+    # 91-keyword set on 2026-09-14, under the LOWERED 2026-09 bar (pass >= 1/7d
+    # registers; only a 0-item or >=80%-off-beat candidate is rejected). Every
+    # feed autopsy quoted below was ALSO run on the runner (measure_source.yml
+    # with the feed URL), never from a residential IP.
+    # =======================================================================
+    # Offshore Magazine (offshore-mag.com) -- Endeavor Business Media's offshore
+    # E&P title: same publisher as OGJ (Wave 1a above) and the same WAF story.
+    # The Endeavor feed path (/__rss/website-scheduled-content.xml) answers HTTP
+    # 400 from the runner, and every /rss* path answers a Cloudflare "Just a
+    # moment" interstitial (403) from a residential IP -- no usable feed. GNews
+    # pass=20/7d (items=23 fresh=20 near=0), pass set ~100% on-beat and partly
+    # Brazil-adjacent: CIMC Raffles completing the hull of Petrobras P-84 (first
+    # large all-electric FPSO of its class), an ANPG / ExxonMobil Angola
+    # discovery, Eni's Cronos gas tieback off Cyprus, PETRONAS / Ventura
+    # drilling, Norway's APA 2026 round, Saipem-Subsea7. ONE offshore-WIND item
+    # in the pass set (an advisory-board piece), the `offshore` keyword's
+    # standing false positive. Articles resolve to www.offshore-mag.com.
+    "offshore-mag.com",
+    # Gas Processing & LNG (gasprocessingnews.com) -- Gulf Energy Information's
+    # gas-processing title, and a textbook repeat of the World Oil autopsy above.
+    # Its feed IS runner-reachable and rich -- /rss?feed=news gave items=10
+    # fresh=10 pass=8 fetch=0.77s -- but it is DATELESS: span=- and every item
+    # printed at -1.0h, so stage 4 would drop all of it for a null published_at,
+    # persisting zero rows. Google News supplies the date instead: GNews
+    # pass=19/7d (items=20 fresh=19 near=0), pass set on-beat (TotalEnergies
+    # moving to FID on Papua LNG, Cheniere Corpus Christi, NNPC floating LNG,
+    # the Nord Stream 2 operator on the US sanctions bill, Petrobras /
+    # PetroReconcavo / Brava / Origem expanding the UTG Catu contracts, AltaGas'
+    # propane export terminal). One bare "News" section page in the pass set --
+    # bounded, url-keyed. Articles resolve to www.gasprocessingnews.com. Do NOT
+    # promote this to RSS_FEEDS without first re-checking for a pubDate.
+    "gasprocessingnews.com",
+    # Quantum Commodity Intelligence (qcintel.com) -- energy / biofuels price
+    # reporting agency, and by far the richest surface of this wave: GNews
+    # pass=84/7d (items=100 fresh=100 near=16), the pass set price-desk grade and
+    # ~100% on-beat (West of Suez / East of Suez daily crude and product wraps,
+    # Dubai crude at a five-month high, OPEC+ baselines, Indian refiner runs,
+    # Russian refinery outages and gasoline flows, Americas feedstocks / ethanol,
+    # Petrobras correcting a gasoline notice as a tax cut replaces the subsidy).
+    # Its own RSS is credential-walled: /rss answers "Missing or invalid
+    # credentials" behind HTTP 403 from the runner. Articles resolve to
+    # www.qcintel.com.
+    "qcintel.com",
+    # Lloyd's List (lloydslist.com) -- the shipping wire of record (Informa),
+    # hard paywall. Feed: /rss answers HTTP 500 from the runner (and a "Layout
+    # Not Found" page residentially). GNews pass=22/7d (items=64 fresh=61
+    # near=39), pass set ~100% the tanker / chokepoint beat: the VLCC market at a
+    # historic high, crude transits into Hormuz down to a trickle, the Yanbu
+    # detour via SuMed and Suez, shadow-fleet dilemmas, Bab el Mandeb after
+    # Mokha, marine insurers' 80/20 rule. It overlaps TradeWinds on the big
+    # stories, but news_articles is url-keyed so each copy lands at most once.
+    # Articles resolve to lloydslist.com.
+    "lloydslist.com",
+    # Riviera Maritime Media (rivieramm.com) -- tanker / offshore-vessel trade
+    # press. Feed: /rss answers HTTP 200 with HTML (Affino CMS), which feedparser
+    # rejects as not well-formed -- a SILENT ZERO on the feed path, not a 404, so
+    # only an item count tells you it is dead. GNews pass=22/7d (items=100
+    # fresh=69 near=47): VLCC / VLAC and LNG-carrier newbuild orders, a fatal
+    # tanker attack off the UAE, ExxonMobil's Rovuma LNG EPC picks, the first
+    # operational ammonia bunker vessel, "insane" VLCC fixtures above US$1M/day.
+    # Two bounded caveats: one offshore-WIND item in the pass set, and Riviera's
+    # cosmetic "News Content Hub - " title prefix on syndicated items. Articles
+    # resolve to www.rivieramm.com.
+    "rivieramm.com",
+    # Mobility Plaza (mobilityplaza.com) -- fuel-retail / forecourt trade press,
+    # and the LIVE home of PetrolPlaza: petrolplaza.com now 301-redirects here
+    # (measured 2026-09-14), so the candidate is registered under the new domain
+    # and the old one is recorded as rejected below. No feed at all (/feed/,
+    # /rss, /rss.xml, /news/feed all 404 or 500 from the runner; no feed <link>
+    # in the homepage head). GNews pass=41/7d (items=53 fresh=52 near=11), pass
+    # set the service-station / downstream-retail beat no other registered source
+    # carries: ENOC transferring 25 Sharjah stations to ADNOC, Oman Oil Marketing
+    # adding LPG, Shell stations around Edmonton running dry, Phillips 66 / REG
+    # renewable diesel, Brazil's ANP inaugurating an upgraded fuels-analysis
+    # centre, CNG/LNG stations in Spain. Articles resolve to
+    # www.mobilityplaza.com.
+    "mobilityplaza.com",
+    # IEA (iea.org) -- the International Energy Agency's news / analysis desk.
+    # Feed: /rss/news and /news/rss answer HTTP 403 from the runner (Cloudflare,
+    # zone-wide). GNews pass=5/7d (items=26 fresh=13 near=8), every pass on-beat
+    # and PRIMARY: Oil Market Report September 2026 (twice, two URLs), the
+    # gas-security commentary after the series of supply shocks, Gas Reserve
+    # Mechanisms and Flexibility Options, IEA total oil stocks for June 2026.
+    # Low volume by construction -- the IEA publishes reports, not a wire -- but
+    # these are the documents the market reacts to. Articles resolve to
+    # www.iea.org.
+    "iea.org",
+    # OPEC (opec.org) -- press releases and the Monthly Oil Market Report.
+    # RE-TESTED 2026-09-14, reversing the Wave 2 rejection recorded above (which
+    # measured pass=4/7d, all four the same research-award press release, and
+    # rejected it under the OLD ">=3 DISTINCT on-beat per 7d" bar). New
+    # measurement: GNews pass=3/7d (items=4 fresh=3 near=0) and all three passes
+    # are the MOMR ("OPEC Digital Publications - Monthly Oil Market Report" x2 +
+    # "OPEC Monthly Oil Market Report"), i.e. ~1 distinct document per week.
+    # Registered under the LOWERED 2026-09 bar: the MOMR is a primary source the
+    # whole desk reads, and OPEC's SPA still has no feed (/rss, /feed, /rss.xml
+    # all serve HTML or 403 from the runner). Expect ~1 item a week, sometimes
+    # the same report under two URLs; url-keyed, so the duplication is bounded.
+    # This entry SUPERSEDES the commented-out "opec.org" line in the Wave 2
+    # REJECTED block above -- do not re-test it a third time.
+    "opec.org",
+    # Wood Mackenzie (woodmac.com) -- consultancy press / insights. No feed
+    # (/rss/ and /feed/ both 404 from the runner). GNews pass=21/7d (items=24
+    # fresh=21 near=0), but read that number with the S&P-Ratings caveat in mind:
+    # only ~5-6 passes are real sector pieces (a promising UAE shale discovery,
+    # high oil prices accelerating EV sales, the South Atlantic's next
+    # exploration chapter, gas in Indian power markets, EU gas imports reaching
+    # 98% by 2050), while the rest are PERENNIAL marketing pages that match on
+    # the `Wood Mackenzie` keyword itself ("Data & analytics solutions" x7, an
+    # analyst bio, "Wood Mackenzie at APGCE", "Market insights for investors")
+    # plus solar / coal / AI-datacentre commentary off our beat. That is ~75%
+    # noise -- under the >=80% rejection threshold, and bounded exactly like
+    # Conjur and the S&P Ratings releases (title-only, url-keyed, each page lands
+    # at most once) -- so it is registered per the numeric bar, with the
+    # redundancy recorded here for a future pruning pass. Articles resolve to
+    # www.woodmac.com.
+    "woodmac.com",
+    # Rystad Energy (rystadenergy.com) -- consultancy press / market commentary.
+    # No feed (/rss, /news/feed and /feed/ all 404 from the runner). GNews
+    # pass=2/7d (items=4 fresh=4 near=2), both on-beat and primary: the
+    # oil-demand outlook (a 2030 plateau to a 40M bpd swing by 2050) and the H2
+    # 2026 Gas Turbine Report. Thin but clears the 2026-09 floor; expect a couple
+    # of items a week. Articles resolve to www.rystadenergy.com.
+    "rystadenergy.com",
+    # Vortexa (vortexa.com) -- seaborne-flows analytics, Insights desk. Its
+    # /feed/ answers HTTP 200 with the Next.js app shell (HTML), which feedparser
+    # rejects as not well-formed, and /insights/feed/ is 404 -- another silent
+    # zero rather than an honest error. GNews pass=2/7d (items=3 fresh=2 near=0),
+    # both on-beat flow analytics (gasoline loadings to Europe at a
+    # counter-seasonal record; China's crude purchase priority in a high-freight
+    # environment). Low frequency by construction -- a couple of insight posts a
+    # week. Compare Kpler, the same kind of house, which DOES have a dated blog
+    # feed and is registered in RSS_FEEDS. Articles resolve to www.vortexa.com.
+    "vortexa.com",
+    # Oxford Institute for Energy Studies (oxfordenergy.org) -- independent
+    # energy research institute. It HAS a real, dated WordPress feed
+    # (/publications/feed/, 12 items from a residential IP) but that feed answers
+    # HTTP 403 from the RUNNER -- the WAF-variant-A residential/datacenter split
+    # this programme keeps meeting -- so the feed path would return 0 items in
+    # production. GNews pass=1/7d (items=2 fresh=2 near=1): "Italy's 'Liquidity
+    # Service' Risks Gas Market Distortion". One pass in 7d is exactly the
+    # 2026-09 floor, which is the honest expectation for an institute that
+    # publishes research papers rather than news. Articles resolve to
+    # www.oxfordenergy.org.
+    "oxfordenergy.org",
+    # ICIS (icis.com) -- chemicals / energy price wire (RELX), hard paywall.
+    # RE-TESTED 2026-09-14, reversing the Wave 3 rejection recorded above (which
+    # measured pass=2/7d, both generic Hormuz duplicates, under the old bar). New
+    # measurement: GNews pass=3/7d (items=10 fresh=10 near=7) and all three are
+    # on-beat AND distinct: oil surging more than $3/bbl as the Saudi East-West
+    # pipeline shuts, blocked Middle East oil and gas / LNG exports weighing on
+    # the industry, Ukraine bracing for winter on stronger gas stocks. Its own
+    # WordPress feed is a SILENT ZERO: /explore/feed/ answers HTTP 200 with a
+    # well-formed channel and NO <item> at all from the runner (items=0,
+    # fetch=0.91s), and /explore/resources/news/feed/ is 404 -- count items, not
+    # status. Registered under the LOWERED 2026-09 bar; SUPERSEDES the
+    # commented-out "icis.com" line in the Wave 3 REJECTED block above.
+    "icis.com",
+    # JPT / SPE (jpt.spe.org) -- the Society of Petroleum Engineers' Journal of
+    # Petroleum Technology. RE-TESTED 2026-09-14, reversing the Wave 3 rejection
+    # above (pass=2/7d, both duplicates of stories other sources carried). New
+    # measurement: GNews pass=1/7d (items=4 fresh=4 near=3) -- a single pass, the
+    # ISO 20815:2026 production-assurance / reliability standard piece (it matches
+    # on `ammonia` through its CCS / hydrogen scope). /feed and /rss are still
+    # HTTP 404 from the runner, as in the 2026-08-18 autopsy. This is the
+    # THINNEST entry of the wave and sits exactly on the 2026-09 floor: Google
+    # indexes a technical monthly sparsely. Kept for the E&P-engineering angle no
+    # wire covers; if a later audit still finds ~1 undistinctive item a week it is
+    # the first candidate for a pruning pass. Articles resolve to jpt.spe.org (a
+    # subdomain, no www form).
+    "jpt.spe.org",
+    # --- Wave 5E REJECTED (measured 2026-09-14 on the runner; recorded so a
+    #     future wave does not silently re-test) ---
+    # Natural Gas World (naturalgasworld.com): BOTH surfaces dead. Its /rss
+    # answers HTTP 200 with 20 well-formed, DATED items -- every one of them from
+    # February 2025 (items=20 span=530h fresh=0 pass=0 fetch=0.36s). The feed is a
+    # frozen archive whose only current timestamp is the channel's own
+    # lastBuildDate: the exact "answers 200 and never anything new" failure
+    # FEED_STALE_HOURS exists to name, and a silent zero for any freshness window.
+    # /feed and /rss.xml serve HTML. And site:naturalgasworld.com on GNews returns
+    # items=0 -- Google News does not index the domain under en-US at all. No
+    # surface, so no entry.
+    # "naturalgasworld.com",
+    # OPIS (opisnet.com): fuel-price wire (Dow Jones), hard paywall. Its
+    # WordPress /feed/ IS runner-reachable and dated, but it is the marketing blog
+    # and publishes roughly monthly: items=10 span=1899h fresh=0 pass=0
+    # fetch=0.36s, newest item 19 days old -- nothing inside the 7d window, and
+    # nothing inside the 48h alternative either. /news/feed/ and
+    # /category/blog/feed/ are 404. And site:opisnet.com on GNews returns items=0:
+    # the priced content sits behind the wall and is not indexed. No surface.
+    # "opisnet.com",
+    # PetrolPlaza (petrolplaza.com): the DOMAIN is retired -- it 301-redirects to
+    # mobilityplaza.com, which is registered above with pass=41/7d.
+    # site:petrolplaza.com on GNews returns items=1 fresh=1 pass=0 (a single
+    # legacy page), and /rss is 404 on the new host. Rejected as a domain, NOT as
+    # an outlet: the outlet is alive and is registered under Mobility Plaza.
+    # "petrolplaza.com",
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1698,7 +2070,36 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # (empty until wave E appends its entries here)
+    # --- Wave 5E (2026-09-14): the first two entries this dict has ever had.
+    # Both are 2026-08-18 timeout casualties, re-measured on the runner.
+    # US EIA -- Today in Energy. Registered in RSS_FEEDS above (items=15 fresh=2
+    # pass=2 over 7d) and it needs this budget or it silently returns 0 items
+    # again, which is exactly how the outlet was lost the first time.
+    # MEASURED fetch=10.14s on the runner with feed_timeout=15 (2026-09-14);
+    # 14.0 = that plus ~40% headroom, and still under COLLECT_DEADLINE (22s),
+    # past which the global deadline would abandon the feed anyway.
+    "eia.gov": 14.0,
+    # Global Energy Network (globalenergynetwork.net) -- the second 2026-08-18
+    # casualty, re-measured 2026-09-14 with feed_timeout=12: still slow, still
+    # rich. items=1000 span=4193h fresh=21 pass=19 near=2 fetch=10.65s -- the
+    # feed is the full 1000-entry archive (~6.8 MB), which is WHY it is slow; the
+    # host itself is not. 14.0s covers it with headroom.
+    # Its GNews entry in ENGLISH_NO_RSS_DOMAINS (pass=18/7d) is deliberately LEFT
+    # IN PLACE: this wave only proves the feed is affordable again. Promoting it
+    # to RSS (an RSS_FEEDS entry + the apex/www pair in INTERNATIONAL_RSS_DOMAINS
+    # + removing the GNews line) touches lines outside this wave's blocks, so it
+    # is a follow-up call. Until then this entry is inert -- feed_timeout() is
+    # only consulted on the feed path.
+    "globalenergynetwork.net": 14.0,
+    # bne IntelliNews (intellinews.com) -- the THIRD 2026-08-18 casualty, and the
+    # one that needs NO entry here. Re-measured 2026-09-14 with feed_timeout=12,
+    # www.intellinews.com/feed/ answered in fetch=0.48s: items=10 span=8h
+    # fresh=10 pass=4 near=6. That is ~8x inside the 4s default, so the
+    # 2026-08-18 "Read timed out" was a transient / slow-origin episode, not a
+    # standing budget problem, and an override would be a no-op. Recorded here as
+    # a COMMENT (not an entry) so the next wave does not re-measure it; its GNews
+    # entry stays untouched and the RSS promotion is the same follow-up call as
+    # globalenergynetwork.net above.
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
