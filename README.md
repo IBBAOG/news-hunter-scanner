@@ -502,6 +502,45 @@ state until a wave lands.
 
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
+| Investing.com (EN edition) | investing.com | RSS | 6 (2h) |
+| France 24 (EN edition) | france24.com | RSS | 6 (10h) |
+| Le Monde in English | lemonde.fr | RSS | 3 (13h) |
+| The Irish Times | irishtimes.com | RSS | 10 |
+| City A.M. | cityam.com | RSS | 3 (13h) |
+| Financial Post | financialpost.com | RSS | 1 (2h) site-wide + 2 energy |
+| Calgary Herald | calgaryherald.com | RSS | 2 |
+| ABC News Australia | abc.net.au | RSS | 2 (12h) |
+| Australian Financial Review | afr.com | RSS | 7 (109h) markets + 3 (9h) front |
+| Houston Chronicle | houstonchronicle.com | GNews en-US | 35 |
+| Los Angeles Times | latimes.com | GNews en-US | 21 |
+| USA Today | usatoday.com | GNews en-US | 36 |
+| Deutsche Welle (EN edition) | dw.com | GNews en-US | 23 |
+| Euronews | euronews.com | GNews en-US | 23 |
+| Swissinfo | swissinfo.ch | GNews en-US | 12 |
+| The Globe and Mail | theglobeandmail.com | GNews en-US | 98 |
+| CBC News | cbc.ca | GNews en-US | 39 |
+| The Australian | theaustralian.com.au | GNews en-US | 46 |
+| Energy News Bulletin (AU) | energynewsbulletin.net | GNews en-US | 8 |
+| Norwegian Offshore Directorate | sodir.no | GNews en-US | 1 |
+
+Surface pick for this wave, since almost every candidate had BOTH a feed and a
+GNews surface: the higher measured 7-day yield, normalising a feed whose span is
+shorter than the window (`pass x 168/span` -- valid because the scanner polls
+every ~5 min and so sees every item of a 10-30 slot rolling feed), with a
+tie-break to RSS whenever GNews was under 2x richer (an RSS item lands with a
+summary, a GNews item lands title-only). Both numbers are recorded per entry in
+`sources.py`.
+
+Rejected, 4 of 24 (measurements in the `ENGLISH_NO_RSS_DOMAINS` Wave 5B block):
+**Voice of America** (voanews.com -- GNews 0 items; RSS reachable but frozen,
+newest pubDate March 2025 on three different sections), **Der Spiegel
+International** (spiegel.de -- feed `fresh=0`, newest English item 11 days old;
+GNews `items=2 fresh=0`), **Euractiv** (euractiv.com -- re-tested under the lower
+bar and worse than in 2026-08-18: RSS 403 from the runner, GNews `pass=0`
+against 16 fresh items), **The Local Norway** (thelocal.no -- RSS `fresh=10
+pass=0`, GNews `items=1 pass=0`). **Houston Chronicle**, rejected in Wave 3 under
+the old `>= 3 on-beat/7d` bar, was re-measured here at `pass=35/7d` and is
+registered.
 
 <!-- --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END -->
 
