@@ -5,6 +5,7 @@ instavel sao cobertos via Google News search (site:dominio + keyword).
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import quote_plus
@@ -746,6 +747,49 @@ RSS_FEEDS: dict[str, list[str]] = {
     # "www.business-standard.com": [
     #     "https://www.business-standard.com/rss/industry-217.rss",
     # ],
+
+    # =======================================================================
+    # WAVE 5 ANCHORS (2026-09-14) — five parallel branches, ONE block each.
+    # A wave appends its entries ONLY between its own BEGIN/END markers and
+    # leaves every fence line alone: >=4 untouched lines between blocks is what
+    # keeps the five diffs in non-overlapping hunks, so the branches merge
+    # without conflicts. Empty is the correct state until a wave lands.
+    # =======================================================================
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
+    # (empty until wave A appends its entries here)
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
+    # (empty until wave B appends its entries here)
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
+    # (empty until wave C appends its entries here)
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
+    # (empty until wave D appends its entries here)
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
+    # (empty until wave E appends its entries here)
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
 }
 
 
@@ -802,6 +846,49 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     "energy.economictimes.indiatimes.com",                      # ET EnergyWorld (subdomain, no www form)
     "thehindubusinessline.com", "www.thehindubusinessline.com", # The Hindu BusinessLine
     "livemint.com", "www.livemint.com",                         # Mint / Livemint
+
+    # =======================================================================
+    # WAVE 5 ANCHORS (2026-09-14) — five parallel branches, ONE block each.
+    # A wave appends its entries ONLY between its own BEGIN/END markers and
+    # leaves every fence line alone: >=4 untouched lines between blocks is what
+    # keeps the five diffs in non-overlapping hunks, so the branches merge
+    # without conflicts. Empty is the correct state until a wave lands.
+    # =======================================================================
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
+    # (empty until wave A appends its entries here)
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
+    # (empty until wave B appends its entries here)
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
+    # (empty until wave C appends its entries here)
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
+    # (empty until wave D appends its entries here)
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
+    # (empty until wave E appends its entries here)
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
 })
 
 
@@ -1332,6 +1419,49 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # articles. Below the >=3/7d bar despite being the markets-focused outlet
     # expected to be the strongest of the two.
     # "caixinglobal.com",
+
+    # =======================================================================
+    # WAVE 5 ANCHORS (2026-09-14) — five parallel branches, ONE block each.
+    # A wave appends its entries ONLY between its own BEGIN/END markers and
+    # leaves every fence line alone: >=4 untouched lines between blocks is what
+    # keeps the five diffs in non-overlapping hunks, so the branches merge
+    # without conflicts. Empty is the correct state until a wave lands.
+    # =======================================================================
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
+    # (empty until wave A appends its entries here)
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
+    # (empty until wave B appends its entries here)
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
+    # (empty until wave C appends its entries here)
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
+    # (empty until wave D appends its entries here)
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
+    # (empty until wave E appends its entries here)
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
@@ -1494,6 +1624,111 @@ FEED_STALE_HOURS: dict[str, float] = {
 def feed_stale_hours(domain: str) -> float:
     """Hours a feed may go without a new item before it is called out."""
     return FEED_STALE_HOURS.get(domain, FEED_STALE_HOURS_DEFAULT)
+
+
+# -----------------------------------------------------------------------------
+# Per-host feed timeout overrides — the fix for the "rich-but-slow feed silently
+# rejected" class.
+#
+# fetcher.FEED_TIMEOUT (4s) is what ONE feed request may spend, and it is tight
+# on purpose: ~65 feeds share a 22s COLLECT_DEADLINE, so a single slow origin
+# must not starve the rest. The failure mode that tightness creates is silent and
+# expensive: a feed that answers 200 with a full, dated, on-beat payload in
+# 6-13s is recorded as a ReadTimeout error and the outlet reads as dead. Not
+# hypothetical — the 2026-08-18 international waves lost three candidates to it
+# and had to downgrade them to GNews title-only coverage or reject them:
+#     eia.gov                  9-13s   (the US EIA's own feed)
+#     intellinews.com          over budget -> GNews
+#     globalenergynetwork.net  ~6.6s   -> GNews
+# Listing a host here is how a wave says "this feed is worth waiting for". The
+# number is the MEASURED fetch time (measure_source prints `fetch=N.NNs`) plus
+# headroom — never a guess.
+#
+# Semantics:
+#   * key   = the feed host, the RSS_FEEDS key, same style as FEED_STALE_HOURS.
+#             Lookup is www-insensitive both ways, so "eia.gov" also covers
+#             "www.eia.gov" and vice-versa: an override that silently does
+#             nothing because the registry key carries a www would be the very
+#             class of bug this dict exists to kill.
+#   * value = seconds for ONE request on that host, replacing FEED_TIMEOUT.
+#   * scope = the RSS / Google-News-sitemap feed path (fetcher._fetch_one and
+#             _fetch_sitemap), and therefore scripts/measure_source.py, which
+#             calls it. STANDARD_SITEMAPS keeps its own STANDARD_SITEMAP_TIMEOUT.
+#   * a value at or above fetcher.COLLECT_DEADLINE (22s) buys nothing: the global
+#             deadline abandons the feed first.
+#
+# EMPTY on purpose: any host not listed keeps FEED_TIMEOUT unchanged, so adding
+# this dict changed no production behaviour.
+# -----------------------------------------------------------------------------
+
+FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
+    # =======================================================================
+    # WAVE 5 ANCHORS (2026-09-14) — five parallel branches, ONE block each.
+    # A wave appends its entries ONLY between its own BEGIN/END markers and
+    # leaves every fence line alone: >=4 untouched lines between blocks is what
+    # keeps the five diffs in non-overlapping hunks, so the branches merge
+    # without conflicts. Empty is the correct state until a wave lands.
+    # =======================================================================
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN
+    # (empty until wave A appends its entries here)
+    # --- Wave 5A (2026-09-14): Global wires & US mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
+    # (empty until wave B appends its entries here)
+    # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
+    # (empty until wave C appends its entries here)
+    # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
+    # (empty until wave D appends its entries here)
+    # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
+    # (empty until wave E appends its entries here)
+    # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
+    #
+    # ---- merge fence: keep >=4 lines between wave blocks ----
+    #
+    #
+}
+
+
+def _www_variants(host: str) -> tuple[str, str]:
+    """('eia.gov', 'www.eia.gov') for either spelling of the same host."""
+    bare = host[4:] if host.startswith("www.") else host
+    return bare, f"www.{bare}"
+
+
+def feed_timeout(domain: str, default: float, *, host: str | None = None) -> float:
+    """Seconds one feed request may take for `domain` (default = FEED_TIMEOUT).
+
+    `domain` is the registry key the fetcher carries; `host` is the netloc of the
+    URL actually being fetched, checked as a fallback so an override still bites
+    when the two spellings differ. Both are matched www-insensitively.
+    """
+    for candidate in (domain, host):
+        if not candidate:
+            continue
+        cand = candidate.strip().lower().rstrip("/")
+        for key in (cand, *_www_variants(cand)):
+            if key in FEED_TIMEOUT_OVERRIDES:
+                return FEED_TIMEOUT_OVERRIDES[key]
+    return default
+
 
 
 # URLs de sitemap Google News (urlset + news:news) - nao sao RSS mas entram
@@ -2297,3 +2532,104 @@ def google_news_site_queries_en(domains: list[str], keywords: list[str], hours: 
     previous direct implementation (see ENGLISH_KEYWORD_PRIORITY).
     """
     return google_news_site_queries_lang(LANGUAGES["en"], domains, keywords, hours)
+
+
+# -----------------------------------------------------------------------------
+# Google News burst budget — stateless cohort rotation.
+#
+# THE CONSTRAINT: news.google.com rate-limits a BURST of `site:` queries from one
+# IP and silently drops the tail — no error, no 429, just fewer feeds answered.
+# That is what stranded the Arabic pilot at 0 rows while measure_source, firing 3
+# isolated queries from the SAME runner IP, returned 58-100 fresh items per
+# domain (see the note above the priority block in fetcher.iter_collect). The
+# per-scan burst today is 15 foreign + 16 PT + 34 EN = 65 `site:` queries. The
+# international programme pushes the EN list toward ~120 domains, which would
+# roughly double the burst and start dropping its tail — and since the drop is
+# silent and position-dependent, the casualties would be whatever sits at the
+# end of the list, not the weakest sources.
+#
+# THE FIX: do not query every EN domain on every scan. Partition the list into
+# `cohorts = ceil(len(domains) / per_scan)` contiguous, balanced blocks and query
+# exactly ONE block per scan, chosen from a TIME BUCKET rather than from stored
+# state (the scanner is a stateless `--once` job fired by cron-job.org every
+# 5 min; there is nowhere to keep a rotation pointer, and a crashed scan must not
+# skip a cohort forever):
+#
+#     index = floor(unix_seconds / GNEWS_COHORT_BUCKET_SECONDS) % cohorts
+#
+# INVARIANT: consecutive 5-minute scans walk consecutive buckets, so every domain
+# is queried at least once every `cohorts * 5` minutes — with ~120 EN domains
+# that is 4 cohorts = 20 minutes, two orders of magnitude inside the 24h `when:`
+# window each query carries (DEFAULT_WINDOW_HOURS / hours_override=24). Nothing
+# is lost: a story published in the 20 minutes a domain sits out is still inside
+# the window when its cohort comes round, and news_articles is keyed by url so
+# re-seeing it costs nothing.
+#
+# WHAT IS NOT CAPPED: the FOREIGN languages (ar/ru/zh/iw/es). They are GNews-ONLY
+# — a dropped query there is total data loss for that language, not a delayed
+# one — so they keep being submitted FIRST and in full, on the freshest
+# rate-limit budget. Capping EN is precisely what protects them.
+#
+# TODAY: len(ENGLISH_NO_RSS_DOMAINS) == 34 == EN_GNEWS_QUERIES_PER_SCAN, so
+# cohorts == 1 and the emitted query list is BYTE-IDENTICAL to the uncapped one
+# (pinned by tests/test_multilingual_en_frozen.py, untouched, plus the explicit
+# cohorts==1 identity tests in tests/test_gnews_cohort.py). The mechanism only
+# starts moving once a wave pushes the list past the budget.
+# -----------------------------------------------------------------------------
+
+# How many EN `site:` queries one scan may submit. Set to today's list length so
+# landing the mechanism changed nothing; raising it re-widens the burst.
+EN_GNEWS_QUERIES_PER_SCAN = 34
+# Same for the PT list (NO_RSS_DOMAINS, 16 today -> cohorts == 1, unchanged).
+PT_GNEWS_QUERIES_PER_SCAN = 16
+# Bucket width. Matches the cron-job.org scan cadence: one bucket per scan, so
+# consecutive scans land on consecutive cohorts.
+GNEWS_COHORT_BUCKET_SECONDS = 300
+
+
+def gnews_cohort_count(n_domains: int, per_scan: int) -> int:
+    """How many scans it takes to cover `n_domains` at `per_scan` per scan."""
+    if n_domains <= 0 or per_scan <= 0:
+        return 1
+    return max(1, -(-n_domains // per_scan))
+
+
+def gnews_cohort_index(
+    cohorts: int,
+    *,
+    now: float | None = None,
+    bucket_seconds: int = GNEWS_COHORT_BUCKET_SECONDS,
+) -> int:
+    """Which cohort this scan owns — derived from the clock, never from state."""
+    if cohorts <= 1:
+        return 0
+    ts = time.time() if now is None else now
+    return int(ts // bucket_seconds) % cohorts
+
+
+def gnews_cohort_slice(domains: list[str], per_scan: int, index: int) -> list[str]:
+    """Cohort `index` of `domains`: a contiguous, order-preserving block.
+
+    Blocks are balanced (sizes differ by at most one) so no scan ever exceeds
+    `per_scan`, every cohort is non-empty, and concatenating the cohorts in index
+    order reproduces `domains` exactly — which is what makes "every domain is
+    queried once per `cohorts` scans" a partition property rather than a hope.
+    """
+    n = len(domains)
+    cohorts = gnews_cohort_count(n, per_scan)
+    if cohorts <= 1:
+        return list(domains)
+    i = index % cohorts
+    base, rem = divmod(n, cohorts)
+    start = i * base + min(i, rem)
+    size = base + (1 if i < rem else 0)
+    return list(domains[start:start + size])
+
+
+def gnews_cohort(
+    domains: list[str], per_scan: int, *, now: float | None = None
+) -> tuple[list[str], int, int]:
+    """(this scan's domains, 0-based cohort index, total cohorts)."""
+    cohorts = gnews_cohort_count(len(domains), per_scan)
+    index = gnews_cohort_index(cohorts, now=now)
+    return gnews_cohort_slice(domains, per_scan, index), index, cohorts

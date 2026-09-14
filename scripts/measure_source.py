@@ -22,6 +22,25 @@ Usage:
     python -m scripts.measure_source https://site.com/feed/ https://site.com/economia/rss.xml
     python -m scripts.measure_source https://site.com/sitemap.xml --standard-sitemap
     python -m scripts.measure_source https://site.com/feed/ --lede --hours 48
+    python -m scripts.measure_source --gnews-en example.com --hours 168
+    python -m scripts.measure_source --gnews-en example.com --persisted example.com
+
+THE OTHER SURFACE: a candidate with no usable feed is measured through Google
+News, exactly as the scanner would query it -- `--gnews-en <domain>` builds the
+news.google.com/rss/search URL through google_news_site_queries_en() with the
+LIVE keyword set (the same english_keywords() subset, the same
+`when:`-before-OR shape, hl=en-US), fetches it through the same _fetch_one, and
+scores it through the same filter. Hand-building that URL is how the 2026-08-18
+waves did it and it is easy to get subtly wrong -- a `when:` in the wrong
+position loses the window, a stale keyword block measures a funnel production
+does not use, and pasting a raw `&` through a shell truncates the locale.
+
+TIMEOUTS: _fetch_one honours sources.FEED_TIMEOUT_OVERRIDES, so a host that
+already declares a longer budget is measured with it. A candidate that is merely
+SLOW (the 2026-08-18 waves lost eia.gov at 9-13s, intellinews and
+globalenergynetwork.net at ~6.6s to the 4s default) is measured with
+`--feed-timeout N`, which registers N for the hosts of this run only: if the
+feed then yields, N+headroom is the number to add to FEED_TIMEOUT_OVERRIDES.
 
 Columns:
     items      raw entries the fetcher returned
@@ -44,13 +63,19 @@ from urllib.parse import urlparse
 from news_hunter.config import DEFAULT_KEYWORDS
 from news_hunter.enrich import enrich_item
 from news_hunter.fetcher import (
+    FEED_TIMEOUT,
     RawItem,
     _fetch_one,
     _fetch_standard_sitemap,
 )
 from news_hunter.filter import matches_keywords, within_window
 from news_hunter.pipeline import LEDE_RESCUE_MARKER, _keep_candidate
-from news_hunter.sources import is_sitemap_url
+from news_hunter.sources import (
+    FEED_TIMEOUT_OVERRIDES,
+    _www_variants,
+    google_news_site_queries_en,
+    is_sitemap_url,
+)
 from news_hunter.store import get_config
 
 
@@ -118,9 +143,36 @@ def _label(url: str) -> str:
     return "/".join(parts[-2:]) or urlparse(url).netloc
 
 
+def _pin_feed_timeout(urls: list[str], seconds: float) -> None:
+    """Register `seconds` for the hosts of this run only (process-local).
+
+    The measurement must be able to answer "would this feed yield if we waited?"
+    BEFORE anyone edits sources.py -- otherwise a rich-but-slow feed is measured
+    at 0 items and rejected for being slow, which is the bug
+    FEED_TIMEOUT_OVERRIDES exists to prevent.
+    """
+    for url in urls:
+        host = urlparse(url).netloc.lower()
+        if not host:
+            continue
+        for key in (host, *_www_variants(host)):
+            FEED_TIMEOUT_OVERRIDES[key] = seconds
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("urls", nargs="+", help="candidate feed / sitemap URLs")
+    ap.add_argument("urls", nargs="*", help="candidate feed / sitemap URLs")
+    ap.add_argument(
+        "--gnews-en",
+        metavar="DOMAIN",
+        action="append",
+        default=[],
+        help="measure DOMAIN through the English Google News `site:` surface: "
+             "builds the query with the LIVE keywords via "
+             "google_news_site_queries_en (hl=en-US, `when:` from --hours) and "
+             "measures it like any other feed. Repeatable. A path is allowed "
+             "(rigzone.com/news), Google honours it",
+    )
     ap.add_argument("--hours", type=int, default=48, help="window in hours (default 48)")
     ap.add_argument(
         "--standard-sitemap",
@@ -140,6 +192,15 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-fallback-keywords",
         action="store_true",
         help="print the table even when the keyword set is the hardcoded fallback",
+    )
+    ap.add_argument(
+        "--feed-timeout",
+        type=float,
+        metavar="SECONDS",
+        help="pin the per-request feed timeout for the hosts measured in THIS "
+             "run (default FEED_TIMEOUT=4s). Use it to tell 'dead' apart from "
+             "'slow': if the feed yields at 10s, its host belongs in "
+             "sources.FEED_TIMEOUT_OVERRIDES with that number plus headroom",
     )
     ap.add_argument(
         "--persisted",
@@ -178,12 +239,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.persisted:
         _report_persisted(args.persisted)
 
+    # (url, label) pairs. GNews candidates are built AFTER the keyword-provenance
+    # gate above, so a query can never be assembled from the fallback set.
+    targets: list[tuple[str, str]] = [(u, _label(u)) for u in args.urls]
+    for domain in args.gnews_en:
+        domain = domain.strip().lstrip("/")
+        [query] = google_news_site_queries_en([domain], keywords, args.hours)
+        targets.append((query, f"gnews-en:{domain}"))
+        print(f"\ngnews-en query: {query}", flush=True)
+
+    if not targets:
+        print(
+            "\nnothing to measure: pass one or more feed URLs, and/or "
+            "--gnews-en <domain>.",
+            flush=True,
+        )
+        return 2
+
+    if args.feed_timeout:
+        _pin_feed_timeout([u for u, _ in targets], args.feed_timeout)
+        print(
+            f"feed timeout  : pinned to {args.feed_timeout:.1f}s for this run "
+            f"(default {FEED_TIMEOUT}s)",
+            flush=True,
+        )
+    if FEED_TIMEOUT_OVERRIDES:
+        print(f"timeout overrides: {FEED_TIMEOUT_OVERRIDES}", flush=True)
+
     now = datetime.now(timezone.utc)
     rows: list[tuple[str, int, str, int, int, int, int, int]] = []
 
-    for url in args.urls:
+    for url, label in targets:
         items, err, elapsed = _fetch(url, standard_sitemap=args.standard_sitemap)
-        label = _label(url)
         if err:
             print(f"\n### {label}\nERROR: {err}", flush=True)
             continue

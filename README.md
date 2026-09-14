@@ -474,6 +474,190 @@ false-positive caveats. `pass` here is the title/summary pass count over a
 | The Hindu BusinessLine | thehindubusinessline.com | RSS | 23 comm. / 6 econ. |
 | Mint | livemint.com | RSS | 5 (4 on-beat) |
 
+### Wave 5 anchors (2026-09-14)
+
+The five blocks below are the directory rows for the five parallel waves of the
+2026-09 international expansion. Each wave fills ONLY its own block, between its
+own BEGIN/END comments, and leaves every fence line alone — that is what keeps
+the five branches merging without conflicts. The matching anchors in
+`sources.py` live inside `RSS_FEEDS`, `INTERNATIONAL_RSS_DOMAINS`,
+`ENGLISH_NO_RSS_DOMAINS` and `FEED_TIMEOUT_OVERRIDES`. Empty is the correct
+state until a wave lands.
+
+<!-- --- Wave 5A (2026-09-14): Global wires & US mainstream --- BEGIN -->
+
+### Global wires & US mainstream
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+
+<!-- --- Wave 5A (2026-09-14): Global wires & US mainstream --- END -->
+
+<!-- ---- merge fence: keep >=4 lines between wave blocks ---- -->
+
+
+<!-- --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN -->
+
+### US regional, Europe, Canada, Oceania mainstream
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+
+<!-- --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- END -->
+
+<!-- ---- merge fence: keep >=4 lines between wave blocks ---- -->
+
+
+<!-- --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN -->
+
+### Africa, Middle East & North-East Asia mainstream
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+
+<!-- --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END -->
+
+<!-- ---- merge fence: keep >=4 lines between wave blocks ---- -->
+
+
+<!-- --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN -->
+
+### South & South-East Asia, Latin America mainstream, downstream trade press I
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+
+<!-- --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END -->
+
+<!-- ---- merge fence: keep >=4 lines between wave blocks ---- -->
+
+
+<!-- --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN -->
+
+### O&G / refining / shipping trade press & institutions
+
+| Outlet | Domain | Surface | pass |
+|---|---|---|---|
+
+<!-- --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END -->
+
+<!-- ---- merge fence: keep >=4 lines between wave blocks ---- -->
+
+
+## Measuring a candidate source
+
+Registering a source is a **measurement, not a guess**, and it is made **on the
+runner** — from a datacenter IP, with the Supabase secrets, against the LIVE
+keyword set. `scripts/measure_source.py` refuses to print a yield table when the
+keyword set it loaded is the ~25-term hardcoded fallback (what a dev machine
+without the service key gets), because those numbers describe a funnel
+production does not use. So: always through the workflow.
+
+### (a) An RSS candidate
+
+```bash
+gh workflow run measure_source.yml \
+  -f urls="https://site.com/feed/ https://site.com/energy/rss.xml" \
+  -f hours=168 -f lede=true
+gh run list --workflow=measure_source.yml --limit 1     # then: gh run view <id> --log
+```
+
+Measure **every plausible feed of the site in ONE run** — the summary table at
+the bottom compares them, and the right pick is usually a section feed, not the
+site-wide one. `hours=168` (7 days) is the standard window; `lede=true` also
+fetches the bodies of near-misses, which is how you learn whether the source is
+usable title-only or needs the body.
+
+A feed that returns `ERROR: ... timed out` is not necessarily dead, it may just
+be **slow** — re-measure with a longer budget before concluding anything:
+
+```bash
+gh workflow run measure_source.yml -f urls="https://site.com/feed/" -f feed_timeout=12 -f hours=168
+```
+
+If it yields at 12s, the host belongs in `sources.FEED_TIMEOUT_OVERRIDES` with
+the measured `fetch=N.NNs` plus headroom (the default is 4s and the 2026-08-18
+waves lost eia.gov, intellinews and globalenergynetwork.net to it).
+
+### (b) A Google News en-US candidate
+
+For outlets whose feed is WAF-blocked, paywalled, dateless or absent, the
+surface is `site:<domain> when:<window> (<keywords>)` at `hl=en-US`:
+
+```bash
+gh workflow run measure_source.yml -f gnews_en="site.com other-site.com" -f hours=168
+```
+
+**Never hand-build that URL.** `--gnews-en` assembles it through
+`google_news_site_queries_en()` with the LIVE keywords, so the OR-block is the
+12-term `ENGLISH_KEYWORD_PRIORITY` subset production actually sends and `when:`
+sits where Google will not truncate it; a hand-made query silently measures a
+different funnel, and pasting a raw `&` through a shell truncates the locale.
+The workflow prints the exact URL it fetched. A path is allowed and is honoured
+by Google (`-f gnews_en="rigzone.com/news"` — measured 2026-08-18: the bare
+domain is ~59% job listings, the `/news` path is ~all articles).
+
+### (c) Is it already registered — and did the registration land?
+
+```bash
+gh workflow run measure_source.yml -f gnews_en="site.com" -f persisted="site.com"
+```
+
+`--persisted` lists the newest `news_articles` rows for the domain. Run it
+**before** a registration ("register X" is often really "X went silent while the
+workflow stayed green") and **after** one — it is the only end-to-end proof that
+articles actually landed.
+
+### (d) Reading the table, and the acceptance rule
+
+```
+items=37 span=168h fresh=37 pass=22 near=15 rescued=0 no_body=15 fetch=1.83s
+```
+
+| column | meaning |
+|---|---|
+| `items` | raw entries the fetcher returned. `0` = unreachable, unindexed, or nothing published |
+| `span` | oldest -> newest `published_at` in the payload. `-` = **dateless**, which the scanner cannot persist (see the World Oil autopsy in `sources.py`) |
+| `fresh` | entries inside `--hours` |
+| `pass` | entries that match on title/summary — **what lands without paying a body fetch**, i.e. the real yield for a paywalled or GNews source |
+| `near` | fresh entries that missed and would become lede-rescue candidates |
+| `rescued` | of those, how many match once the body is fetched (`lede=true` only) |
+| `no_body` | near-misses whose body could not be fetched — a wall of these means bodies are unreachable, so treat `pass` as the ceiling |
+
+**Acceptance rule for the 2026-09 international programme** (Eduardo,
+2026-09-14 — deliberately LOWER than the 2026-08-18 bar of ">= 3 on-beat passes
+per 7d"):
+
+- **Register** every candidate with ANY viable surface: `pass >= 1` over 7 days,
+  or `pass >= 3` over 48 hours. Try the other surface before giving up — a dead
+  feed is not a dead domain (measure `--gnews-en`), and a thin site-wide feed is
+  not a thin site (measure the section feeds).
+- **Reject** only a candidate whose EVERY surface returns 0 items (unreachable,
+  not indexed by Google News, or dateless), or whose passes are >= 80% off-beat
+  false positives (offshore wind, crude steel, edible/palm/coconut oil).
+
+Either way, **write the numbers down** next to the entry in `sources.py` — or,
+for a rejection, in the wave's commented-out `REJECTED` block. That per-domain
+comment is the authoritative record (the README tables are a directory); it is
+what stops the next wave from silently re-testing a domain that was already
+measured.
+
+Where the entry goes:
+
+| verdict | registry |
+|---|---|
+| usable RSS feed | `RSS_FEEDS` **and** `INTERNATIONAL_RSS_DOMAINS` (both apex and www forms — without it the outlet is classified as national) |
+| GNews-only | `ENGLISH_NO_RSS_DOMAINS` |
+| rich but slow feed | `RSS_FEEDS` + `INTERNATIONAL_RSS_DOMAINS` + `FEED_TIMEOUT_OVERRIDES` |
+| rejected | a commented-out entry with the measured numbers |
+
+Adding English GNews domains past `EN_GNEWS_QUERIES_PER_SCAN` (34) is expected
+and safe: the scan then rotates the list over `ceil(n/34)` cohorts, one per
+5-minute scan, and the run log says `gnews en cohort k/N (m domains)`. Every
+domain is still queried well inside the 24h `when:` window. What must NOT grow
+uncapped is the foreign-language block — it is GNews-only and is submitted first
+precisely because a dropped query there is total data loss for that language.
+
 ## Local dev
 
 ```bash

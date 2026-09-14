@@ -16,8 +16,16 @@ on:
   workflow_dispatch:
     inputs:
       urls:
-        description: Space-separated feed/sitemap URLs to measure
-        required: true
+        description: Space-separated feed/sitemap URLs to measure (may be empty
+          when gnews_en is used)
+        required: false
+        default: ''
+      gnews_en:
+        description: >-
+          Space-separated domains to measure through the English Google News
+          `site:` surface (query built with the LIVE keywords)
+        required: false
+        default: ''
       hours:
         description: Window in hours
         required: false
@@ -32,6 +40,10 @@ on:
         type: boolean
         required: false
         default: false
+      feed_timeout:
+        description: Per-request feed timeout in seconds for this run (default 4)
+        required: false
+        default: ''
       persisted:
         description: Domain to list existing news_articles rows for (optional)
         required: false
@@ -61,13 +73,21 @@ jobs:
       # expansion is not re-parsed for metacharacters, so `$URLS` unquoted still
       # word-splits on spaces (which is what we want for several URLs) without
       # ever seeing `&` as syntax.
+      # GNEWS_EN takes the same environment route as URLS, for the same reason
+      # and one more: the script wants ONE --gnews-en per domain, so the loop
+      # below turns the space-separated input into repeated flags. An empty
+      # input expands to nothing and the array stays empty.
       - run: |
-          python -m scripts.measure_source $URLS \
+          gnews=()
+          for d in $GNEWS_EN; do gnews+=(--gnews-en "$d"); done
+          python -m scripts.measure_source $URLS "${gnews[@]}" \
             --hours "${{ inputs.hours }}" \
             ${{ inputs.standard_sitemap && '--standard-sitemap' || '' }} \
             ${{ inputs.lede && '--lede' || '' }} \
+            ${{ inputs.feed_timeout && format('--feed-timeout {0}', inputs.feed_timeout) || '' }} \
             ${{ inputs.persisted && format('--persisted {0}', inputs.persisted) || '' }}
         env:
           URLS: ${{ inputs.urls }}
+          GNEWS_EN: ${{ inputs.gnews_en }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

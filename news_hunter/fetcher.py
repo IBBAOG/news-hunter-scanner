@@ -16,13 +16,17 @@ import requests
 from dateutil import parser as date_parser
 
 from .sources import (
+    EN_GNEWS_QUERIES_PER_SCAN,
     INTERNATIONAL_RSS_DOMAINS,
     LANGUAGES,
     NO_RSS_DOMAINS,
+    PT_GNEWS_QUERIES_PER_SCAN,
     all_homepage_scrapers,
     all_rss_feeds,
     all_standard_sitemaps,
     feed_stale_hours,
+    feed_timeout,
+    gnews_cohort,
     google_news_queries,
     google_news_site_queries,
     google_news_site_queries_lang,
@@ -35,6 +39,9 @@ log = logging.getLogger(__name__)
 # Timeouts curtos. FEED_TIMEOUT limita cada requisicao individual;
 # COLLECT_DEADLINE e o teto GLOBAL - depois disso, feeds ainda em voo sao
 # abandonados para esta busca e ficam para a proxima.
+# FEED_TIMEOUT e o DEFAULT: um host cujo feed vale a espera (rico, datado, mas
+# lento) declara seu proprio orcamento em sources.FEED_TIMEOUT_OVERRIDES, lido
+# aqui por feed_timeout(). Sem entrada no dict, nada muda.
 FEED_TIMEOUT = 4
 # Sitemaps WordPress sao lentos e PESADOS: a pagina de posts do visaoagro tem
 # 484 KB e o Apache dele nao comprime (sem content-encoding), entao o custo e
@@ -299,7 +306,9 @@ def _fetch_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str 
                 "User-Agent": USER_AGENT,
                 "Accept": "application/xml, text/xml, */*",
             },
-            timeout=FEED_TIMEOUT,
+            timeout=feed_timeout(
+                feed_domain, FEED_TIMEOUT, host=urlparse(feed_url).netloc
+            ),
         )
         r.raise_for_status()
         root = ET.fromstring(r.content)
@@ -798,7 +807,9 @@ def _fetch_one(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | No
                 "User-Agent": USER_AGENT,
                 "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.5",
             },
-            timeout=FEED_TIMEOUT,
+            timeout=feed_timeout(
+                feed_domain, FEED_TIMEOUT, host=urlparse(feed_url).netloc
+            ),
         )
     except Exception as e:  # noqa: BLE001
         return [], f"{feed_domain}: {e!s}"
@@ -839,6 +850,74 @@ def _fetch_one(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str | No
     return items, None
 
 
+def _gnews_tasks(
+    keywords: list[str], hours: int
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]], dict[str, str]]:
+    """Build this scan's Google News `site:` query tasks.
+
+    Returns ``(priority_tasks, tasks, lang_by_url)``:
+
+    * ``priority_tasks`` - the FOREIGN-language queries (ar/ru/zh/iw/es), in full
+      and uncapped, to be submitted BEFORE everything else. news.google.com
+      rate-limits a burst of `site:` queries from one IP and silently drops its
+      tail; PT and EN tolerate that (RSS fallbacks, redundant sources) but the
+      foreign languages are GNews-ONLY, so a dropped foreign query is total data
+      loss for that language - exactly what stranded the Arabic pilot at 0 rows
+      while measure_source, firing 3 isolated queries from the same runner IP,
+      returned 58-100 fresh items per domain. Firing them first also puts their
+      items at the head of the gnewsdecoder resolve queue.
+    * ``tasks`` - the PT block then the English block, each restricted to this
+      scan's COHORT (see sources.gnews_cohort): the burst budget that keeps the
+      tail from being dropped as the English roster grows past ~34 domains.
+      With today's lists both are a single cohort, i.e. the full list.
+    * ``lang_by_url`` - query URL -> retrieval language, for the source_lang
+      stamping in the drain loop. PT stays absent on purpose (absent = native).
+
+    Shared by iter_collect and collect so the two paths cannot drift.
+    """
+    priority_tasks: list[tuple[str, str]] = []
+    tasks: list[tuple[str, str]] = []
+    lang_by_url: dict[str, str] = {}
+
+    for cfg in LANGUAGES.values():
+        if cfg.translate and cfg.no_rss_domains:      # foreign, GNews-only
+            for url in google_news_site_queries_lang(
+                cfg, list(cfg.no_rss_domains), keywords, hours
+            ):
+                priority_tasks.append(("news.google.com", url))
+                lang_by_url[url] = cfg.code
+
+    if NO_RSS_DOMAINS:
+        pt_domains, pt_k, pt_n = gnews_cohort(
+            list(NO_RSS_DOMAINS), PT_GNEWS_QUERIES_PER_SCAN
+        )
+        # Only worth a log line once the list actually rotates; at cohorts == 1
+        # it would just be noise on every scan.
+        if pt_n > 1:
+            log.info(
+                "gnews pt cohort %d/%d (%d domains)", pt_k + 1, pt_n, len(pt_domains)
+            )
+        for url in google_news_site_queries(pt_domains, keywords, hours):
+            tasks.append(("news.google.com", url))
+
+    # English (translate=False) is capped and tagged. Each query URL is recorded
+    # so the drain loop can stamp source_lang on the items it returns.
+    for cfg in LANGUAGES.values():
+        if cfg.translate or not cfg.no_rss_domains:
+            continue
+        domains, k, n = gnews_cohort(
+            list(cfg.no_rss_domains), EN_GNEWS_QUERIES_PER_SCAN
+        )
+        log.info(
+            "gnews %s cohort %d/%d (%d domains)", cfg.code, k + 1, n, len(domains)
+        )
+        for url in google_news_site_queries_lang(cfg, domains, keywords, hours):
+            tasks.append(("news.google.com", url))
+            lang_by_url[url] = cfg.code
+
+    return priority_tasks, tasks, lang_by_url
+
+
 def iter_collect(
     keywords: list[str],
     hours: int,
@@ -856,41 +935,13 @@ def iter_collect(
     # Query URL -> retrieval language (§1.4). Only per-language GNews `site:`
     # queries are entered; RSS feeds and the PT block stay absent (=> None =
     # native/untranslated). Items are stamped from this map in the drain loop.
+    # Foreign queries come back in `priority_tasks` and are submitted FIRST; the
+    # English/PT blocks are cohort-capped. Both rules live in _gnews_tasks.
     lang_by_url: dict[str, str] = {}
-    # Foreign-language GNews queries are submitted FIRST — before the RSS feeds
-    # and the ~35 PT/English GNews queries. news.google.com rate-limits a BURST
-    # of `site:` queries from one IP and silently drops some (measured; see
-    # sources.py "derrubou TODAS as queries"). PT/English tolerate that: they have
-    # RSS fallbacks and many redundant sources. FOREIGN languages are GNews-ONLY,
-    # so a dropped foreign query is TOTAL data loss for that language — which is
-    # exactly what stranded the Arabic pilot at 0 rows while measure_source (3
-    # isolated queries) returned 58-100 fresh items/domain from the same runner
-    # IP. Firing them before the burst saturates gives them the freshest
-    # rate-limit budget, and their items reach the gnewsdecoder resolve queue
-    # first, so they are not starved at the resolve deadline either.
     priority_tasks: list[tuple[str, str]] = []
     if include_google_news:
-        for cfg in LANGUAGES.values():
-            if cfg.translate and cfg.no_rss_domains:      # foreign, GNews-only
-                for url in google_news_site_queries_lang(
-                    cfg, list(cfg.no_rss_domains), keywords, hours
-                ):
-                    priority_tasks.append(("news.google.com", url))
-                    lang_by_url[url] = cfg.code
-        if NO_RSS_DOMAINS:
-            for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
-                tasks.append(("news.google.com", url))
-        # English (translate=False) stays in the normal block — it is already
-        # robust (RSS-covered domains + redundancy) and reproduces the historical
-        # direct call exactly (test_multilingual_en_frozen.py). Each query URL is
-        # tagged so the drain loop can stamp the items it returns.
-        for cfg in LANGUAGES.values():
-            if not cfg.translate and cfg.no_rss_domains:
-                for url in google_news_site_queries_lang(
-                    cfg, list(cfg.no_rss_domains), keywords, hours
-                ):
-                    tasks.append(("news.google.com", url))
-                    lang_by_url[url] = cfg.code
+        priority_tasks, gnews_tasks, lang_by_url = _gnews_tasks(keywords, hours)
+        tasks.extend(gnews_tasks)
 
     import time as _time
     t_start = _time.time()
@@ -1034,22 +1085,15 @@ def collect(
     decode. Por padrao usamos apenas queries 'site:' para dominios sem
     RSS/sitemap proprio. Isso mantem o orcamento <10s.
     """
-    tasks: list[tuple[str, str]] = list(all_rss_feeds())
+    rss_tasks: list[tuple[str, str]] = list(all_rss_feeds())
+    tasks: list[tuple[str, str]] = list(rss_tasks)
     lang_by_url: dict[str, str] = {}
 
     if include_google_news:
-        if NO_RSS_DOMAINS:
-            for url in google_news_site_queries(NO_RSS_DOMAINS, keywords, hours):
-                tasks.append(("news.google.com", url))
-        # Per-language site: queries from the LANGUAGES registry (en + ar today),
-        # each tagged with its language code (parity with iter_collect, §1.4).
-        for cfg in LANGUAGES.values():
-            if cfg.no_rss_domains:
-                for url in google_news_site_queries_lang(
-                    cfg, list(cfg.no_rss_domains), keywords, hours
-                ):
-                    tasks.append(("news.google.com", url))
-                    lang_by_url[url] = cfg.code
+        # Same builder as iter_collect (foreign first and uncapped, EN/PT
+        # cohort-capped, every language tagged) so the two paths cannot drift.
+        priority_tasks, gnews_tasks, lang_by_url = _gnews_tasks(keywords, hours)
+        tasks = priority_tasks + gnews_tasks + rss_tasks
 
     items: list[RawItem] = []
     errors: list[str] = []
