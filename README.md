@@ -639,7 +639,7 @@ comment in `sources.py` carries each rejected surface with its numbers.
 | Dawn | dawn.com | RSS | 15 (88h) |
 | The Astana Times | astanatimes.com | RSS | 2 (11h) |
 | Trend News Agency | en.trend.az | RSS | 2 (6h, +1 rescued) |
-| MercoPress | en.mercopress.com | RSS | 1 (48h); GNews cross-check 5 |
+| MercoPress | en.mercopress.com | GNews en-US | 5 (RSS moved out 2026-09-14: its only pass in 48h was an RAF refuelling "tanker") |
 | Buenos Aires Times | batimes.com.ar | RSS | 6 |
 | Mexico News Daily | mexiconewsdaily.com | RSS | 1 (28h) |
 | The Jakarta Post | thejakartapost.com | GNews en-US | 12 |
@@ -648,6 +648,12 @@ comment in `sources.py` carries each rejected surface with its numbers.
 | BNamericas | bnamericas.com | GNews en-US | 25 |
 | Hydrocarbon Processing | hydrocarbonprocessing.com | GNews en-US | 61 (~40 real articles) |
 | Hydrocarbon Engineering | hydrocarbonengineering.com | GNews en-US | 13 |
+
+**Surface correction, 2026-09-14 (post-merge):** MercoPress was registered on
+RSS and moved to GNews en-US. Its feed measured `pass=1` over 48h and that pass
+was a false positive (an RAF air-to-air refuelling *tanker*), i.e. an on-beat
+yield of zero, while `site:en.mercopress.com` measures `pass=5/7d` all on-beat.
+The feed line stays in `sources.py` commented out, with both numbers.
 
 Rejected by this wave, with the measurement recorded next to a commented-out
 entry in `ENGLISH_NO_RSS_DOMAINS`: Caixin Global (re-test, GNews pass=0/7d),

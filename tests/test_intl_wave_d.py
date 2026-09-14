@@ -54,7 +54,6 @@ WAVE_5D_RSS: dict[str, tuple[str, ...]] = {
     "www.dawn.com": ("https://www.dawn.com/feeds/business",),
     "astanatimes.com": ("https://astanatimes.com/feed/",),
     "en.trend.az": ("https://en.trend.az/feeds/index.rss",),
-    "en.mercopress.com": ("https://en.mercopress.com/rss/",),
     "www.batimes.com.ar": ("https://www.batimes.com.ar/feed",),
     "mexiconewsdaily.com": ("https://mexiconewsdaily.com/feed/",),
 }
@@ -66,10 +65,14 @@ WAVE_5D_SUBDOMAIN_ONLY = frozenset({
     "timesofindia.indiatimes.com",
     "economictimes.indiatimes.com",
     "en.trend.az",
-    "en.mercopress.com",
 })
 
 WAVE_5D_GNEWS = (
+    # MercoPress was registered on RSS by the wave and MOVED here on
+    # 2026-09-14: its feed's only pass over 48h was a false positive (an RAF
+    # air-to-air refuelling "tanker"), while GNews measured pass=5/7d all
+    # on-beat. Pinned in the GNews roster so the feed does not come back.
+    "en.mercopress.com",
     "theedgemalaysia.com",
     "bnamericas.com",
     "thejakartapost.com",

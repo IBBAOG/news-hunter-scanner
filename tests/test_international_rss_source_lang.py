@@ -247,7 +247,8 @@ _WAVE5_ITEM_URLS: tuple[tuple[str, str], ...] = (
     ("www.dawn.com", "https://www.dawn.com/news/2029913/govt-increases-petrol-by-rs442-per-litre-hsd-by-rs610-per-litre-amid-rising-global-oil-prices"),
     ("astanatimes.com", "https://astanatimes.com/2026/09/kashagan-expansion-could-reshape-kazakhstans-oil-export-needs-experts-say/"),
     ("en.trend.az", "https://www.trend.az/casia/uzbekistan/4223720.html"),
-    ("en.mercopress.com", "https://en.mercopress.com/2026/09/14/milei-sets-out-the-sovereignty-bill-he-will-send-to-congress-over-the-falklands"),
+    # en.mercopress.com moved to GNews on 2026-09-14 (feed 100% off-beat), so it
+    # is no longer an RSS feed and has no pinned item URL here.
     ("www.batimes.com.ar", "https://www.batimes.com.ar/news/latin-america/lula-and-bolsonaro-in-dead-heat-ahead-of-brazil-vote-polls-show.phtml"),
     ("mexiconewsdaily.com", "https://mexiconewsdaily.com/news/pemex-contains-another-gulf-oil-spill/"),
     # --- Wave 5E ---

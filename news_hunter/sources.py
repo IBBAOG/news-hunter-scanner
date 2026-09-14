@@ -1333,25 +1333,15 @@ RSS_FEEDS: dict[str, list[str]] = {
     "en.trend.az": [
         "https://en.trend.az/feeds/index.rss",
     ],
-    # MercoPress (en.mercopress.com) -- South Atlantic News Agency
-    # (Montevideo), the Mercosur / Falklands desk. /rss/: items=10 span=48h
-    # fresh=10 pass=1 near=9 rescued=0 no_body=0 fetch=0.33s -- and that single
-    # pass is a FALSE POSITIVE ("Falklands RAF's Voyager tanker back in MPA", an
-    # air-to-air refuelling aircraft matching `tanker`). The domain was
-    # therefore cross-checked on the OTHER surface before being registered:
-    # GNews en-US site:en.mercopress.com over 7d returns items=68 fresh=61
-    # pass=5 near=56, and those are on-beat -- "Argentina files lawsuit against
-    # oil firms operating off Malvinas", "Brent climbs back above US$100 to its
-    # highest level since late July", "Argentina claims Chile is committed to no
-    # logistic support for Falklands' oil industry". RSS is the registered
-    # surface (bodies reachable, and a 10-item/48h feed is harvested
-    # continuously by the 5-minute scan, which a one-shot 48h measurement
-    # under-counts); the GNews numbers are recorded here only as the on-beat
-    # proof. Watch the `tanker` naval/RAF false positive -- this is a
-    # military-heavy beat. Subdomain, no www form.
-    "en.mercopress.com": [
-        "https://en.mercopress.com/rss/",
-    ],
+    # MercoPress (en.mercopress.com) -- MOVED TO GNews on 2026-09-14, the day
+    # after it was registered here: the RSS surface it was registered on is
+    # 100% off-beat. See its entry in the ENGLISH_NO_RSS_DOMAINS Wave 5D block
+    # for both measurements. Left as a comment so a later wave does not
+    # "restore" the feed on the strength of the pass=1 that was a false
+    # positive.
+    # "en.mercopress.com": [
+    #     "https://en.mercopress.com/rss/",
+    # ],
     # Buenos Aires Times (batimes.com.ar) -- Argentina's English-language paper
     # (Perfil group), the Vaca Muerta / YPF read. /feed: items=100 span=405h
     # fresh=42 pass=6 near=36 rescued=0 no_body=0 fetch=0.36s -- six passes
@@ -1673,7 +1663,8 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #     above. Apex AND www forms, per the invariant at the top of this set;
     #     the five subdomain-only outlets (e.vnexpress.net,
     #     timesofindia.indiatimes.com, economictimes.indiatimes.com,
-    #     en.trend.az, en.mercopress.com) have no www form, exactly like ET
+    #     en.trend.az; en.mercopress.com was one until it moved to GNews on
+    #     2026-09-14) have no www form, exactly like ET
     #     EnergyWorld. Without these entries the outlet arrives with
     #     source_lang=None and the dashboard classifies it as NATIONAL. ---
     # South & South-East Asia
@@ -1690,7 +1681,8 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     "en.trend.az",                                              # Trend News Agency (subdomain)
     "trend.az", "www.trend.az",                                 # article host of en.trend.az (25/25 item links point at www.trend.az, 2026-09-14)
     # Latin America
-    "en.mercopress.com",                                        # MercoPress (subdomain)
+    # en.mercopress.com REMOVED 2026-09-14: moved to ENGLISH_NO_RSS_DOMAINS
+    # (its feed is 100% off-beat), and GNews stamps 'en' on its own route.
     "batimes.com.ar", "www.batimes.com.ar",                     # Buenos Aires Times
     "mexiconewsdaily.com", "www.mexiconewsdaily.com",           # Mexico News Daily
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
@@ -3094,6 +3086,26 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # clears the bar and its EPC/vendor items are distinct. Articles resolve to
     # www.hydrocarbonengineering.com.
     "hydrocarbonengineering.com",
+    # MercoPress (en.mercopress.com) -- South Atlantic News Agency
+    # (Montevideo), the Mercosur / Falklands desk. REGISTERED ON RSS BY WAVE 5D
+    # AND MOVED HERE ON 2026-09-14, post-merge, on the QA finding that the
+    # registered surface was the wrong one. The two measurements:
+    #   RSS  /rss/: items=10 span=48h fresh=10 pass=1 near=9 fetch=0.33s -- and
+    #        that single pass is a FALSE POSITIVE ("Falklands RAF's Voyager
+    #        tanker back in MPA", an air-to-air refuelling aircraft matching the
+    #        substring `tanker`). On-beat yield of the feed: ZERO.
+    #   GNews site:en.mercopress.com 7d: items=68 fresh=61 pass=5 near=56, all
+    #        five on-beat -- "Argentina files lawsuit against oil firms
+    #        operating off Malvinas", "Brent climbs back above US$100 to its
+    #        highest level since late July", "Argentina claims Chile is
+    #        committed to no logistic support for Falklands' oil industry".
+    # Wave 5D preferred RSS anyway (bodies reachable, rolling feed harvested
+    # every 5 min); that reasoning does not survive a pass set that is 100%
+    # false positive. GNews is the proven surface, so it is the registered one;
+    # items land title-only, like every other entry in this list. Watch the
+    # `tanker` naval/RAF false positive -- this is a military-heavy beat.
+    # Subdomain: the apex mercopress.com is NOT what the English edition serves.
+    "en.mercopress.com",
     # --- Wave 5D REJECTED (measured 2026-09-14 on the runner under the LOWERED
     #     2026-09 bar; recorded so a future wave does not silently re-test) ---
     # Caixin Global (caixinglobal.com): RE-TEST of the 2026-08-18 Wave 4
