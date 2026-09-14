@@ -629,6 +629,32 @@ comment in `sources.py` carries each rejected surface with its numbers.
 
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
+| The Straits Times | straitstimes.com | RSS | 2 (41h, +1 rescued) |
+| CNA / Channel NewsAsia | channelnewsasia.com | RSS | 3 (5h general) / 2 (7h business) |
+| Bangkok Post | bangkokpost.com | RSS | 2 (19h) |
+| VnExpress International | e.vnexpress.net | RSS | 2 (178h, 1 on-beat) |
+| The Times of India | timesofindia.indiatimes.com | RSS | 4 (25h) |
+| The Economic Times | economictimes.indiatimes.com | RSS | 8 (26h) |
+| Business Standard | business-standard.com | RSS | 6 (81h) |
+| Dawn | dawn.com | RSS | 15 (88h) |
+| The Astana Times | astanatimes.com | RSS | 2 (11h) |
+| Trend News Agency | en.trend.az | RSS | 2 (6h, +1 rescued) |
+| MercoPress | en.mercopress.com | RSS | 1 (48h); GNews cross-check 5 |
+| Buenos Aires Times | batimes.com.ar | RSS | 6 |
+| Mexico News Daily | mexiconewsdaily.com | RSS | 1 (28h) |
+| The Jakarta Post | thejakartapost.com | GNews en-US | 12 |
+| The Edge Malaysia | theedgemalaysia.com | GNews en-US | 69 |
+| Kaieteur News | kaieteurnewsonline.com | GNews en-US | 19 (~14 net of tag-archive pages) |
+| BNamericas | bnamericas.com | GNews en-US | 25 |
+| Hydrocarbon Processing | hydrocarbonprocessing.com | GNews en-US | 61 (~40 real articles) |
+| Hydrocarbon Engineering | hydrocarbonengineering.com | GNews en-US | 13 |
+
+Rejected by this wave, with the measurement recorded next to a commented-out
+entry in `ENGLISH_NO_RSS_DOMAINS`: Caixin Global (re-test, GNews pass=0/7d),
+OilNOW (feed 403 on every path, GNews 1 item), Stabroek News (feed 404 on every
+path, GNews 0 items), Petroleum Economist (feed 404; GNews 7 items whose title
+is always the string "Petroleum Economist"), Oilfield Technology (feed 403,
+GNews 2 items / pass=0).
 
 <!-- --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END -->
 
