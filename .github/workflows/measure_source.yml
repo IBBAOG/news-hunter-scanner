@@ -56,10 +56,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: pip` here on purpose (dropped 2026-09-14, same fix as
+      # 4b3d8ba on backfill_snippets.yml). Paired with the --no-cache-dir
+      # install below, setup-python's POST step finds no
+      # /home/runner/.cache/pip and fails the whole job in cleanup
+      # ("Cache folder path is retrieved for pip but doesn't exist on disk").
+      # Every measure_source run up to and including 2026-09-14 therefore ended
+      # `conclusion: failure` on top of a perfectly good measurement table — a
+      # red that trains the reader to ignore reds on the one workflow whose
+      # output decides whether a source gets registered.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
 
       - run: pip install --no-cache-dir -r requirements.txt
 
