@@ -667,6 +667,38 @@ GNews 2 items / pass=0).
 
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
+| LNG Industry | lngindustry.com | RSS | 20 |
+| World Pipelines | worldpipelines.com | RSS | 4 |
+| Tanks and Terminals | tanksterminals.com | RSS | 5 |
+| Drilling Contractor (IADC) | drillingcontractor.org | RSS | 10 |
+| RBN Energy | rbnenergy.com | RSS | 11 |
+| Fuels & Lubes (F+L Daily) | fuelsandlubes.com | RSS | 17 |
+| Energy Monitor | energymonitor.ai | RSS | 4 (2 on-beat) |
+| Ship & Bunker | shipandbunker.com | RSS | 10 |
+| Seatrade Maritime News | seatrade-maritime.com | RSS | 19 |
+| Kpler | kpler.com | RSS (Insights blog) | 13 |
+| US EIA (Today in Energy) | eia.gov | RSS (14s timeout override) | 2 |
+| Offshore Magazine | offshore-mag.com | GNews en-US | 20 |
+| Gas Processing & LNG | gasprocessingnews.com | GNews en-US (feed dateless) | 19 |
+| Quantum Commodity Intelligence | qcintel.com | GNews en-US | 84 |
+| Lloyd's List | lloydslist.com | GNews en-US | 22 |
+| Riviera Maritime Media | rivieramm.com | GNews en-US | 22 |
+| Mobility Plaza (ex-PetrolPlaza) | mobilityplaza.com | GNews en-US | 41 |
+| IEA | iea.org | GNews en-US | 5 |
+| OPEC | opec.org | GNews en-US | 3 (1 distinct/wk) |
+| Wood Mackenzie | woodmac.com | GNews en-US | 21 (~6 on-beat) |
+| Rystad Energy | rystadenergy.com | GNews en-US | 2 |
+| Vortexa | vortexa.com | GNews en-US | 2 |
+| Oxford Institute for Energy Studies | oxfordenergy.org | GNews en-US | 1 |
+| ICIS | icis.com | GNews en-US | 3 |
+| JPT / SPE | jpt.spe.org | GNews en-US | 1 |
+
+Rejected, with the measurement recorded in the wave's `REJECTED` comment block
+in `sources.py`: **Natural Gas World** (feed frozen at Feb 2025, fresh=0; GNews
+items=0), **OPIS** (blog feed publishes ~monthly, fresh=0 over 7d and 48h; GNews
+items=0), **PetrolPlaza** (domain retired, 301 to mobilityplaza.com, which is
+registered above). OPEC, ICIS and JPT/SPE were rejected on 2026-08-18 under the
+old bar and are registered here after a re-measurement.
 
 <!-- --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END -->
 
