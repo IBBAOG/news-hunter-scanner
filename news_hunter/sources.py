@@ -1059,9 +1059,13 @@ RSS_FEEDS: dict[str, list[str]] = {
     # refinery collapse cost R76bn in extra fuel imports", Trump on Russian
     # refinery strikes, EPA power-plant gas rules). Noise class to watch, all
     # bounded (title-only, url-keyed): a "LETTERS TO THE EDITOR" digest and
-    # company copy matching the substring keywords (`sanction`, `refin`). Feed
-    # and article links are www, so normalize_url strips to the apex
-    # businesslive.co.za.
+    # company copy matching the substring keywords (`sanction`, `refin`).
+    # ARTICLE HOST != FEED HOST (corrected 2026-09-14 from production rows):
+    # the feed is served from www.businesslive.co.za but EVERY item link is
+    # https://www.businessday.co.za/..., which normalize_url strips to the apex
+    # businessday.co.za. Both businessday spellings are therefore registered in
+    # INTERNATIONAL_RSS_DOMAINS alongside businesslive; the first 8 rows landed
+    # source_lang=NULL (= NATIONAL) before that.
     "www.businesslive.co.za": [
         "https://www.businesslive.co.za/arc/outboundfeeds/rss/?outputType=xml",
     ],
@@ -1073,7 +1077,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # ~all on-beat (the Russia-Ukraine energy truce and the diesel / refinery
     # strikes behind it, the Dangote refinery IPO, the Asian LNG market, Houthi
     # attacks on Saudi Arabia, US EPA carbon standards for gas power plants).
-    # Feed and article links are www -> apex pipelineoilandgasnews.com.
+    # ARTICLE HOST != FEED HOST (corrected 2026-09-14 from production rows):
+    # the feed is served from www.pipelineoilandgasnews.com but every item link
+    # is https://www.energyconnects.com/... (the magazine's sister/successor
+    # site), apex energyconnects.com after normalize_url. Both energyconnects
+    # spellings are registered in INTERNATIONAL_RSS_DOMAINS; the first 6 rows
+    # landed source_lang=NULL (= NATIONAL) before that.
     "www.pipelineoilandgasnews.com": [
         "https://www.pipelineoilandgasnews.com/feed/",
     ],
@@ -1316,7 +1325,11 @@ RSS_FEEDS: dict[str, list[str]] = {
     # agency exposes no oil & gas section RSS; the near-misses are regional
     # economy / politics copy. The English edition is the `en.` subdomain -- the
     # apex trend.az 301-redirects to the Russian/Azeri site and is NOT
-    # registered.
+    # registered as a FEED.
+    # BUT its ITEM LINKS are https://www.trend.az/... (English articles served
+    # off the apex host), so trend.az + www.trend.az ARE registered in
+    # INTERNATIONAL_RSS_DOMAINS as the article hosts -- without them the items
+    # land source_lang=NULL and read as NATIONAL (2 rows did, 2026-09-14).
     "en.trend.az": [
         "https://en.trend.az/feeds/index.rss",
     ],
@@ -1565,7 +1578,16 @@ RSS_FEEDS: dict[str, list[str]] = {
 #
 # KEEP IN SYNC: when an international English RSS source is added to or removed
 # from RSS_FEEDS, add/remove its apex+www forms here in the same change — or it
-# silently reverts to being classified as national.
+# silently reverts to being classified as national. And register the ARTICLE
+# host(s), not only the feed host: _entry_to_item keys this set on the host of
+# the ITEM LINK, which is frequently NOT the host the feed is served from. Three
+# Wave 5 outlets shipped misclassified for exactly this reason (2026-09-14,
+# found in production): www.businesslive.co.za links to businessday.co.za,
+# www.pipelineoilandgasnews.com links to energyconnects.com and en.trend.az
+# links to www.trend.az. Before registering a feed, open one of its items and
+# look at the link host; tests/test_international_rss_source_lang.py pins one
+# real item URL per Wave 5 feed so the next such rename fails a test instead of
+# silently landing 8 English articles in the NATIONAL bucket.
 # -----------------------------------------------------------------------------
 INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # --- Global trade press & shipping ---
@@ -1632,11 +1654,13 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
     # --- Africa (Wave 5C, 2026-09-14) ---
     "businesslive.co.za", "www.businesslive.co.za",             # Business Day / BusinessLive (South Africa)
+    "businessday.co.za", "www.businessday.co.za",               # article host of www.businesslive.co.za (100/100 item links, 2026-09-14)
     # --- Middle East (Wave 5C, 2026-09-14) ---
     "middleeasteye.net", "www.middleeasteye.net",               # Middle East Eye
     "tehrantimes.com", "www.tehrantimes.com",                   # Tehran Times
     "dailysabah.com", "www.dailysabah.com",                     # Daily Sabah
     "pipelineoilandgasnews.com", "www.pipelineoilandgasnews.com",  # Pipeline Oil & Gas Magazine
+    "energyconnects.com", "www.energyconnects.com",             # article host of www.pipelineoilandgasnews.com (30/30 item links, 2026-09-14)
     # --- North-East Asia (Wave 5C, 2026-09-14) ---
     "koreaherald.com", "www.koreaherald.com",                   # The Korea Herald
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
@@ -1664,6 +1688,7 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # Caspian / Central Asia
     "astanatimes.com", "www.astanatimes.com",                   # The Astana Times
     "en.trend.az",                                              # Trend News Agency (subdomain)
+    "trend.az", "www.trend.az",                                 # article host of en.trend.az (25/25 item links point at www.trend.az, 2026-09-14)
     # Latin America
     "en.mercopress.com",                                        # MercoPress (subdomain)
     "batimes.com.ar", "www.batimes.com.ar",                     # Buenos Aires Times
