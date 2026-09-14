@@ -770,7 +770,113 @@ RSS_FEEDS: dict[str, list[str]] = {
     #
     #
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
-    # (empty until wave C appends its entries here)
+    # =======================================================================
+    # Wave 5C (2026-09-14) -- Africa, Middle East & North-East Asia mainstream.
+    # Six of the wave's 24 candidates have a feed the scanner's fetcher reaches
+    # from the datacenter runner AND that carries dates; they are registered
+    # here. The other eighteen went to ENGLISH_NO_RSS_DOMAINS -- eight because
+    # their own feed answers 200 at home and HTTP 403 on the runner (WAF
+    # variant A: africaoilgasreport, energycapitalpower, agbi, timesofisrael,
+    # english.ahram, english.alarabiya, oilandgasmiddleeast, japantimes
+    # /news/business), two because the feed is dateless or stale (asia.nikkei
+    # /rss/feed/nar: 50 items, span=-, which the scanner cannot persist;
+    # japantimes /feed/topstories/: 5 items, fresh=0) and the rest because
+    # GNews measured several times richer than the feed. Yields measured on the
+    # runner (measure_source.yml, live 91-keyword set, 7d window) 2026-09-14.
+    # No feed of this wave needed more than 4s, so the wave's
+    # FEED_TIMEOUT_OVERRIDES block stays empty (slowest: BusinessLive 1.74s).
+    # =======================================================================
+    # Business Day / BusinessLive (businesslive.co.za) -- South Africa's
+    # financial daily (Arena Holdings). The feed is not a preference here, it
+    # is the WHOLE source: Google News does not index the domain at all
+    # (site:businesslive.co.za AND site:businesslive.co.za/bd both returned
+    # items=0 on 2026-09-14). Arc XP outbound feed: items=100 span=297h
+    # fresh=99 pass=10 near=89 fetch=1.74s -- ~6 of the ten on-beat (oil at
+    # $108 after the Saudi pipeline attack, the Dangote refinery IPO, "SA's
+    # refinery collapse cost R76bn in extra fuel imports", Trump on Russian
+    # refinery strikes, EPA power-plant gas rules). Noise class to watch, all
+    # bounded (title-only, url-keyed): a "LETTERS TO THE EDITOR" digest and
+    # company copy matching the substring keywords (`sanction`, `refin`). Feed
+    # and article links are www, so normalize_url strips to the apex
+    # businesslive.co.za.
+    "www.businesslive.co.za": [
+        "https://www.businesslive.co.za/arc/outboundfeeds/rss/?outputType=xml",
+    ],
+    # Pipeline Oil & Gas Magazine (pipelineoilandgasnews.com) -- Gulf /
+    # Middle East upstream-to-downstream trade monthly. Same shape as
+    # BusinessLive above and a much richer feed: site:pipelineoilandgasnews.com
+    # returns items=0 on GNews, so the feed is the only surface --
+    # items=30 span=121h fresh=30 pass=14 near=16 fetch=1.48s, the pass set
+    # ~all on-beat (the Russia-Ukraine energy truce and the diesel / refinery
+    # strikes behind it, the Dangote refinery IPO, the Asian LNG market, Houthi
+    # attacks on Saudi Arabia, US EPA carbon standards for gas power plants).
+    # Feed and article links are www -> apex pipelineoilandgasnews.com.
+    "www.pipelineoilandgasnews.com": [
+        "https://www.pipelineoilandgasnews.com/feed/",
+    ],
+    # Middle East Eye (middleeasteye.net) -- London-based Middle East daily and
+    # the fastest-moving feed of the wave: items=20 span=7h fresh=20 pass=14
+    # near=6 fetch=0.21s, i.e. fourteen title/summary passes inside a
+    # SEVEN-HOUR window (an IRGC report of a supertanker mined in the Strait of
+    # Hormuz, the Saudi East-West pipeline attack and its five-week repair,
+    # Houthi control of Bab al-Mandab, Iran-related sanctions on VTB, Saudi
+    # strikes on Yemen). Its GNews surface was measured too (pass=59/7d) and is
+    # deliberately NOT used: the feed rate is several times higher and carries
+    # bodies. Watch the bounded off-beat class the geopolitics keywords bring
+    # in (`sanction` / `ceasefire` on Gaza-diplomacy copy, e.g. a French-TV
+    # censorship item). Feed and article links are www -> apex
+    # middleeasteye.net.
+    "www.middleeasteye.net": [
+        "https://www.middleeasteye.net/rss",
+    ],
+    # Tehran Times (tehrantimes.com) -- Iran's English daily. It does NOT
+    # geo-block the datacenter runner (the open question when the candidate was
+    # proposed): items=30 span=26h fresh=30 pass=7 near=23 fetch=0.71s, ~6.5
+    # passes a day of the Iran-side read on the beat -- the Hormuz and Bab
+    # al-Mandab chokepoints, the Salman field's $1.2b revenue, Ansarallah's
+    # Yemen advance, Iran sanctions. Richer than its GNews surface
+    # (pass=11/7d), which is why the feed is the registered one. False-positive
+    # caveat measured on the GNews side and equally possible here: the exact
+    # keyword `Brent` matches the PERSON "Brent Scowcroft"; bounded
+    # (title-only, url-keyed). Feed and article links are www -> apex
+    # tehrantimes.com.
+    "www.tehrantimes.com": [
+        "https://www.tehrantimes.com/rss",
+    ],
+    # Daily Sabah (dailysabah.com) -- Turkish English daily. Two SECTION feeds,
+    # the same narrow-over-general call as The Hindu BusinessLine. The numeric
+    # /rssFeed/13 URL found first serves the same payload as /rss/business, and
+    # the named path is registered instead; /rssFeed/9 and /rssFeed/32 serve a
+    # third, generic payload (36 items span=10h pass=6) that adds nothing.
+    #   - business: items=34 span=84h fresh=34 pass=7 near=27 fetch=0.45s --
+    #     the Saudi pipeline drone strike, oil above $100 with US diesel at a
+    #     record, Africa's biggest refinery opening to public ownership, US gas
+    #     prices inside a CPI story; two off-beat (a 10-year Treasury yield
+    #     piece and a Turkish missile test).
+    #   - business/energy: items=50 span=791h fresh=10 pass=5 near=5
+    #     fetch=0.37s -- slower-moving but denser: half of everything it
+    #     published inside the 7d window passes.
+    # GNews measured pass=20/7d for the domain; the two feeds together are the
+    # richer surface once bodies are counted. Feed and article links are www ->
+    # apex dailysabah.com.
+    "www.dailysabah.com": [
+        "https://www.dailysabah.com/rss/business",
+        "https://www.dailysabah.com/rss/business/energy",
+    ],
+    # The Korea Herald (koreaherald.com) -- South Korea's English daily. The
+    # site-wide /rss/newsAll is registered rather than the /rss/kh_Business
+    # section -- the opposite of the BusinessLine call, and what the numbers
+    # say: newsAll items=50 span=8h fresh=50 pass=4 near=46 fetch=1.58s
+    # (~12 passes/day: Posco International's 532.9bn-won US shale-gas raise, HD
+    # Hyundai's W435b LNG cogeneration plant, Seoul shares on rising oil
+    # prices) against kh_Business items=50 span=100h fresh=50 pass=8 near=42
+    # (~1.9/day). newsAll is the superset and rolls over every ~8h, well inside
+    # the scan cadence. GNews alternative: pass=10/7d. Korea-desk noise to
+    # watch: North-Korea `missile` / `sanction` items pass on the geopolitics
+    # keywords. Feed and article links are www -> apex koreaherald.com.
+    "www.koreaherald.com": [
+        "https://www.koreaherald.com/rss/newsAll",
+    ],
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -869,7 +975,15 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
-    # (empty until wave C appends its entries here)
+    # --- Africa (Wave 5C, 2026-09-14) ---
+    "businesslive.co.za", "www.businesslive.co.za",             # Business Day / BusinessLive (South Africa)
+    # --- Middle East (Wave 5C, 2026-09-14) ---
+    "middleeasteye.net", "www.middleeasteye.net",               # Middle East Eye
+    "tehrantimes.com", "www.tehrantimes.com",                   # Tehran Times
+    "dailysabah.com", "www.dailysabah.com",                     # Daily Sabah
+    "pipelineoilandgasnews.com", "www.pipelineoilandgasnews.com",  # Pipeline Oil & Gas Magazine
+    # --- North-East Asia (Wave 5C, 2026-09-14) ---
+    "koreaherald.com", "www.koreaherald.com",                   # The Korea Herald
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1442,7 +1556,216 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     #
     #
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
-    # (empty until wave C appends its entries here)
+    # =======================================================================
+    # Africa, Middle East & North-East Asia mainstream (English) -- Wave 5C
+    # (2026-09-14). Eighteen of the wave's 24 candidates are reached through
+    # Google News site: (hl=en-US) + the 12-term english_keywords() subset,
+    # because their own feed is WAF-blocked from the runner (HTTP 403 while the
+    # same URL answers 200 from a residential IP), dateless, stale or absent --
+    # the rejected surface is recorded inside each entry so a later wave does
+    # not re-test it. Bodies stay unreachable, so these land title-only (empty
+    # snippet). Each yield is the GNews title/summary pass count over 7d,
+    # measured on the runner (measure_source.yml) against the live 91-keyword
+    # set on 2026-09-14. The other six candidates had a usable feed and are in
+    # RSS_FEEDS / INTERNATIONAL_RSS_DOMAINS.
+    # -----------------------------------------------------------------------
+    # --- Africa ---
+    # AllAfrica (allafrica.com) -- pan-African aggregator, the widest African
+    # net of the wave: GNews pass=36/7d (items=100 fresh=99 near=63) -- the
+    # Dangote refinery IPO in every register, Angola's $99bn oil programme and
+    # new discoveries, Uganda's first oil slipping to 2027, Nigeria's OPEC
+    # output, gas-flare permits. Its own RSS IS runner-reachable and dated but
+    # ~9x thinner, because the "energy" topic is Africa-POWER-heavy:
+    # /tools/headlines/rdf/energy/headlines.rdf items=30 span=144h pass=4 and
+    # .../latest/headlines.rdf items=32 span=143h pass=3. Syndication caveat:
+    # AllAfrica republishes Punch / BusinessDay / ThisDay copy, so expect the
+    # same story from up to four registered domains (url-keyed, each lands at
+    # most once). Articles resolve to allafrica.com.
+    "allafrica.com",
+    # BusinessDay Nigeria (businessday.ng) -- Nigeria's business daily and the
+    # richest African surface of the wave: GNews pass=53/7d (items=100 fresh=91
+    # near=38), pass set heavily on-beat (Brent above $100 / $107, the Dangote
+    # refinery IPO and its gantry prices, NNPC's 12 Bcf/d 2030 gas target,
+    # Nigeria's crude output, deep-offshore tax incentives, India-Nigeria crude
+    # talks). Its RSS is reachable but narrow: /category/energy/feed/ measured
+    # items=5 span=68h fresh=5 pass=3 near=2 -- 100% on-beat yet only ~5 items
+    # per three days, and it misses the markets-desk oil copy GNews finds, so
+    # GNews is the surface. Articles resolve to businessday.ng.
+    "businessday.ng",
+    # Punch (punchng.com) -- Nigeria's highest-circulation daily. GNews
+    # pass=54/7d (items=100 fresh=99 near=45). Its site-wide /feed/ IS
+    # runner-reachable and dated but is a general-news firehose: items=30
+    # span=4h fresh=30 pass=1 near=29, and the single pass is an "Evening
+    # recap" digest rather than an energy story. GNews is the surface; the feed
+    # is left unregistered so the scanner does not spend a fetch cycle on 30
+    # items every four hours for ~1 on-beat item. Articles resolve to
+    # punchng.com.
+    "punchng.com",
+    # ThisDay (thisdaylive.com) -- Nigerian daily, the third of the Lagos set.
+    # GNews pass=19/7d (items=100 fresh=92 near=73): oil near $100, the Saudi
+    # pipeline outage, Dangote refinery share pricing, cooking-gas supply, an
+    # Okrika pipeline incident. Its /feed/ is runner-reachable (items=25
+    # span=13h fresh=25 pass=3) but two of those three passes are marginal (an
+    # export-promotion story on the substring `oil`, a politics column on
+    # `blockade`), so GNews is the surface. Expect duplicates with AllAfrica.
+    # Articles resolve to www.thisdaylive.com.
+    "thisdaylive.com",
+    # The East African (theeastafrican.co.ke) -- Nation Media's regional
+    # weekly, the only East-African voice registered. Thin by construction (a
+    # weekly): GNews pass=3/7d (items=45 fresh=45 near=42) but all three are
+    # on-beat AND unique to the region -- the Lamu vs Uganda refinery race,
+    # Dangote's and Alpha's refineries inside EAC trade politics, Uganda's
+    # crude going to Asian markets in 2027. Clears the 2026-09 bar (>=1/7d);
+    # it would have failed the 2026-08-18 bar. No RSS: /rss and /rss.xml are
+    # HTTP 404 and /feed is 403 from the runner. Articles resolve to
+    # www.theeastafrican.co.ke.
+    "theeastafrican.co.ke",
+    # Africa Oil+Gas Report (africaoilgasreport.com) -- African upstream trade
+    # press, the purest African pass rate of the wave: GNews items=8 fresh=8
+    # pass=8 near=0 -- every single indexed item matched (TotalEnergies in
+    # Mozambique, Exxon and TotalEnergies discoveries in Angola, Saipem's
+    # $350m Angolan subsea award, Algeria back at 1 Mb/d, NUPRC divestment
+    # approvals). Low volume, zero noise. Its WordPress /feed/ answers 200 with
+    # 10 dated items from a residential IP and HTTP 403 from the runner (WAF
+    # variant A), hence GNews. Articles resolve to africaoilgasreport.com.
+    "africaoilgasreport.com",
+    # Energy Capital & Power (energycapitalpower.com) -- African energy
+    # investment / conference press. The WEAKEST entry of the wave and exactly
+    # at the 2026-09 bar: GNews items=1 fresh=1 pass=1 near=0 ("Why Liberia Is
+    # Ready for Responsible Upstream Investment") -- Google indexes roughly one
+    # item a week of it under en-US. Its /feed/ carries 10 dated items from a
+    # residential IP but answers HTTP 403 on the runner, so the thin GNews
+    # surface is all there is. Registered per the rule (>=1 pass/7d) and
+    # flagged here for the first pruning pass if it stays at 1. Articles
+    # resolve to energycapitalpower.com.
+    "energycapitalpower.com",
+    # --- Middle East ---
+    # Al Arabiya English (english.alarabiya.net) -- the English edition of the
+    # Saudi broadcaster, a SEPARATE surface from the Arabic alarabiya.net entry
+    # in LANGUAGES["ar"] (different host, different keyword funnel): do not
+    # fold them. GNews pass=52/7d (items=100 fresh=100 near=48) -- Hormuz
+    # diplomacy and the postponed Gulf-Iran meeting, QatarEnergy chasing US LNG
+    # to 2031, Trump on keeping Iranian oil, the Yemen/Houthi front. No RSS:
+    # /tools/rss answers 403 (Cloudflare). Articles resolve to
+    # english.alarabiya.net (a subdomain, no www form).
+    "english.alarabiya.net",
+    # The Times of Israel (timesofisrael.com) -- Israel's English daily.
+    # GNews pass=40/7d (items=100 fresh=100 near=60), pass set dominated by
+    # the energy-security beat (the Saudi East-West
+    # pipeline hit by Iraqi drones and its multi-week outage, satellite imagery
+    # of the fire, the Houthi Red Sea offensive, US sanctions). Its WordPress
+    # /feed/ answers 200 with 13 dated items from a residential IP and HTTP 403
+    # from the runner (WAF variant A), hence GNews. Articles resolve to
+    # www.timesofisrael.com.
+    "timesofisrael.com",
+    # Haaretz (haaretz.com) -- Israel's English edition, hard paywall. Google
+    # still indexes the headlines: GNews pass=19/7d (items=69 fresh=67
+    # near=48) -- Houthi disruption of Red Sea shipping, Trump on Iran and the
+    # Saudi pipeline, an Iranian ship struck near Hormuz, Falklands drilling
+    # charges. No reachable feed (the legacy /srv/... RSS endpoints are 404).
+    # Paywalled + title-only means pass=19 IS the ceiling, by construction.
+    # Roughly a third of the pass set is West-Bank-sanctions copy that passes
+    # on the geopolitics keyword `sanction` rather than on energy. Articles
+    # resolve to www.haaretz.com.
+    "haaretz.com",
+    # Anadolu Agency English (aa.com.tr/en) -- the Turkish state wire, and the
+    # single richest GNews surface of the wave: pass=60/7d (items=100 fresh=97
+    # near=37) -- strikes on Russian diesel supply, the Iraqi drone platform
+    # used against the Saudi pipeline, Qatar buying US LNG, Saudi output at its
+    # lowest since 1990, Hormuz navigation diplomacy. The PATH form is
+    # registered, same call as www.rigzone.com/news above: site:aa.com.tr and
+    # site:aa.com.tr/en both measured pass=60, and the path pins the ENGLISH
+    # service of a wire that also publishes in tr/ar/ru (a non-English title
+    # persisted under source_lang=en is the failure this avoids). Its English
+    # energy RSS (/en/rss/default?cat=energy) is registered-grade in size (30
+    # items) but unusable: span=14161h fresh=1 and 3.54s. Articles resolve to
+    # www.aa.com.tr.
+    "aa.com.tr/en",
+    # Ahram Online (english.ahram.org.eg) -- Egypt's English daily. GNews
+    # pass=47/7d (items=100 fresh=99 near=52): Brent breaking $100 and the
+    # inflation read, Bab al-Mandab as an oil route under Houthi threat, the
+    # Saudi pipeline closure, US diesel prices, Egypt's own fuel market. No
+    # RSS: /rss.aspx and /Rss/2.aspx answer 403. One recurring false-positive
+    # class, bounded and amusing: counterfeit CAR OIL seizures in Egypt match
+    # the substring keyword `oil`. Articles resolve to english.ahram.org.eg
+    # (a subdomain, no www form).
+    "english.ahram.org.eg",
+    # Oil & Gas Middle East (oilandgasmiddleeast.com, ITP Media) -- Gulf
+    # upstream/downstream trade press with the highest pass RATE of the entire
+    # wave: GNews items=38 fresh=37 pass=37 near=0 -- 100% of what Google
+    # indexes matches (Dow exiting Sadara with Aramco, Wood's $200m ExxonMobil
+    # PNG LNG award, Vallourec-Aramco OCTG, CB&I's all-steel LNG tanks, EPC
+    # delivery pressure across the Gulf). The site answers 403 to its homepage
+    # and 405 to /rss from the runner, so GNews it is. Articles resolve to
+    # www.oilandgasmiddleeast.com.
+    "oilandgasmiddleeast.com",
+    # AGBI - Arabian Gulf Business Insight (agbi.com) -- Gulf business daily
+    # with an energy desk. GNews pass=26/7d (items=100 fresh=66 near=40), pass
+    # set ~all on-beat and market-shaped (Saudi shutting the oil pipeline after
+    # the Iraq-launched attacks, oil at $100 on the US-Iran escalation, Egypt
+    # tripling oil imports, Iraq's export recovery and drained reserves, Brent
+    # above $100 as Hormuz traffic dips). Its /feed/ answers 200 with 10 dated
+    # items residentially and HTTP 403 from the runner. Articles resolve to
+    # www.agbi.com.
+    "agbi.com",
+    # Trade Arabia (tradearabia.com/news) -- Gulf business wire. The PATH form
+    # is registered and the reason is measured: the bare apex returns
+    # pass=10/7d (items=100 fresh=74) but HALF of that pass set is PERENNIAL
+    # section landing pages ("Gas Prices: business news, updates and
+    # analysis", "Downstream Industry: ...", "Renewable Feedstocks: ...") --
+    # the TradingView pathology, evergreen URLs that are not news.
+    # site:tradearabia.com/news returns items=100 fresh=100 pass=13 with the
+    # landing pages gone and the pass set on-beat (ADNOC/XRG/SEFE gas and LNG,
+    # Vallourec-Aramco OCTG, Heisco's $359m Kuwait Oil EPC, EIA's record US
+    # output, Clariant propane dehydrogenation, Oman refinery output, SLB's 3D
+    # seismic survey offshore Brazil, TotalEnergies' Angola success). Residual
+    # noise: 2/13 substring false positives (a BMW "refined comfort" review, a
+    # drone-delivery mall). No RSS: /rss and /rss/OGN_9.xml are 404. Articles
+    # resolve to www.tradearabia.com.
+    "tradearabia.com/news",
+    # --- North-East Asia ---
+    # Nikkei Asia (asia.nikkei.com) -- Japan's business daily, English Asia
+    # edition, paywalled. GNews pass=11/7d (items=71 fresh=71 near=60): China
+    # buying crude as Hormuz hostilities bite, Iran retaliating after its
+    # tankers were destroyed, Brent above $100, Japanese LNG and gas-trading
+    # moves. RSS autopsy, and the reason the feed is NOT registered:
+    # /rss/feed/nar answers 200 with 50 items but is DATELESS (span=-, all
+    # published_at missing), which the scanner cannot persist -- the same class
+    # as the World Oil autopsy above. Articles resolve to asia.nikkei.com (a
+    # subdomain, no www form).
+    "asia.nikkei.com",
+    # The Japan Times (japantimes.co.jp) -- Japan's English daily. GNews
+    # pass=14/7d (items=100 fresh=91 near=77): the Houthi advance in Yemen, US
+    # strikes on Iranian oil tankers, the Saudi pipeline shutdown, Japanese gas
+    # safety and refinery policy. RSS unusable on both paths measured:
+    # /feed/topstories/ returns 5 items with span=14087h and fresh=0 (a stale
+    # stub), /news/business/feed/ answers 403 from the runner. Two bounded
+    # false positives in the pass set to expect (`gas` in a Formula One "foot
+    # on the gas" headline, `offshore` in an Indonesian wealth-transfer story).
+    # Articles resolve to www.japantimes.co.jp.
+    "japantimes.co.jp",
+    # NHK World (www3.nhk.or.jp/nhkworld) -- the English service of Japan's
+    # public broadcaster. The PATH form is registered because the apex
+    # www3.nhk.or.jp is the JAPANESE-language NHK host and /nhkworld is the
+    # English surface; both measured the same three items, so the path costs
+    # nothing and buys the language guarantee. GNews items=25 fresh=23 pass=3
+    # near=20, and all three passes are on-beat wire-grade macro: the IEA
+    # cutting its global oil supply outlook, NY crude futures at a three-month
+    # high, the Houthis tightening their grip on the Red Sea. Clears the
+    # 2026-09 bar (>=1/7d); low volume is expected from a broadcaster.
+    # English RSS no longer exists (nhkworld/en/news/rss/all.xml and
+    # .../feeds/all.xml are 404; /rss/news/cat0.xml is Japanese). Articles
+    # resolve to www3.nhk.or.jp.
+    "www3.nhk.or.jp/nhkworld",
+    # --- Wave 5C REJECTED (measured 2026-09-14 on the runner) ---
+    # None. All 24 candidates of this wave cleared the 2026-09 acceptance rule
+    # on at least one surface, so there is no rejected-domain list to keep a
+    # later wave from re-testing. What WAS rejected is a SURFACE per outlet --
+    # every 403 / dateless / stale / thinner feed is written down inside the
+    # entry above (and in the RSS_FEEDS Wave 5C header) with its numbers, which
+    # is the same guard at the URL level: businesslive.co.za and
+    # pipelineoilandgasnews.com have NO GNews index (items=0 both, apex and
+    # path), and asia.nikkei.com's /rss/feed/nar is dateless.
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1684,7 +2007,13 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
-    # (empty until wave C appends its entries here)
+    # Wave 5C (2026-09-14): no override needed. The six feeds this wave
+    # registered were all measured well under the 4s default on the runner --
+    # BusinessLive (Arc) 1.74s, Korea Herald 1.58s, Pipeline Oil & Gas 1.48s,
+    # Tehran Times 0.71s, Daily Sabah 0.45s / 0.37s, Middle East Eye 0.21s. The
+    # only slow feed the wave met, Anadolu Agency's English energy RSS (3.54s),
+    # is unusable for a different reason (30 items but span=14161h, fresh=1)
+    # and its outlet is GNews-covered instead.
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
