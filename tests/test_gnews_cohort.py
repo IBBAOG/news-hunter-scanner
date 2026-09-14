@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -149,31 +150,61 @@ def test_single_cohort_reproduces_the_full_list_unchanged():
         assert (subset, index, cohorts) == (domains, 0, 1)
 
 
-def test_live_english_roster_is_one_cohort_and_its_queries_are_unchanged():
-    """The EN query list the scanner emits TODAY is byte-identical to the
-    uncapped one — at any clock time, so landing the mechanism changed nothing."""
-    domains = list(ENGLISH_NO_RSS_DOMAINS)
-    assert len(domains) <= EN_GNEWS_QUERIES_PER_SCAN, (
-        "the EN roster outgrew the budget: cohorts>1 is now live — expected, but "
-        "the scan log must show 'gnews en cohort k/N' and coverage is now "
-        "N x 5 min"
-    )
-    legacy = google_news_site_queries_en(domains, _KWS, 24)
-    for now in (0, 1_000_000, 1_757_000_000, 2_000_000_123):
-        subset, _index, cohorts = gnews_cohort(
-            domains, EN_GNEWS_QUERIES_PER_SCAN, now=now
+def _queries_over_a_full_rotation(domains, per_scan, builder, start_bucket=0):
+    """Every query `cohorts` consecutive scans emit, in scan order."""
+    cohorts = gnews_cohort_count(len(domains), per_scan)
+    out = []
+    for step in range(cohorts):
+        subset, _i, _n = gnews_cohort(
+            domains, per_scan, now=(start_bucket + step) * GNEWS_COHORT_BUCKET_SECONDS
         )
-        assert cohorts == 1
-        assert subset == domains
-        assert google_news_site_queries_en(subset, _KWS, 24) == legacy
+        out.extend(builder(subset, _KWS, 24))
+    return out
 
 
-def test_live_pt_roster_is_one_cohort_and_its_queries_are_unchanged():
+def test_a_full_rotation_emits_exactly_the_uncapped_english_query_list():
+    """The queries a full rotation sends are the uncapped list, in order.
+
+    Deliberately NOT written as "cohorts == 1": that would be a tripwire that
+    goes red the moment a wave grows the roster past the budget, which is when
+    the mechanism starts WORKING. Stated this way the invariant holds on both
+    sides of the line — today it collapses to "one scan emits the whole list,
+    byte for byte", and after a wave it reads "N scans do".
+    """
+    domains = list(ENGLISH_NO_RSS_DOMAINS)
+    legacy = google_news_site_queries_en(domains, _KWS, 24)
+
+    # From bucket 0 the cohorts come out in index order, so the concatenation is
+    # the uncapped list verbatim.
+    assert _queries_over_a_full_rotation(
+        domains, EN_GNEWS_QUERIES_PER_SCAN, google_news_site_queries_en
+    ) == legacy
+    # From any other phase the rotation starts mid-list, so the ORDER rotates
+    # while the SET emitted per full rotation does not: still every query, still
+    # exactly once. (A scan does not care which cohort it gets, only that the
+    # roster is covered.)
+    for start in (1, 7, 123_457):
+        rotated = _queries_over_a_full_rotation(
+            domains, EN_GNEWS_QUERIES_PER_SCAN, google_news_site_queries_en, start
+        )
+        assert sorted(rotated) == sorted(legacy)
+        assert len(rotated) == len(set(rotated)) == len(legacy)
+
+    if gnews_cohort_count(len(domains), EN_GNEWS_QUERIES_PER_SCAN) == 1:
+        # Today. Any clock time must give the same, complete list.
+        for now in (0, 1_000_000, 1_757_000_000, 2_000_000_123):
+            subset, _i, cohorts = gnews_cohort(
+                domains, EN_GNEWS_QUERIES_PER_SCAN, now=now
+            )
+            assert (subset, cohorts) == (domains, 1)
+            assert google_news_site_queries_en(subset, _KWS, 24) == legacy
+
+
+def test_a_full_rotation_emits_exactly_the_uncapped_pt_query_list():
     domains = list(NO_RSS_DOMAINS)
-    legacy = google_news_site_queries(domains, _KWS, 24)
-    subset, _index, cohorts = gnews_cohort(domains, PT_GNEWS_QUERIES_PER_SCAN)
-    assert cohorts == 1
-    assert google_news_site_queries(subset, _KWS, 24) == legacy
+    assert _queries_over_a_full_rotation(
+        domains, PT_GNEWS_QUERIES_PER_SCAN, google_news_site_queries
+    ) == google_news_site_queries(domains, _KWS, 24)
 
 
 # --------------------------------------------------------------------------
@@ -213,22 +244,43 @@ def test_gnews_tasks_caps_english_but_never_the_foreign_languages(monkeypatch):
     assert tagged == foreign_codes
 
 
-def test_gnews_tasks_today_is_the_full_uncapped_burst():
-    """Nothing is withheld at today's roster sizes: 15 foreign + 16 PT + 34 EN."""
+def test_gnews_tasks_emits_this_scan_cohort_of_each_live_roster():
+    """What ONE live scan submits: every foreign query, plus this scan's PT and
+    EN cohorts — and each cohort's queries are the legacy builder's output for
+    exactly those domains (no query is reshaped by the capping)."""
     priority, tasks, lang_by_url = fetcher._gnews_tasks(_KWS, 24)
-    assert len(priority) == 15
-    assert len(tasks) == len(NO_RSS_DOMAINS) + len(ENGLISH_NO_RSS_DOMAINS)
+
+    assert len(priority) == sum(
+        len(c.no_rss_domains) for c in LANGUAGES.values() if c.translate
+    )
+
+    en_cohort, _i, _n = gnews_cohort(
+        list(ENGLISH_NO_RSS_DOMAINS), EN_GNEWS_QUERIES_PER_SCAN
+    )
+    pt_cohort, _i, _n = gnews_cohort(list(NO_RSS_DOMAINS), PT_GNEWS_QUERIES_PER_SCAN)
+    assert len(tasks) == len(en_cohort) + len(pt_cohort)
 
     en_urls = [u for _d, u in tasks if lang_by_url.get(u) == "en"]
-    assert en_urls == google_news_site_queries_en(list(ENGLISH_NO_RSS_DOMAINS), _KWS, 24)
+    assert en_urls == google_news_site_queries_en(en_cohort, _KWS, 24)
     pt_urls = [u for _d, u in tasks if u not in lang_by_url]
-    assert pt_urls == google_news_site_queries(list(NO_RSS_DOMAINS), _KWS, 24)
+    assert pt_urls == google_news_site_queries(pt_cohort, _KWS, 24)
 
 
 def test_scan_logs_one_cohort_line(caplog):
     """The rotation must be visible in the run log, or a silently shrinking burst
     is exactly as undiagnosable as the dropped queries it replaces."""
     with caplog.at_level(logging.INFO, logger="news_hunter.fetcher"):
-        fetcher._gnews_tasks(_KWS, 24)
+        _priority, tasks, lang_by_url = fetcher._gnews_tasks(_KWS, 24)
     lines = [r.getMessage() for r in caplog.records if "cohort" in r.getMessage()]
-    assert lines == [f"gnews en cohort 1/1 ({len(ENGLISH_NO_RSS_DOMAINS)} domains)"]
+    en_lines = [ln for ln in lines if ln.startswith("gnews en cohort ")]
+    assert len(en_lines) == 1, lines
+
+    cohorts = gnews_cohort_count(
+        len(ENGLISH_NO_RSS_DOMAINS), EN_GNEWS_QUERIES_PER_SCAN
+    )
+    n_en = len([u for _d, u in tasks if lang_by_url.get(u) == "en"])
+    # The line must describe the burst that was actually submitted, not a
+    # plausible-looking constant.
+    assert re.fullmatch(
+        rf"gnews en cohort ([1-9]\d*)/{cohorts} \({n_en} domains\)", en_lines[0]
+    ), en_lines[0]

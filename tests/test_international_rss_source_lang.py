@@ -138,23 +138,46 @@ def test_every_entry_maps_to_an_rss_feeds_registration():
         assert _strip_www(d) in rss_norm, f"{d} is not a registered RSS feed"
 
 
-def test_covers_the_fifteen_readme_rss_outlets_including_the_two_predating():
+# The 15 international-English RSS outlets registered before the 2026-09
+# expansion (the four 2026-08-18 waves plus CNBC and The Moscow Times, which
+# predate the programme). This is a FLOOR, not a snapshot: waves ADD outlets, and
+# five parallel branches all editing one exact-equality set literal would collide
+# on every merge and leave the suite red in between. What must never happen is
+# LOSING one — an outlet dropped from here silently reverts to being classified
+# as national, with no error anywhere.
+_PRE_EXPANSION_APEXES = frozenset({
+    "oilprice.com", "oedigital.com", "gcaptain.com", "splash247.com",
+    "hellenicshippingnews.com", "lngprime.com", "cnbc.com",
+    "oilandgas360.com", "naturalgasintel.com", "offshore-energy.biz",
+    "themoscowtimes.com", "thenationalnews.com",
+    "energy.economictimes.indiatimes.com", "thehindubusinessline.com",
+    "livemint.com",
+})
+
+
+def test_no_pre_expansion_rss_outlet_was_lost():
     apexes = {_strip_www(d) for d in INTERNATIONAL_RSS_DOMAINS}
-    # 15 distinct outlets per the README "International coverage" RSS rows.
-    assert len(apexes) == 15
-    # 14 outlets carry apex+www; ET EnergyWorld is subdomain-only -> 29 entries.
-    assert len(INTERNATIONAL_RSS_DOMAINS) == 29
-    expected_apexes = {
-        "oilprice.com", "oedigital.com", "gcaptain.com", "splash247.com",
-        "hellenicshippingnews.com", "lngprime.com", "cnbc.com",
-        "oilandgas360.com", "naturalgasintel.com", "offshore-energy.biz",
-        "themoscowtimes.com", "thenationalnews.com",
-        "energy.economictimes.indiatimes.com", "thehindubusinessline.com",
-        "livemint.com",
-    }
-    assert apexes == expected_apexes
-    # The two that predated the 2026-08-18 waves are present (README says 15).
+    missing = _PRE_EXPANSION_APEXES - apexes
+    assert not missing, (
+        f"dropped from INTERNATIONAL_RSS_DOMAINS: {sorted(missing)} — these feeds "
+        "would keep being fetched and would silently be classified as NATIONAL"
+    )
+    assert len(_PRE_EXPANSION_APEXES) == 15
+    # The two that predated the 2026-08-18 waves.
     assert "cnbc.com" in apexes and "themoscowtimes.com" in apexes
+
+
+def test_every_www_entry_has_its_apex_twin():
+    """Both forms of a host are listed, at any roster size.
+
+    _entry_to_item resolves source_domain per item and, although normalize_url
+    strips a leading "www.", other item-construction paths may not — so a host
+    listed in only one form is tagged only sometimes. (ET EnergyWorld is
+    subdomain-only and has no www form, hence the one-directional check.)
+    """
+    for d in INTERNATIONAL_RSS_DOMAINS:
+        if d.startswith("www."):
+            assert d[4:] in INTERNATIONAL_RSS_DOMAINS, f"{d} listed without its apex"
 
 
 def test_no_brazilian_domain_leaked_into_the_set():
