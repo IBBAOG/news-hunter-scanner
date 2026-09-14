@@ -777,7 +777,226 @@ RSS_FEEDS: dict[str, list[str]] = {
     #
     #
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
-    # (empty until wave D appends its entries here)
+    # =====================================================================
+    # Wave 5D RSS (2026-09-14) -- South & South-East Asia + Latin America
+    # mainstream press with a runner-reachable, DATED feed. Every number below
+    # was measured on the runner (measure_source.yml, live 91-keyword set, 7d
+    # window, --lede) on 2026-09-14, under the LOWERED acceptance bar of the
+    # 2026-09 programme: register on pass>=1 over 7d (or >=3 over 48h), reject
+    # only a candidate whose every surface returns 0 items or whose passes are
+    # >=80% off-beat. The wave's candidates WITHOUT a usable feed (The Jakarta
+    # Post, The Edge Malaysia, Kaieteur News, BNamericas, Hydrocarbon
+    # Processing, Hydrocarbon Engineering) are GNews-covered in
+    # ENGLISH_NO_RSS_DOMAINS, where the five rejects are recorded too. No feed
+    # of this wave needed more than the 4s default (slowest fetch=1.99s), so
+    # the FEED_TIMEOUT_OVERRIDES Wave 5D block stays empty on purpose.
+    # =====================================================================
+    # The Straits Times (straitstimes.com) -- Singapore's daily of record and
+    # the Asia-markets read of this wave. Section feed /news/business/rss.xml:
+    # items=16 span=41h fresh=16 pass=2 near=14 rescued=1 no_body=0 fetch=0.35s
+    # -- "Oil prices up over 3% following new strikes on Saudi Arabia, Strait of
+    # Hormuz" and "Shares skid in Asia as oil rises, rate hikes loom", plus one
+    # body-rescued near-miss: bodies ARE reachable here, unlike the GNews half
+    # of this wave. The Singapore section feed was measured too and deliberately
+    # NOT registered (/news/singapore/rss.xml: items=45 span=43h fresh=45 pass=2
+    # near=43 -- one distinct domestic story, "diesel past $4 per litre at major
+    # retailer", one "drone" false positive, against 43 general-news
+    # near-misses; 45 items per 43h for ~1 story a week is the wrong trade).
+    # Feed and article links are www, so normalize_url strips to the apex
+    # straitstimes.com.
+    "www.straitstimes.com": [
+        "https://www.straitstimes.com/news/business/rss.xml",
+    ],
+    # CNA / Channel NewsAsia (channelnewsasia.com) -- Mediacorp's English
+    # broadcaster; carries the Reuters energy wire on an Asian clock. TWO feeds
+    # registered, the same narrow+general split The Hindu BusinessLine uses:
+    #   - /api/v1/rss-outbound-feed?_format=xml (the general outbound feed):
+    #     items=20 span=5h fresh=20 pass=3 near=17 rescued=0 no_body=0
+    #     fetch=0.22s -- "Trump says Ukraine, Russia agree not to hit energy
+    #     targets", "Iran nuclear chief blocked from Vienna meeting after US
+    #     pressure", "Oil settles higher after Saudi strikes stoke supply
+    #     worries". Three passes inside a FIVE-HOUR span: a firehose, not a
+    #     weekly trickle.
+    #   - the same endpoint scoped to the business category (category=6936):
+    #     items=20 span=7h fresh=20 pass=2 near=18 rescued=0 no_body=0
+    #     fetch=0.66s -- "Oil settles higher after Saudi strikes", "Dollar rises
+    #     as Middle East conflict lifts oil, Fed hike looms". Registered
+    #     ALONGSIDE the general feed because that one is world/politics-led and
+    #     rotates a business item out of its 20-item window within hours.
+    # Overlap between the two is url-keyed, so a story carried by both lands
+    # once. Feed and article links are www -> apex channelnewsasia.com.
+    "www.channelnewsasia.com": [
+        "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
+        "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6936",
+    ],
+    # Bangkok Post (bangkokpost.com) -- Thailand's English daily. Section feed
+    # /rss/data/business.xml: items=10 span=19h fresh=10 pass=2 near=8 rescued=0
+    # no_body=0 fetch=1.99s -- "Gold falls to over one-month low as oil rally,
+    # inflation data boost rate hike bets" (a markets wrap naming oil as the
+    # driver) and "Nigerian oil refinery launches possible largest IPO in
+    # Africa". Only 10 items deep, but that is a 19h window, i.e. a
+    # continuously refreshed feed. fetch=1.99s is the slowest of this wave and
+    # still inside the 4s default, so NO FEED_TIMEOUT_OVERRIDES entry. Feed and
+    # article links are www -> apex bangkokpost.com.
+    "www.bangkokpost.com": [
+        "https://www.bangkokpost.com/rss/data/business.xml",
+    ],
+    # VnExpress International (e.vnexpress.net) -- English edition of Vietnam's
+    # largest news site; carries the regulated pump-price cycle and the Nghi
+    # Son / Dung Quat refinery beat. /rss/business.rss: items=60 span=178h
+    # fresh=55 pass=2 near=53 rescued=0 no_body=0 fetch=1.75s -- one on-beat
+    # ("Gasoline prices increase", the fortnightly administered move) and one
+    # FALSE POSITIVE on the substring `offshore` ("Indonesia's billionaire
+    # Hartono family shifts at least $1.4B offshore" -- offshore BANKING, the
+    # recurring class to watch on a general business feed; bounded: title-only,
+    # url-keyed). Registered on the lowered bar for the Vietnamese fuel-price
+    # stories nothing else on the roster carries. The English edition lives on
+    # the `e.` subdomain (no www form); the apex vnexpress.net is the
+    # VIETNAMESE edition and is deliberately NOT registered -- it would arrive
+    # as untranslated `vi` copy.
+    "e.vnexpress.net": [
+        "https://e.vnexpress.net/rss/business.rss",
+    ],
+    # The Times of India (timesofindia.indiatimes.com) -- India's largest
+    # English daily, the demand-side mass-market read. Business feed
+    # /rssfeeds/1898055.cms: items=20 span=25h fresh=20 pass=4 near=16
+    # rescued=1 no_body=0 fetch=0.08s -- "Oil prices jump over 2% as fresh
+    # Saudi, Strait of Hormuz strikes fuel supply fears", "Oil infra hit by
+    # Ukraine, Russia gets 70% of its fuel from India", "Fed, crude, dollar and
+    # Iran war: 4 factors that could move gold next week", and a BRICS
+    # critical-minerals item that matched on `exploration` (adjacent, not O&G).
+    # A mass-market daily: its value is the India-demand angle and speed, not
+    # depth -- ET (below) and ET EnergyWorld carry the same beat harder, and
+    # duplicates are url-keyed. Subdomain, no www form.
+    "timesofindia.indiatimes.com": [
+        "https://timesofindia.indiatimes.com/rssfeeds/1898055.cms",
+    ],
+    # The Economic Times (economictimes.indiatimes.com) -- the apex ET site,
+    # registered through its OIL & GAS section feed. A SECOND ET surface on the
+    # roster, and it does not collide with the already-registered
+    # energy.economictimes.indiatimes.com (ET EnergyWorld): different host,
+    # different desk, url-keyed dedupe across the two.
+    # /industry/energy/oil-gas/rssfeeds/13352306.cms: items=50 span=26h fresh=50
+    # pass=8 near=42 rescued=0 no_body=0 fetch=0.55s -- eight passes in a 26h
+    # window, seven on-beat ("Natural gas imports rise despite price surge",
+    # India-China energy cooperation talks, "The world wishes it had a 'diesel
+    # printer'", "Oil markets survived the Iran war sprint", "India, Asian peers
+    # pile up $7.4 billion spot-gas bill, turning wary of LNG", "Crude pool
+    # drying up as Middle East conflict drags on, refiners wary"), one off-beat
+    # infra-order item that matched on `pipeline` (KEC International). The
+    # 2026-08-18 note next to ET EnergyWorld warns that the BARE apex feed would
+    # mislabel generic ET business copy -- which is why the SECTION feed is
+    # registered here and the site-wide ET feed is not. SOURCE_NAMES is outside
+    # this wave's blocks, so the display name falls back to the domain.
+    "economictimes.indiatimes.com": [
+        "https://economictimes.indiatimes.com/industry/energy/oil-gas/rssfeeds/13352306.cms",
+    ],
+    # Business Standard (business-standard.com) -- RE-TEST of the 2026-08-18
+    # "India RSS REJECTED" note above, which measured only /rss/industry-217.rss
+    # (pass=1 over 31h), refused it under the old >=3/7d on-beat bar and asked a
+    # future wave to try the markets/commodities feed before calling the domain
+    # dead. It clears: /rss/markets-106.rss items=35 span=81h fresh=35 pass=6
+    # near=29 rescued=0 no_body=0 fetch=0.27s -- "Asian shares slide as oil
+    # spike fuels inflation, rate hike concerns", "Oil prices jump over 3% after
+    # new strikes on Saudi Arabia, Strait of Hormuz", "Fed decision, inflation,
+    # oil may drive markets in holiday-shortened week", "Torrent Gas
+    # consolidated net profit rises 133.21%". TWO false positives, both bounded
+    # (title-only, url-keyed): the EXACT keyword `SLB` matches India's
+    # Securities Lending & Borrowing segment ("Stock market holiday: BSE, NSE
+    # closed today") and not Schlumberger, and an FPI-flows piece matched
+    # `crude`/`oil` from its summary. Only the markets feed is registered; the
+    # industry feed above stays rejected. www -> apex business-standard.com.
+    "www.business-standard.com": [
+        "https://www.business-standard.com/rss/markets-106.rss",
+    ],
+    # Dawn (dawn.com) -- Pakistan's English daily of record and the RICHEST RSS
+    # surface of this wave. /feeds/business: items=30 span=88h fresh=30 pass=15
+    # near=15 rescued=0 no_body=0 fetch=0.32s -- fifteen of thirty items match
+    # on title/summary alone and nearly all are on-beat: the fortnightly
+    # petrol/HSD price notifications ("Govt increases petrol by Rs4.42 per
+    # litre, HSD by Rs6.10"), the petroleum-levy talks, "Brent crude at $107 per
+    # barrel following new strikes on Saudi Arabia, Strait of Hormuz", LPG and
+    # weekly-inflation fuel baskets, a Qatari LNG cargo at Port Qasim,
+    # Bangladesh LNG terminals, and an upstream licensing row (Jura Energy).
+    # Pakistan is a pure import-parity market, so this is the demand-side read
+    # on the same crude the Brazilian desk watches. One bounded false-positive
+    # class: `oil` inside edible-oil corporate/graft items ("Unity Foods CEO").
+    # www -> apex dawn.com.
+    "www.dawn.com": [
+        "https://www.dawn.com/feeds/business",
+    ],
+    # The Astana Times (astanatimes.com) -- Kazakhstan's English daily, the
+    # Caspian upstream read (Tengiz / Kashagan / CPC). /feed/: items=10 span=11h
+    # fresh=10 pass=2 near=8 rescued=0 no_body=0 fetch=0.20s -- "Kashagan
+    # Expansion Could Reshape Kazakhstan's Oil Export Needs, Experts Say" and
+    # "Oil Transport via Kazakhstan-China Pipeline Rises to 13.1 Million Tons",
+    # both squarely on-beat, inside an ELEVEN-HOUR window: a 10-item WordPress
+    # feed that turns over fast, which the 5-minute scan harvests continuously.
+    # Feed and article links are apex (no www).
+    "astanatimes.com": [
+        "https://astanatimes.com/feed/",
+    ],
+    # Trend News Agency (en.trend.az) -- Baku-based Caspian wire, English
+    # edition: Azerbaijan / Kazakhstan / Turkmenistan volumes, BTC and the
+    # Southern Gas Corridor. /feeds/index.rss: items=25 span=6h fresh=25 pass=2
+    # near=23 rescued=1 no_body=0 fetch=1.08s -- "Kazakhstan's cargo turnover
+    # edges up 0.8% despite rail, pipeline declines" and "Baker Hughes, Venture
+    # Global ink agreements on US LNG infrastructure", plus one body-rescued
+    # near-miss, inside a SIX-HOUR span (a true wire, ~100 items/day). The
+    # general index feed is registered rather than a section feed because the
+    # agency exposes no oil & gas section RSS; the near-misses are regional
+    # economy / politics copy. The English edition is the `en.` subdomain -- the
+    # apex trend.az 301-redirects to the Russian/Azeri site and is NOT
+    # registered.
+    "en.trend.az": [
+        "https://en.trend.az/feeds/index.rss",
+    ],
+    # MercoPress (en.mercopress.com) -- South Atlantic News Agency
+    # (Montevideo), the Mercosur / Falklands desk. /rss/: items=10 span=48h
+    # fresh=10 pass=1 near=9 rescued=0 no_body=0 fetch=0.33s -- and that single
+    # pass is a FALSE POSITIVE ("Falklands RAF's Voyager tanker back in MPA", an
+    # air-to-air refuelling aircraft matching `tanker`). The domain was
+    # therefore cross-checked on the OTHER surface before being registered:
+    # GNews en-US site:en.mercopress.com over 7d returns items=68 fresh=61
+    # pass=5 near=56, and those are on-beat -- "Argentina files lawsuit against
+    # oil firms operating off Malvinas", "Brent climbs back above US$100 to its
+    # highest level since late July", "Argentina claims Chile is committed to no
+    # logistic support for Falklands' oil industry". RSS is the registered
+    # surface (bodies reachable, and a 10-item/48h feed is harvested
+    # continuously by the 5-minute scan, which a one-shot 48h measurement
+    # under-counts); the GNews numbers are recorded here only as the on-beat
+    # proof. Watch the `tanker` naval/RAF false positive -- this is a
+    # military-heavy beat. Subdomain, no www form.
+    "en.mercopress.com": [
+        "https://en.mercopress.com/rss/",
+    ],
+    # Buenos Aires Times (batimes.com.ar) -- Argentina's English-language paper
+    # (Perfil group), the Vaca Muerta / YPF read. /feed: items=100 span=405h
+    # fresh=42 pass=6 near=36 rescued=0 no_body=0 fetch=0.36s -- six passes
+    # inside the 7d window: "Argentina's YPF says close to signing more LNG
+    # sales contracts", "Milei steps up pressure on oil companies over
+    # Malvinas", "Argentina files lawsuit against oil firms operating off
+    # Malvinas", "Oil and crop prices save Milei from surging demand for
+    # dollars", plus a naval-base piece that matched `exploration` and an
+    # opinion column that matched `sanction`. The feed is 100 items / ~17 days
+    # deep, so the 7d window is covered with margin. GNews was measured for
+    # comparison (items=46 fresh=42 pass=4) and is strictly worse than the feed,
+    # hence RSS. www -> apex batimes.com.ar.
+    "www.batimes.com.ar": [
+        "https://www.batimes.com.ar/feed",
+    ],
+    # Mexico News Daily (mexiconewsdaily.com) -- English daily on Mexico, the
+    # Pemex / Dos Bocas read for a desk that does not read Spanish. /feed/:
+    # items=10 span=28h fresh=10 pass=1 near=9 rescued=0 no_body=0 fetch=0.21s
+    # -- one pass in a 28h window and it is exactly the beat ("Pemex contains
+    # another oil spill in the Gulf of Mexico"). Thin by construction (a
+    # 10-item general-interest feed), registered under the lowered 2026-09 bar
+    # because nothing else on the roster covers Pemex in English; the Spanish
+    # GNews route stays as it is (this wave adds no non-English language). Feed
+    # and article links are apex (no www).
+    "mexiconewsdaily.com": [
+        "https://mexiconewsdaily.com/feed/",
+    ],
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -876,7 +1095,29 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
-    # (empty until wave D appends its entries here)
+    # --- Wave 5D (2026-09-14): the 13 RSS outlets registered in RSS_FEEDS
+    #     above. Apex AND www forms, per the invariant at the top of this set;
+    #     the five subdomain-only outlets (e.vnexpress.net,
+    #     timesofindia.indiatimes.com, economictimes.indiatimes.com,
+    #     en.trend.az, en.mercopress.com) have no www form, exactly like ET
+    #     EnergyWorld. Without these entries the outlet arrives with
+    #     source_lang=None and the dashboard classifies it as NATIONAL. ---
+    # South & South-East Asia
+    "straitstimes.com", "www.straitstimes.com",                 # The Straits Times
+    "channelnewsasia.com", "www.channelnewsasia.com",           # CNA / Channel NewsAsia
+    "bangkokpost.com", "www.bangkokpost.com",                   # Bangkok Post
+    "e.vnexpress.net",                                          # VnExpress International (subdomain)
+    "timesofindia.indiatimes.com",                              # The Times of India (subdomain)
+    "economictimes.indiatimes.com",                             # The Economic Times (subdomain)
+    "business-standard.com", "www.business-standard.com",       # Business Standard
+    "dawn.com", "www.dawn.com",                                 # Dawn (Pakistan)
+    # Caspian / Central Asia
+    "astanatimes.com", "www.astanatimes.com",                   # The Astana Times
+    "en.trend.az",                                              # Trend News Agency (subdomain)
+    # Latin America
+    "en.mercopress.com",                                        # MercoPress (subdomain)
+    "batimes.com.ar", "www.batimes.com.ar",                     # Buenos Aires Times
+    "mexiconewsdaily.com", "www.mexiconewsdaily.com",           # Mexico News Daily
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1449,7 +1690,164 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     #
     #
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
-    # (empty until wave D appends its entries here)
+    # =====================================================================
+    # Wave 5D GNews en-US (2026-09-14) -- the candidates of this wave whose own
+    # feed is absent (The Jakarta Post, The Edge Malaysia: every /feed, /rss
+    # path 404s), WAF-blocked (Kaieteur, Hydrocarbon Engineering: 403 from the
+    # runner), paywalled (BNamericas) or DATELESS (Hydrocarbon Processing --
+    # see its entry). Bodies stay unreachable on this surface, so items land
+    # title-only (empty snippet); each number is the GNews title-pass count over
+    # 7d measured on the runner (measure_source.yml, live 91-keyword set) on
+    # 2026-09-14. The wave's thirteen RSS outlets are in RSS_FEEDS +
+    # INTERNATIONAL_RSS_DOMAINS.
+    # =====================================================================
+    # The Edge Malaysia (theedgemalaysia.com) -- Malaysia's business daily and
+    # the single richest surface of this wave: GNews items=100 fresh=87 pass=69
+    # near=18 (span in the raw measure is ~3y because Google surfaced archived
+    # pages; 87 of 100 are inside the 7d window). Pass set is heavily on-beat --
+    # "PETRONAS sees marginal profit rise ... despite elevated oil prices",
+    # "Government could earn RM6.5 bil for every US$10 rise in oil price",
+    # "Brent oil surges near US$100 as attacks halt Saudi energy sites",
+    # "Emerging Asia stocks slide ... as oil tops US$100", plus the Petronas /
+    # upstream-services corporate beat no other roster source carries. Its own
+    # site has no feed (theedgemalaysia.com/rss -> HTTP 404). Noise class to
+    # watch: index-wrap headlines where oil is named as the market driver
+    # ("Rubber glove stocks rally as Brent crude tops US$100") -- bounded,
+    # title-only and url-keyed. Articles resolve to theedgemalaysia.com.
+    # NOTE: theedgesingapore.com (already registered, 2026-08-18) is a SEPARATE
+    # publisher on the same brand; the two do not duplicate each other.
+    "theedgemalaysia.com",
+    # BNamericas (bnamericas.com) -- LatAm infrastructure / energy business
+    # intelligence (Santiago). GNews items=100 fresh=98 pass=25 near=73, and the
+    # pass set is the most Brazil-adjacent of the wave: "Petrobras intends to
+    # contract up to six FPSOs by 2030", "Petrobras authorized to drill three
+    # new wells in Foz do Amazonas", "Brazil moves closer to first natural gas
+    # auction", "Why is Brazil's LNG terminal market becoming more
+    # fragmented?", plus the regional book -- Vaca Muerta routes, GeoPark /
+    # Venezuela, Petroecuador storage tenders, the Bolivian refinery restarts,
+    # Barbados offshore round. Hard paywall, so the body is unreachable and the
+    # ceiling is the title (no_body is structural here, not a bug); GNews is the
+    # only viable surface. Articles resolve to www.bnamericas.com.
+    "bnamericas.com",
+    # The Jakarta Post (thejakartapost.com) -- Indonesia's English daily
+    # (Pertamina, the fuel-subsidy and LPG-import beat). Its own feed is gone
+    # (/feed and /rss both HTTP 404 from the runner, no <link rel=alternate> in
+    # the homepage head), so GNews: items=100 span=154h fresh=100 pass=12
+    # near=88 -- twelve title passes over 7d against a large general-news
+    # near-miss tail, which is the expected shape of a national daily measured
+    # through a 12-term energy query. Articles resolve to www.thejakartapost.com.
+    "thejakartapost.com",
+    # Kaieteur News (kaieteurnewsonline.com) -- Guyanese daily, the Stabroek
+    # block / ExxonMobil watchdog desk and the closest peer of the Brazilian
+    # offshore beat in this wave. Its feed is WAF-blocked (/feed/ HTTP 403 from
+    # the runner, apex and www), so GNews: items=100 fresh=47 pass=19 near=28
+    # (span ~9y in the raw measure because Google surfaced archived pages; 47
+    # items are inside the 7d window). On-beat and specific -- "Guyana earned
+    # US$778M from oil in August", "Guyana earned US$2.5B from oil in 2025 --
+    # NRF Report", "Dangote refinery turns to Guyana as Nigerian crude supply
+    # tightens", "Ram urges Pres. Ali to ring-fence new oil projects to stop
+    # Exxon eating into Guyana's profits", "Phillips, Indar visit troubled
+    # gas-to-energy project site", "Should Guyana build a small refinery?".
+    # FALSE-POSITIVE CLASS, ~5 of 19: Google indexes the site's perennial "Tag
+    # Archive: ..." pages, which pass on the tag words themselves and carry no
+    # article ("Tag Archive: ExxonMobil FPSO future generations Guyana Oil NRF
+    # oil"). They are bounded (url-keyed, land once) but they are the reason
+    # this entry is worth ~14-15 real stories a week rather than 19. One more:
+    # a "Mobil gas station bombing" crime item on the substring `gas`.
+    "kaieteurnewsonline.com",
+    # Hydrocarbon Processing (hydrocarbonprocessing.com) -- Gulf Publishing's
+    # REFINING / petrochemical trade monthly + daily wire, the downstream anchor
+    # of this wave and the reason it exists. Its RSS EXISTS and is rich but is
+    # DATELESS, which the scanner cannot persist: /rss?feed=news items=10
+    # span=- fresh=10 pass=6 and /rss?topic=refining items=10 span=- fresh=10
+    # pass=9 -- every entry arrives with published_at=None (the same defect as
+    # the World Oil autopsy elsewhere in this file), so the feed path is
+    # unusable and Google supplies the date instead. GNews: items=66 fresh=61
+    # pass=61 near=0 -- "IEA: 2026 oil supply gap will widen on delayed return
+    # of normal Gulf flows", "Global diesel supply to stay tight through
+    # winter", "China independent refiners scramble for oil", "U.S. crude
+    # stocks fall, fuel inventories rise on strong refining, EIA says",
+    # "YASREF: Fuel oil supply 'under control' despite more refiners switching
+    # to middle distillate", Dangote's IPO and expansion, plus the catalyst /
+    # licensor project flow (Axens, Clariant, Stamicarbon).
+    # WHY pass==fresh, and the caveat that comes with it: the publisher's NAME
+    # contains the substring keyword `hydrocarbon`, and Google's item summary
+    # carries the publisher name -- so EVERY indexed page of this domain passes
+    # by construction. That inflates the count: ~20 of the 61 are author or
+    # index pages with content-free titles ("E. S. Al-Zahrani", "V. K. Khanna",
+    # "August"), and roughly 40 are real downstream articles. Still far above
+    # the bar and far below the >=80%-off-beat reject line, but the pass count
+    # of this domain is NOT a quality signal -- judge it by the titles.
+    "hydrocarbonprocessing.com",
+    # Hydrocarbon Engineering (hydrocarbonengineering.com) -- Palladian
+    # Publications' downstream title (refining, gas processing, storage). Its
+    # feed is WAF-blocked from the runner (/rss/ HTTP 403, /feed/ HTTP 404), so
+    # GNews: items=14 fresh=13 pass=13 near=0 -- "EIA: intensifying diesel
+    # squeeze highlights broader oil market strains", "Sapphire Gas Solutions
+    # acquires assets owned by Spectrum LNG", "Argent LNG and Albania sign MoU",
+    # "Winning the AI race in refining", "Wood secures long-term construction
+    # services contract with ExxonMobil PNG", plus the licensor/EPC flow. Same
+    # structural caveat as Hydrocarbon Processing above -- the publisher name
+    # carries the substring `hydrocarbon`, so pass==fresh by construction -- but
+    # here the indexed set is small and almost entirely real articles. Thin
+    # (~13/wk) and partly duplicative of Hydrocarbon Processing; kept because it
+    # clears the bar and its EPC/vendor items are distinct. Articles resolve to
+    # www.hydrocarbonengineering.com.
+    "hydrocarbonengineering.com",
+    # --- Wave 5D REJECTED (measured 2026-09-14 on the runner under the LOWERED
+    #     2026-09 bar; recorded so a future wave does not silently re-test) ---
+    # Caixin Global (caixinglobal.com): RE-TEST of the 2026-08-18 Wave 4
+    # rejection above (which measured pass=2/7d against the old >=3 bar and
+    # noted the outlet was expected to be the strongest of the two Chinese
+    # business titles). It got WORSE, not better: 2026-09-14 GNews items=7
+    # fresh=7 pass=0 near=7 -- Google still indexes almost nothing of a hard
+    # paywall, and this time not one indexed item passed on the title. pass=0
+    # fails even the lowered "pass>=1 over 7d" rule. No RSS was attempted: the
+    # Wave 4 note already established the paywall is the binding constraint,
+    # and yicai.com / jiemian.com cover Chinese business on the zh route.
+    # "caixinglobal.com",
+    # OilNOW (oilnow.gy): the Guyanese Stabroek-block outlet, and the loss of
+    # this wave -- it is the direct peer of the Brazilian offshore beat. BOTH
+    # surfaces are shut. RSS: HTTP 403 from the runner on every path tried
+    # (https://oilnow.gy/feed/, /feed, /rss and https://www.oilnow.gy/feed/) --
+    # a Cloudflare-style block, not a 404. GNews: site:oilnow.gy items=1
+    # fresh=1 pass=0, site:www.oilnow.gy items=0 -- Google indexes essentially
+    # nothing of the domain either, which is consistent with the same WAF
+    # refusing the crawler. Every surface ~0 -> rejected. Guyana coverage is
+    # kept through kaieteurnewsonline.com (registered above) and bnamericas.com.
+    # Worth re-testing only if the 403 lifts.
+    # "oilnow.gy",
+    # Stabroek News (stabroeknews.com): the other Guyanese daily. RSS: HTTP 404
+    # on every path tried (https://www.stabroeknews.com/feed/,
+    # https://stabroeknews.com/feed/, /?feed=rss2, /category/business/feed/,
+    # /rss) and the homepage refuses a residential fetch with 403, so no feed
+    # could be discovered. GNews: site:stabroeknews.com items=0 and
+    # site:www.stabroeknews.com items=0 -- the domain is simply not in the
+    # Google News en-US index. Both surfaces 0 items -> rejected under the
+    # explicit "every surface returns 0" clause.
+    # "stabroeknews.com",
+    # Petroleum Economist (petroleum-economist.com): Gulf Publishing's
+    # subscription energy monthly. RSS: HTTP 404 on /rss?feed=news (the pattern
+    # that works for its sibling hydrocarbonprocessing.com), /rss/, /feed/ and
+    # /rss.xml. GNews: items=7 fresh=7 pass=7 -- and the pass count is a
+    # MIRAGE: all seven items carry the identical title "Petroleum Economist"
+    # (Google indexes the paywall stub, not the article), so every one passes on
+    # the `petroleum` keyword while carrying zero information. Seven
+    # indistinguishable title-only rows a week is noise, not coverage; the
+    # substantive numbers are the ones that matter, and the usable-title count
+    # is 0. Rejected. Re-test only if the site starts exposing article titles to
+    # Google.
+    # "petroleum-economist.com",
+    # Oilfield Technology (oilfieldtechnology.com): Palladian's upstream title,
+    # sibling of the registered hydrocarbonengineering.com. RSS: HTTP 403 on
+    # /rss/ and /rss?feed=news, HTTP 404 on /feed/, and the homepage exposes no
+    # <link rel=alternate> feed. GNews: items=2 fresh=2 pass=0 near=2 -- Google
+    # indexes two items a week for the domain and neither passed on the title.
+    # pass=0 on the only reachable surface -> rejected. Note this is the WEAKER
+    # half of the Palladian pair: hydrocarbonengineering.com yields 13/wk on the
+    # same surface, so the block is the domain's index footprint, not the
+    # publisher.
+    # "oilfieldtechnology.com",
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1691,7 +2089,13 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
-    # (empty until wave D appends its entries here)
+    # (deliberately empty: no Wave 5D feed needed more than the 4s default.
+    #  Slowest measured fetch of the wave, 2026-09-14 on the runner:
+    #  bangkokpost.com 1.99s, e.vnexpress.net 1.75s, en.trend.az 1.08s; every
+    #  other registered feed answered under 0.7s. The wave's blocked candidates
+    #  failed with HTTP 403/404, never with a timeout, so a longer budget would
+    #  not have rescued any of them -- re-measured with the default and, for
+    #  the 403s, on two host spellings each.)
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
