@@ -586,8 +586,37 @@ registered.
 
 ### Africa, Middle East & North-East Asia mainstream
 
+Measured on the runner 2026-09-14 (24 candidates, 24 registered, 0 rejected):
+6 RSS + 18 GNews en-US. Eight of the GNews entries are outlets whose own feed
+answers 200 from a residential IP and 403 from the runner; the per-domain
+comment in `sources.py` carries each rejected surface with its numbers.
+
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
+| AllAfrica | allafrica.com | GNews en-US | 36 |
+| BusinessDay Nigeria | businessday.ng | GNews en-US | 53 |
+| Punch | punchng.com | GNews en-US | 54 |
+| ThisDay | thisdaylive.com | GNews en-US | 19 |
+| Business Day / BusinessLive (South Africa) | businesslive.co.za | RSS | 10 (297h) |
+| The East African | theeastafrican.co.ke | GNews en-US | 3 |
+| Africa Oil+Gas Report | africaoilgasreport.com | GNews en-US | 8 (of 8 items) |
+| Energy Capital & Power | energycapitalpower.com | GNews en-US | 1 |
+| Al Arabiya English | english.alarabiya.net | GNews en-US | 52 |
+| Middle East Eye | middleeasteye.net | RSS | 14 (7h) |
+| The Times of Israel | timesofisrael.com | GNews en-US | 40 |
+| Haaretz | haaretz.com | GNews en-US | 19 |
+| Anadolu Agency (EN) | aa.com.tr/en | GNews en-US | 60 |
+| Daily Sabah | dailysabah.com | RSS | 7 (84h, business) + 5 (energy) |
+| Ahram Online | english.ahram.org.eg | GNews en-US | 47 |
+| Tehran Times | tehrantimes.com | RSS | 7 (26h) |
+| Oil & Gas Middle East | oilandgasmiddleeast.com | GNews en-US | 37 (of 38 items) |
+| AGBI | agbi.com | GNews en-US | 26 |
+| Trade Arabia | tradearabia.com/news | GNews en-US | 13 |
+| Pipeline Oil & Gas Magazine | pipelineoilandgasnews.com | RSS | 14 (121h) |
+| Nikkei Asia | asia.nikkei.com | GNews en-US | 11 |
+| The Japan Times | japantimes.co.jp | GNews en-US | 14 |
+| NHK World | www3.nhk.or.jp/nhkworld | GNews en-US | 3 |
+| The Korea Herald | koreaherald.com | RSS | 4 (8h) |
 
 <!-- --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END -->
 
