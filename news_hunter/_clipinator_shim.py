@@ -797,6 +797,28 @@ ex_argus = _make_extractor([
     "div#news-body-text", 'div[itemprop="articleBody"]', "main article", "article",
 ])
 
+# Riviera Maritime Media runs Affino, which wraps the body in a PROPRIETARY class
+# and emits no <article>, no itemprop and none of ex_auto's containers. Measured
+# on the runner 2026-09-15,
+# www.rivieramm.com/news-content-hub/vlccs-and-suezmaxes-sold-like-hot-cakes-90002
+# (HTTP 200, 108 KB, fetched anonymously):
+#
+#   div.aos-DS27-WYSEdit          -> 1 match, 22 <p>   <- the body
+#   <article>                     -> 0 elements        <- so _generic's implicit
+#                                                         fallback finds nothing
+#   div[itemprop="articleBody"]   -> 0 elements
+#   ex_auto                       -> 0 paragraphs
+#
+# So every Riviera row was stored with an empty snippet -- all 8 of them on
+# 2026-09-15 -- and the outlet degraded to title-only matching. The class is
+# Affino's own widget id, NOT a build hash: it is stable across articles, which
+# is why it is matched literally and case-sensitively. The dashboard's clipping
+# registry carries the SAME selector string; keep the two in step.
+#
+# Riviera's apex is unreachable (ConnectTimeout on 443), so this extractor only
+# ever runs because store.WWW_ONLY_HOSTS keeps the www form in the stored url.
+ex_rivieramm = _make_extractor(["div.aos-DS27-WYSEdit"])
+
 def _br_paragraphs(container: Tag | None) -> list[str]:
     """Split a <br>-separated body into paragraphs.
 
@@ -1437,8 +1459,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.qcintel.com": ex_auto,
     "lloydslist.com": ex_auto,
     "www.lloydslist.com": ex_auto,
-    "rivieramm.com": ex_auto,
-    "www.rivieramm.com": ex_auto,
+    "rivieramm.com": ex_rivieramm,
+    "www.rivieramm.com": ex_rivieramm,
     "mobilityplaza.com": ex_auto,
     "www.mobilityplaza.com": ex_auto,
     "iea.org": ex_auto,
