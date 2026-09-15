@@ -744,6 +744,10 @@ RSS_FEEDS: dict[str, list[str]] = {
     # >=3/7d on-beat bar. Only the industry feed was measured; a future wave
     # could try its markets/commodities feed before concluding the domain is
     # dead.
+    # SUPERSEDED by Wave 5D (2026-09-14): the markets feed
+    # (/rss/markets-106.rss) was exactly the untried surface this note pointed
+    # at -- pass=6/81h -- and the outlet is REGISTERED on it in the Wave 5D
+    # block below. This industry-feed rejection stands as written.
     # "www.business-standard.com": [
     #     "https://www.business-standard.com/rss/industry-217.rss",
     # ],
@@ -1603,8 +1607,17 @@ RSS_FEEDS: dict[str, list[str]] = {
 # (pipeline._run_translation) only translates source_lang not in ('en','pt',None).
 #
 # MEMBERSHIP = the "Surface = RSS" rows of the README "International coverage"
-# section (15 outlets: the 13 added across the four 2026-08-18 waves + CNBC and
-# The Moscow Times, which predated the program). Both apex AND www variants are
+# section. That was 15 outlets when this set landed (the 13 of the four
+# 2026-08-18 waves + CNBC and The Moscow Times, which predated the programme);
+# after the five Wave 5 branches and the 2026-09-14 post-merge corrections it is
+# 58 RSS registrations -- those 15, plus the 42 Wave 5 feeds minus MercoPress
+# (moved to GNews), plus intellinews and globalenergynetwork (promoted from
+# GNews). Do not treat any of those numbers as a constant: the roster moves with
+# every wave and nothing asserts its size, on purpose (five parallel branches
+# editing one equality assertion would be red between merges). The set also
+# holds a few hosts that are NOT feed registrations at all -- the ARTICLE hosts
+# of feeds served from a different domain, see KEEP IN SYNC below.
+# Both apex AND www variants are
 # listed: _entry_to_item resolves source_domain per item and, although
 # normalize_url strips a leading "www.", other item-construction paths may not.
 # Deliberately EXCLUDES the Brazilian (pt) feeds and the ENGLISH_NO_RSS_DOMAINS /
@@ -2167,6 +2180,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # release (every opec.org page trivially matches OPEC) -- ~1 distinct
     # story, press-release-only, very low frequency. OPEC+ output / MOMR news
     # is already carried by TASS / Interfax / Zawya / MEES. Below bar.
+    # SUPERSEDED by Wave 5E (2026-09-14): re-measured under the lowered
+    # 2026-09 bar at pass=3/7d (~1 distinct story a week) and REGISTERED --
+    # see the live "opec.org" entry in the Wave 5E block below.
     # "opec.org",
     # --- Wave 3 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
@@ -2177,6 +2193,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # energy reporting. Path-scoping is unavailable: site:houstonchronicle.com/
     # business/energy returns 0 GNews items (Google honours a /news path for
     # Rigzone but ignores this deeper one). Duplicate-dominated + un-narrowable.
+    # SUPERSEDED by Wave 5B (2026-09-14): re-measured at pass=35/7d and
+    # REGISTERED -- see the live "houstonchronicle.com" entry in the Wave 5B
+    # block below. The 2026-08-18 numbers were not wrong, the bar moved.
     # "houstonchronicle.com",
     # Euractiv (euractiv.com): general EU-policy domain. RSS 403 from the
     # runner; bare site: GNews pass=2/7d (items=96 fresh=56 near=54), both
@@ -2187,6 +2206,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # ICIS (icis.com): chemicals/energy price wire, hard paywall -- Google
     # indexes few articles. site: GNews pass=2/7d (items=9 near=7), both
     # generic Hormuz duplicates. Below the paywall-source floor.
+    # SUPERSEDED by Wave 5E (2026-09-14): re-measured at pass=3/7d and
+    # REGISTERED under the lowered bar -- see the live "icis.com" entry in the
+    # Wave 5E block below.
     # "icis.com",
     # Recharge (rechargenews.com): energy-TRANSITION / renewables outlet.
     # site: GNews pass=7/7d (items=15 near=8) but six of seven passes are
@@ -2204,6 +2226,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # GNews pass=2/7d (items=9 near=7), both duplicates of stories other
     # sources carry (Rovuma LNG, Petrobras Equatorial Margin). Google indexes
     # few of a technical monthly. Below bar.
+    # SUPERSEDED by Wave 5E (2026-09-14): re-measured at pass=1/7d and
+    # REGISTERED under the lowered bar -- see the live "jpt.spe.org" entry in
+    # the Wave 5E block below.
     # "jpt.spe.org",
     # =======================================================================
     # India + China oil & gas / business press (English) -- Wave 4 (2026-08-18).
@@ -2298,6 +2323,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # outburst) but only 2 in 7d: a hard paywall means Google indexes few
     # articles. Below the >=3/7d bar despite being the markets-focused outlet
     # expected to be the strongest of the two.
+    # RE-TESTED by Wave 5D (2026-09-14) under the lowered bar and REJECTED
+    # AGAIN, worse: GNews items=7 fresh=7 pass=0. See the Wave 5D REJECTED
+    # sub-block below; the paywall, not the bar, is the binding constraint.
     # "caixinglobal.com",
 
     # =======================================================================
@@ -2679,6 +2707,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # NOT VIABLE for Persian in 2026-08-19 (see the `fa` note in LANGUAGES) --
     # different host path, different verdict, no conflict. Articles resolve to
     # www.dw.com.
+    # LANGUAGE CHECK (the one the Le Monde entry carries, run for this domain on
+    # 2026-09-14, measure_source run 34897630577): titles verified ENGLISH 20/20
+    # on the pass set. It matters here more than anywhere else on the roster --
+    # dw.com serves ~30 languages off one host, and an item landing in German
+    # would be stamped 'en' by the GNews en-US route and never translated.
+    # hl=en-US is what keeps the query on the English edition.
     "dw.com",
     # Euronews (euronews.com) -- pan-European news network, English edition, and
     # the best EU-energy-policy read of this wave. GNews pass=23/7d (items=100
@@ -2693,6 +2727,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # fresh=30 pass=6 fetch=0.14s -- 6/7d against 23/7d, GNews by 3.8x, past the
     # 2x tie-break, so GNews it is (the feed remains the fallback if Google ever
     # de-indexes the domain). Articles resolve to www.euronews.com.
+    # LANGUAGE CHECK (2026-09-14, measure_source run 34897630577): titles
+    # verified ENGLISH 23/23 on the pass set. Same reason as dw.com above --
+    # euronews.com serves 12 language editions from one apex.
     "euronews.com",
     # Swissinfo (swissinfo.ch) -- SWI, the Swiss public international service,
     # English edition. GNews pass=12/7d (items=62 fresh=54 near=42). NO RSS
@@ -2707,6 +2744,10 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # Swiss import costs, a UBS economist on $200 oil if Hormuz stays shut, and
     # Mercuria / Glencore on a Venezuela deal. Articles resolve to
     # www.swissinfo.ch.
+    # LANGUAGE CHECK (2026-09-14, measure_source run 34897630577): titles
+    # verified ENGLISH 11/11 on the pass set. SWI publishes in 10 languages
+    # under /eng, /ger, /fre ... off one apex, so the apex registration only
+    # holds up because hl=en-US keeps Google on the English edition.
     "swissinfo.ch",
     # The Globe and Mail (theglobeandmail.com) -- Canada national daily and the
     # RICHEST surface of this wave: GNews pass=98/7d (items=100 fresh=100
@@ -3688,9 +3729,17 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
-    # --- Wave 5B (2026-09-14): NO override needed, measured not assumed. The
-    #     slowest feed this wave registered is The Irish Times business feed at
-    #     fetch=2.42s, inside the 4s FEED_TIMEOUT; every other registered feed
+    # The Irish Times -- the one Wave 5B feed with no headroom. Measured
+    # fetch=2.42s against the 4s default: inside it, but 60% of the way there,
+    # and it is a 100-item feed whose size is not going to shrink. A single slow
+    # afternoon turns that into a ReadTimeout and the outlet reads as dead --
+    # the exact failure that cost the 2026-08-18 waves three sources. 8.0s is
+    # ~3.3x the measurement and still a third of COLLECT_DEADLINE, and it costs
+    # nothing on a normal day: the budget is a ceiling, not a delay.
+    "irishtimes.com": 8.0,
+    # --- Wave 5B (2026-09-14): NO override needed for the rest, measured not
+    #     assumed. The slowest feed this wave registered is The Irish Times
+    #     business feed at fetch=2.42s (see above); every other registered feed
     #     came back in 0.05-0.98s (afr 0.05 / 0.15s, lemonde 0.08s, investing
     #     0.10s, france24 0.31s, abc 0.32s, cityam 0.40s, financialpost 0.44 /
     #     0.51s, calgaryherald 0.70s). The three candidates with no fetch time
@@ -4631,11 +4680,20 @@ def google_news_site_queries_en(domains: list[str], keywords: list[str], hours: 
 # one — so they keep being submitted FIRST and in full, on the freshest
 # rate-limit budget. Capping EN is precisely what protects them.
 #
-# TODAY: len(ENGLISH_NO_RSS_DOMAINS) == 34 == EN_GNEWS_QUERIES_PER_SCAN, so
-# cohorts == 1 and the emitted query list is BYTE-IDENTICAL to the uncapped one
-# (pinned by tests/test_multilingual_en_frozen.py, untouched, plus the explicit
-# cohorts==1 identity tests in tests/test_gnews_cohort.py). The mechanism only
-# starts moving once a wave pushes the list past the budget.
+# TODAY (2026-09-14, after the five Wave 5 branches, the MercoPress surface swap
+# and the intellinews / globalenergynetwork promotions to RSS):
+# len(ENGLISH_NO_RSS_DOMAINS) == 103 against EN_GNEWS_QUERIES_PER_SCAN == 34, so
+# cohorts == ceil(103/34) == 4 and the mechanism is LIVE: one scan submits ~26
+# EN `site:` queries, every domain is queried every 4th scan, i.e. every ~20
+# minutes, two orders of magnitude inside the 24h `when:` window. Do not read the
+# numbers in this paragraph as constants -- read gnews_cohort_count(); the count
+# moves every time a wave lands, which is why nothing asserts it.
+# HISTORY (do not restore as fact): when this mechanism shipped the list was 34
+# domains, cohorts == 1, and the emitted query list was BYTE-IDENTICAL to the
+# uncapped one -- that identity is what made landing it a no-op. It is pinned by
+# the cohorts==1 identity tests in tests/test_gnews_cohort.py, which construct
+# their own 34-domain list, and by tests/test_multilingual_en_frozen.py; neither
+# depends on the live list still having 34 entries.
 # -----------------------------------------------------------------------------
 
 # How many EN `site:` queries one scan may submit. Set to today's list length so

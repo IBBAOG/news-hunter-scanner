@@ -364,22 +364,34 @@ Required secrets (in addition to those above): `BRASIL_ENERGIA_USER`,
 
 ## International coverage
 
-Alongside the ~60 Brazilian sources, the scanner carries **48 English-language
-international outlets** across seven regions — six that predated the program plus
-**42 added in four waves** (2026-08-18). Two surfaces are used, in this order of
-preference:
+Alongside the ~60 Brazilian sources, the scanner carries **161 English-language
+international outlets** — six that predated the program, 42 added in four waves
+(2026-08-18) and 113 added by the five Wave 5 branches and their post-merge
+corrections (2026-09-14). Two surfaces are used, in this order of preference:
 
 - **RSS** — a dated feed the scanner's feed path reaches from its datacenter
-  runner (15 outlets). Matches land on the item title/summary with no body fetch.
+  runner (**58 registrations**). Matches land on the item title/summary with no
+  body fetch, and the body is there when a keyword needs it.
 - **GNews en-US** — a Google News `site:<domain> when:<window> (<keywords>)`
-  query at `hl=en-US` (33 outlets), used when the outlet's own feed is
+  query at `hl=en-US` (**103 outlets**), used when the outlet's own feed is
   WAF-blocked, paywalled, dateless or absent. Google supplies the date; bodies
   stay unreachable, so these land **title-only** (empty snippet).
 
+Counts are from the registries themselves (`len(ENGLISH_NO_RSS_DOMAINS)` and the
+`RSS_FEEDS` keys tagged in `INTERNATIONAL_RSS_DOMAINS`) on 2026-09-14 and move
+with every wave — nothing asserts them, so re-count rather than trust them. The
+EN GNews list is past the per-scan burst budget (`EN_GNEWS_QUERIES_PER_SCAN`, 34),
+so it now rotates in **4 cohorts**: every domain is queried every ~20 minutes,
+well inside each query's 24h `when:` window.
+
 What makes English outlets yield at all is the keyword layer. Matching runs over
-the **full 91-keyword Supabase lexicon** (41 exact / 50 substring — `oil`, `gas`,
-`Brent`, `WTI`, `OPEC`, `LNG`, `crude`, `diesel`, `refinery`, `Hormuz`,
-`ExxonMobil`, `Petrobras`, …), while *retrieval* on the GNews route is narrowed to
+the **full live Supabase lexicon — 187 keywords (78 exact / 109 substring) on
+2026-09-14** (180 global rows in `news_hunter_default_keywords` plus the
+per-user rows the scanner unions in; `oil`, `gas`, `Brent`, `WTI`, `OPEC`, `LNG`,
+`crude`, `diesel`, `refinery`, `Hormuz`, `ExxonMobil`, `Petrobras`, …) — the
+number `measure_source` prints as `keywords: N total` at the top of every run,
+which is the only count worth quoting. While *retrieval* on the GNews route is
+narrowed to
 the **12-term `ENGLISH_KEYWORD_PRIORITY`** subset (`sources.py`), the block Google
 will not truncate. The two are different funnels — a matching gap is closed with a
 DB keyword row, never by editing the tuple.
@@ -549,9 +561,9 @@ items and is not what the outlet's own feed links to).
 | Houston Chronicle | houstonchronicle.com | GNews en-US | 35 |
 | Los Angeles Times | latimes.com | GNews en-US | 21 |
 | USA Today | usatoday.com | GNews en-US | 36 |
-| Deutsche Welle (EN edition) | dw.com | GNews en-US | 23 |
-| Euronews | euronews.com | GNews en-US | 23 |
-| Swissinfo | swissinfo.ch | GNews en-US | 12 |
+| Deutsche Welle (EN edition) | dw.com | GNews en-US | 23 (titles verified English 20/20, 2026-09-14) |
+| Euronews | euronews.com | GNews en-US | 23 (titles verified English 23/23, 2026-09-14) |
+| Swissinfo | swissinfo.ch | GNews en-US | 12 (titles verified English 11/11, 2026-09-14) |
 | The Globe and Mail | theglobeandmail.com | GNews en-US | 98 |
 | CBC News | cbc.ca | GNews en-US | 39 |
 | The Australian | theaustralian.com.au | GNews en-US | 46 |
