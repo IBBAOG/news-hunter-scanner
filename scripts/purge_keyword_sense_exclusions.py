@@ -33,13 +33,18 @@ MODES (never more than one):
   --plan-out PATH      as the dry-run, plus a JSON BACKUP of every affected full
                        row and a PLAN (the mutations, each with the array it was
                        decided on). Still no database writes.
-  --apply-plan PATH    read a plan, check its backup is present and intact,
-                       mutate. The workflow uploads plan + backup as an artifact
-                       BEFORE this step runs, so the backup is durable first.
+  --apply-plan PATH    read a plan no older than --plan-max-age-hours (6), check
+                       its backup is present, intact and covers every planned
+                       row, mutate. The workflow uploads plan + backup as an
+                       artifact BEFORE this step runs, so the backup is durable
+                       first.
   --apply              local one-shot: plan (backup written first), then mutate.
 
 Every mutation is guarded on url AND the matched_keywords array the decision was
-made on: a row the scanner rewrote meanwhile is skipped and counted as 'changed'.
+made on. When the guard matches nothing the row is re-read: 'already_applied' if
+a previous run already did it (row gone for a planned delete, or already holding
+the new array), 'changed' only when someone else really rewrote it. Every
+attempt is counted, so a duplicate never hides an earlier result.
 --apply and --apply-plan abort unless each target keyword is match_type 'exact'
 in the live keyword config: under substring matching the next scan would re-tag
 a 'compasso' article still inside the 24 h window.
@@ -102,6 +107,8 @@ MUTATING = (STRIP, DELETE, STRIP_NW, DELETE_NW)
 # the substring that produced the original hit ('descompasso') to be on the page.
 MIN_BODY_CHARS = 400
 MIN_TITLE_OVERLAP = 0.6
+# The workflow applies right after planning; an older plan is refused.
+DEFAULT_PLAN_MAX_AGE_HOURS = 6.0
 
 
 # ---------------------------------------------------------------------------
@@ -476,12 +483,20 @@ def keywords_not_exact(keys: Iterable[str], get_config: Callable[[], dict] | Non
     return sorted({k.lower() for k in keys} - exact)
 
 
+#: Result of one guarded mutation attempt: (url, planned action, result).
+#: result: 'ok' (written now), 'already_applied' (a previous run did it: the row
+#: is gone for a planned delete, or already holds new_keywords), 'changed' (the
+#: row was rewritten by someone else since the plan; nothing written), 'failed'.
+Outcome = tuple[str, str, str]
+
+
 def apply_decision(sink, d: RowDecision) -> str:
-    """Mutate one row, guarded on the array we read. 'ok' | 'changed' | 'failed'."""
+    """Mutate one row, guarded on url + the array the decision was made on."""
     snapshot = pg_array_literal(d.matched_keywords)
-    table = sink.client.table(sink.table)
+    is_delete = d.action in (DELETE, DELETE_NW)
     try:
-        if d.action in (DELETE, DELETE_NW):
+        table = sink.client.table(sink.table)
+        if is_delete:
             res = table.delete().eq("url", d.url).eq("matched_keywords", snapshot).execute()
         else:
             res = (
@@ -491,12 +506,31 @@ def apply_decision(sink, d: RowDecision) -> str:
     except Exception as e:  # noqa: BLE001
         log.warning("mutation failed on %s: %s", d.url, e)
         return "failed"
-    return "ok" if (res.data or []) else "changed"
+    if res.data:
+        return "ok"
+    # The guard matched nothing: tell a resumed / re-applied plan apart from a
+    # row the scanner really rewrote.
+    try:
+        current = (
+            sink.client.table(sink.table).select("url, matched_keywords")
+            .eq("url", d.url).execute().data or []
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("re-select failed on %s: %s", d.url, e)
+        return "failed"
+    if not current:
+        return "already_applied" if is_delete else "changed"
+    if not is_delete and list(current[0].get("matched_keywords") or []) == list(d.new_keywords):
+        return "already_applied"
+    return "changed"
 
 
-def apply_decisions(sink, decisions: Iterable[RowDecision]) -> dict[str, str]:
-    outcomes = {d.url: apply_decision(sink, d) for d in decisions if d.mutates}
-    oc = Counter(outcomes.values())
+def apply_decisions(sink, decisions: Iterable[RowDecision]) -> list[Outcome]:
+    """One Outcome per attempt, so a duplicate never overwrites an earlier result."""
+    outcomes: list[Outcome] = [
+        (d.url, d.action, apply_decision(sink, d)) for d in decisions if d.mutates
+    ]
+    oc = Counter(result for _u, _a, result in outcomes)
     log.info("mutations: %s", ", ".join(f"{k}={v}" for k, v in sorted(oc.items())) or "none")
     return outcomes
 
@@ -573,8 +607,11 @@ def load_plan(plan_path: str) -> tuple[dict, list[RowDecision]]:
     with open(backup, encoding="utf-8") as fh:
         backed_up = {e["row"]["url"] for e in json.load(fh)}
     missing = [d.url for d in mutations if d.url not in backed_up]
-    if missing or any(not d.mutates for d in mutations):
-        raise ValueError(f"plan lists rows absent from its backup or non-mutating actions: {missing[:3]}")
+    if missing:
+        raise ValueError(f"plan lists {len(missing)} rows absent from its backup: {missing[:3]}")
+    keeps = [f"{d.action} {d.url}" for d in mutations if not d.mutates]
+    if keeps:
+        raise ValueError(f"plan lists {len(keeps)} non-mutating actions: {keeps[:3]}")
     return plan, mutations
 
 
@@ -600,7 +637,7 @@ def render_summary(
     decisions: list[RowDecision],
     *,
     applied: bool,
-    outcomes: dict[str, str] | None = None,
+    outcomes: list[Outcome] | None = None,
     scope: str = "",
     backup_path: str | None = None,
     heading: str | None = None,
@@ -613,11 +650,14 @@ def render_summary(
     lines.append(f"Rows in this summary: {len(decisions)}  ")
     if backup_path:
         lines.append(f"Backup of affected rows: `{backup_path}`  ")
+    by_row: dict[tuple[str, str], list[str]] = {}
     if outcomes:
-        oc = Counter(outcomes.values())
+        oc = Counter(result for _u, _a, result in outcomes)
         lines.append(
-            "Mutations: " + ", ".join(f"{k}={v}" for k, v in sorted(oc.items())) + "  "
+            "Mutation attempts: " + ", ".join(f"{k}={v}" for k, v in sorted(oc.items())) + "  "
         )
+        for url, action, result in outcomes:
+            by_row.setdefault((url, action), []).append(result)
     lines += ["", "| action | rows |", "|---|---:|"]
     for action, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         lines.append(f"| {action} | {n} |")
@@ -625,8 +665,9 @@ def render_summary(
     ordered = sorted(decisions, key=lambda d: (not d.mutates, d.action, d.url))
     for d in ordered:
         action = d.action
-        if outcomes and d.url in outcomes and outcomes[d.url] != "ok":
-            action = f"{action} ({outcomes[d.url]})"
+        results = by_row.get((d.url, d.action), [])
+        if any(r != "ok" for r in results):
+            action = f"{action} ({', '.join(results)})"
         lines.append(f"| {action} | {_md(d.url, 120)} | {_md(d.title, 100)} | {_md(d.reason)} |")
     return "\n".join(lines) + "\n"
 
@@ -650,10 +691,22 @@ def decide_all(
     refetch: Callable[[dict], FetchedPage] | None,
 ) -> list[RowDecision]:
     decisions: list[RowDecision] = []
+    # A paginated read can return the same url twice if rows shift between
+    # pages: decide each url once.
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for row in rows:
+        url = row.get("url") or ""
+        if url in seen:
+            continue
+        seen.add(url)
+        unique.append(row)
+    if len(unique) != len(rows):
+        log.warning("ignored %d duplicate rows (same url)", len(rows) - len(unique))
     # Stored-text decisions first; only the rows needing a refetch go to the
     # network, interleaved by domain.
     needs_page: list[dict] = []
-    for row in rows:
+    for row in unique:
         d = decide_row(row, keywords=keywords, refetch=None)
         if d is None:
             continue
@@ -686,7 +739,7 @@ def run(
     scope: str = "",
     now: datetime | None = None,
     plan_out: str | None = None,
-) -> tuple[list[RowDecision], dict[str, str], str | None]:
+) -> tuple[list[RowDecision], list[Outcome], str | None]:
     """Decide; with plan_out or apply write backup + plan; with apply, mutate.
 
     The backup and the plan are on disk (fsync'd) before the first mutation.
@@ -704,7 +757,7 @@ def run(
             decisions, rows,
             keywords=list(keywords or KEYWORD_SENSE_EXCLUSIONS), scope=scope, now=now,
         )
-    outcomes: dict[str, str] = apply_decisions(sink, decisions) if apply else {}
+    outcomes: list[Outcome] = apply_decisions(sink, decisions) if apply else []
     return decisions, outcomes, backup_path
 
 
@@ -730,10 +783,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="read rows from a JSON array instead of Supabase (no --apply)")
     ap.add_argument("--output-dir", default="purge_output", help="backup + csv directory")
     ap.add_argument("--csv", default=None, help="csv report path (default: <output-dir>/decisions.csv)")
+    ap.add_argument("--plan-max-age-hours", type=float, default=DEFAULT_PLAN_MAX_AGE_HOURS,
+                    help="--apply-plan refuses a plan older than this (default 6)")
     args = ap.parse_args(argv)
 
     if args.apply_plan:
-        return _main_apply_plan(args.apply_plan)
+        return _main_apply_plan(args.apply_plan, max_age_hours=args.plan_max_age_hours)
 
     keys = [k.lower() for k in (args.keyword or list(KEYWORD_SENSE_EXCLUSIONS))]
     unknown = [k for k in keys if k not in KEYWORD_SENSE_EXCLUSIONS]
@@ -798,14 +853,31 @@ def main(argv: list[str] | None = None) -> int:
         decisions, applied=args.apply, outcomes=outcomes, scope=scope,
         backup_path=backup_path, heading=heading,
     ))
-    return 1 if any(v == "failed" for v in outcomes.values()) else 0
+    return 1 if any(result == "failed" for _u, _a, result in outcomes) else 0
 
 
-def _main_apply_plan(plan_path: str, *, sink=None, get_config: Callable[[], dict] | None = None) -> int:
+def _main_apply_plan(
+    plan_path: str,
+    *,
+    sink=None,
+    get_config: Callable[[], dict] | None = None,
+    max_age_hours: float = DEFAULT_PLAN_MAX_AGE_HOURS,
+    now: datetime | None = None,
+) -> int:
     try:
         plan, mutations = load_plan(plan_path)
+        created = datetime.fromisoformat(plan["created_at"])
+        if created.tzinfo is None:
+            raise ValueError("created_at has no timezone")
     except (OSError, ValueError, KeyError, TypeError) as e:
         log.error("refusing plan %s: %s", plan_path, e)
+        return 2
+    age_h = ((now or datetime.now(timezone.utc)) - created).total_seconds() / 3600
+    if age_h > max_age_hours:
+        log.error(
+            "refusing plan %s: created %.1f h ago, older than --plan-max-age-hours %.1f "
+            "(stored rows may have moved on; plan again)", plan_path, age_h, max_age_hours,
+        )
         return 2
     if sink is None:
         if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_KEY"):
@@ -827,7 +899,7 @@ def _main_apply_plan(plan_path: str, *, sink=None, get_config: Callable[[], dict
         mutations, applied=True, outcomes=outcomes, scope=plan.get("scope", ""),
         backup_path=plan["backup_file"],
     ))
-    return 1 if any(v == "failed" for v in outcomes.values()) else 0
+    return 1 if any(result == "failed" for _u, _a, result in outcomes) else 0
 
 
 if __name__ == "__main__":

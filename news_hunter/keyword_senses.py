@@ -38,6 +38,14 @@ an entry in KEYWORD_SENSE_EXCLUSIONS, so every pipeline stage honours it. The
 retro-purge (scripts/purge_keyword_sense_exclusions.py) imports the same
 function for stored rows: one rule, two callers.
 
+KNOWN FALSE-KEEP (accepted 2026-09-15). Company context always wins, and GNV and
+the state gas distributors are context because Compass sells natural gas for
+vehicles. So a car story that mentions GNV stays tagged: "Kit GNV para Jeep
+Compass" keeps 'Compass'. A later two-tier context could fix it: strong context
+(Cosan, Comgas, PASS3, "Compass Gas e Energia") always wins, while weak context
+(GNV, distributor names) wins only over document vocabulary, not over an
+occurrence pattern such as 'Jeep Compass'.
+
 Adding a keyword: add a SenseExclusion under its lowercased form and tune the
 patterns against real rows before merging. Keep vocabulary narrow and specific:
 a vocabulary term removes every story that mentions it next to the keyword
@@ -153,9 +161,10 @@ COMPASS_AUTOMOTIVE = KeywordSense(
         # Powertrains and engine codes. No bare '1.3' / '2.0': 'Compass 1.3 bi em
         # debentures' is the company.
         r"\s+(?:4xe|e-?Hybrid|T270|TD380|Hurricane|1[.,]3\s*turbo|2\.0\s*(?:turbo|diesel))\b",
-        # Used-car listing year 'Compass 2021/2022'. A bare year is NOT evidence:
-        # 'Compass 2026: guidance preve Ebitda...' is the company.
-        r"\s+20\d\d/(?:20)?\d\d\b",
+        # Used-car listing year 'Compass 2021/2022', both years in full. A bare
+        # year or a fiscal span is NOT evidence: 'Compass 2026: guidance...',
+        # 'Compass 2025/26: capex de R$ 2 bi' are the company.
+        r"\s+20\d\d/20\d\d\b",
         _LIST_SEP + r"(?:Jeep\s+)?" + _CAR_MODELS + r"\b",
     ),
     # Narrow on purpose. Removed after QA 2026-09-15 because Compass sells natural
@@ -197,8 +206,8 @@ COMPASS_OTHER_ENTITY = KeywordSense(
         r"\bGreat\s+Salt\s+Lake\b",
         # US-issuer EPS template ('superou projecoes por $0,02'): a bare dollar
         # sign glued to a comma-decimal amount. Not 'R$ 0,57', 'R $ 0,57',
-        # 'US$ 15', '$560 million' or 'a $62 mil'.
-        r"(?<![A-Za-z$])(?<!(?-i:R) )(?<!(?-i:US) )\$\d+,\d{2}\b",
+        # 'US$ 15', 'USD $0,57', '$560 million' or 'a $62 mil'.
+        r"(?<![A-Za-z$])(?<!(?-i:R) )(?<!(?-i:US) )(?<!(?-i:USD) )\$\d+,\d{2}\b",
     ),
 )
 
@@ -224,9 +233,10 @@ COMPASS_COMPANY_CONTEXT = _terms(
     r"\bSulg[áa]s\b", r"(?-i:\bNecta\b)", r"\bCommit\s+G[áa]s\b",
     r"\bG[áa]s\s+Brasiliano\b", r"\bCompag[áa]s\b", r"\bMSG[áa]s\b", r"\bSCG[áa]s\b",
     r"\bCoperg[áa]s\b", r"\bGasmig\b", r"\bBahiag[áa]s\b", r"\bPotig[áa]s\b",
-    r"\bPBG[áa]s\b", r"\bSerg[áa]s\b",
-    # Accent required: 'algas' (seaweed) and 'cegas' (blind) are words.
-    r"\bAlgás\b", r"\bCegás\b",
+    r"\bPBG[áa]s\b",
+    # Accent AND case required: 'algas' (seaweed), 'cegas' (blind) are words and
+    # 'Sergas' / 'SERGAS' is the Galician public health service.
+    r"(?-i:\bAlgás\b)", r"(?-i:\bCegás\b)", r"(?-i:\bSergás\b)",
     r"(?-i:\bGNL\b)", r"(?-i:\bLNG\b)",
     r"\bAnt[ôo]nio\s+Sim[õo]es\b",
     # Edge, Compass's gas trading/LNG unit, written with a Portuguese article

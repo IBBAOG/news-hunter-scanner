@@ -174,8 +174,29 @@ def test_accented_distributor_names_do_not_match_ordinary_words():
     assert _match("Compass Point, Algás e Cegás", keywords=[KW]) == [KW]
 
 
+def test_sergas_is_the_galician_health_service_not_sergas_gas_context():
+    # QA round 2 (synthetic): only 'Sergás' with the accent is the distributor.
+    text = "El Sergas investiga ensayo de Compass Pathways con psilocibina"
+    assert _match(text, keywords=[KW]) == []
+    assert _match("SERGAS y Compass Pathways", keywords=[KW]) == []
+    assert _match("Sergás e Compass Pathways", keywords=[KW]) == [KW]
+
+
 def test_used_car_listing_year_is_still_car_evidence():
     assert _match("Vendo Compass 2021/2022 blindado, único dono") == []
+
+
+def test_fiscal_year_span_is_not_a_listing_year():
+    # QA round 2 (synthetic): two-digit second year is a fiscal span, not a car.
+    assert _match("Compass 2025/26: capex de R$ 2 bi", keywords=[KW]) == [KW]
+
+
+def test_known_false_keep_gnv_car_story_stays_tagged():
+    # Accepted trade-off, documented in keyword_senses.py: GNV is company context
+    # and context always wins, even over 'Jeep Compass'. Pinned so a change to
+    # the trade-off is deliberate.
+    v = evaluate_keyword_sense("Kit GNV para Jeep Compass", KW, exact=True)
+    assert v.status == "keep_context" and _match("Kit GNV para Jeep Compass") == [KW]
 
 
 def test_company_context_beats_automotive_vocabulary():
@@ -208,6 +229,8 @@ OTHER_ENTITY_ROWS = [
     "FDA concede voucher prioritário à Compass para tratamento com psilocibina",
     # terra.com.br article body, found by the purge refetch
     "A quinta edição do Bosch Tech Compass, estudo global que analisa expectativas",
+    # ...and the url slug in the same body
+    "Leia mais: https://www.bosch.com.br/noticias-e-historias/aiot/bosch-tech-compass-2026/",
 ]
 
 
@@ -225,6 +248,7 @@ def test_us_eps_dollar_template_is_other_entity_evidence():
 @pytest.mark.parametrize("amount", [
     "levanta $560 million", "tem preço-alvo de US$ 15", "paga R$ 0,57 por ação",
     "paga R $ 0,57 por ação", "paga R $0,57 por ação", "vale US $0,57", "vê bitcoin a $62 mil",
+    "paga USD $0,57 de dividendo por ADR",
 ])
 def test_other_dollar_amounts_are_not_evidence(amount):
     assert _match(f"Compass {amount}") == [KW]

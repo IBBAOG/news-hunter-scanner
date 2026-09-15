@@ -83,25 +83,48 @@ class _Query:
 
 
 class _Client:
-    def __init__(self, rows=None, changed_urls=(), on_mutation=None):
+    """Records calls. `stateful=True` makes update/delete act on `rows` with the
+    same url + array guard PostgREST applies; otherwise a mutation succeeds
+    unless its url is in `changed_urls`."""
+
+    def __init__(self, rows=None, changed_urls=(), on_mutation=None, stateful=False):
         self.rows = rows or []
         self.changed_urls = set(changed_urls)
         self.on_mutation = on_mutation
+        self.stateful = stateful
         self.calls: list[_Query] = []
 
     def table(self, name):
         return _Query(self, name)
 
     def respond(self, q):
+        eqs = {c: v for c, op, v in q.filters if op == "eq"}
         if q.op == "select":
-            lo, hi = q.span or (0, len(self.rows) - 1)
-            return self.rows[lo:hi + 1]
+            data = [r for r in self.rows if "url" not in eqs or r.get("url") == eqs["url"]]
+            lo, hi = q.span or (0, len(data) - 1)
+            return [dict(r) for r in data[lo:hi + 1]]
         if q.op in ("update", "delete"):
             if self.on_mutation:
                 self.on_mutation(q)
-            url = dict((c, v) for c, op, v in q.filters if op == "eq").get("url")
-            return [] if url in self.changed_urls else [{"url": url}]
+            url = eqs.get("url")
+            if not self.stateful:
+                return [] if url in self.changed_urls else [{"url": url}]
+            hit = [r for r in self.rows if r.get("url") == url
+                   and P.pg_array_literal(r.get("matched_keywords") or []) == eqs.get("matched_keywords")]
+            if not hit:
+                return []
+            if q.op == "delete":
+                self.rows = [r for r in self.rows if r not in hit]
+            else:
+                for r in hit:
+                    r.update(q.payload)
+            return [{"url": url}]
         return []
+
+
+def _mutations(client):
+    return {dict((c, v) for c, op, v in q.filters if op == "eq")["url"]: q
+            for q in client.calls if q.op in ("update", "delete")}
 
 
 class _Sink:
@@ -256,7 +279,7 @@ def test_dry_run_writes_csv_and_never_touches_the_database(tmp_path):
         ROWS, keywords=None, refetch=None, apply=False, sink=_Sink(client),
         backup_dir=str(tmp_path / "bk"), csv_path=csv_path,
     )
-    assert client.calls == [] and outcomes == {} and backup is None
+    assert client.calls == [] and outcomes == [] and backup is None
     assert not os.path.exists(tmp_path / "bk")
     with open(csv_path, encoding="utf-8") as fh:
         got = list(csv.DictReader(fh))
@@ -289,18 +312,19 @@ def test_apply_backs_up_first_then_mutates_guarded_on_the_read_array(tmp_path):
     assert {s["row"]["url"] for s in saved} == {CAR["url"], OTHER_MIXED["url"], NOISE["url"]}
     assert all("snippet" in s["row"] and "found_at" in s["row"] for s in saved)
 
-    muts = {dict((c, v) for c, op, v in q.filters if op == "eq")["url"]: q for q in client.calls}
+    muts = _mutations(client)
     assert set(muts) == {CAR["url"], OTHER_MIXED["url"], NOISE["url"]}
     assert muts[CAR["url"]].op == "delete"
     assert ("matched_keywords", "eq", '{"Compass"}') in muts[CAR["url"]].filters
     assert muts[NOISE["url"]].op == "update" and muts[NOISE["url"]].payload == {"matched_keywords": ["gás"]}
     assert ("matched_keywords", "eq", '{"Compass","gás"}') in muts[NOISE["url"]].filters
-    assert outcomes == {CAR["url"]: "ok", OTHER_MIXED["url"]: "changed", NOISE["url"]: "ok"}
+    assert sorted(outcomes) == sorted([(CAR["url"], P.DELETE, "ok"), (OTHER_MIXED["url"], P.STRIP, "changed"),
+                                       (NOISE["url"], P.STRIP_NW, "ok")])
 
 
 def test_summary_lists_counts_and_every_row():
     decisions, _o, _b = P.run(ROWS, keywords=None, refetch=None, apply=False)
-    md = P.render_summary(decisions, applied=False, outcomes={CAR["url"]: "changed"})
+    md = P.render_summary(decisions, applied=False, outcomes=[(CAR["url"], P.DELETE, "changed")])
     assert "dry-run (nothing written)" in md
     assert "| delete | 1 |" in md and "| keep_no_evidence | 2 |" in md
     assert all(d.url[:60] in md for d in decisions)
@@ -411,13 +435,13 @@ def _not_exact():
     return {"exact_keywords": {"Petrobras"}}
 
 
-def _plan(tmp_path, rows=None):
+def _plan(tmp_path, rows=None, now=None):
     client = _Client()
     plan_path = str(tmp_path / "out" / "plan.json")
     decisions, outcomes, backup = P.run(
         rows if rows is not None else ROWS, keywords=["compass"], refetch=None, apply=False,
         sink=_Sink(client), csv_path=str(tmp_path / "out" / "decisions.csv"),
-        plan_out=plan_path, now=datetime(2026, 9, 15, 12, tzinfo=timezone.utc),
+        plan_out=plan_path, now=now,
     )
     return client, plan_path, backup, decisions, outcomes
 
@@ -429,7 +453,7 @@ def _load(path):
 
 def test_plan_out_writes_backup_and_plan_and_never_writes_the_database(tmp_path):
     client, plan_path, backup, _d, outcomes = _plan(tmp_path)
-    assert client.calls == [] and outcomes == {}
+    assert client.calls == [] and outcomes == []
     plan = _load(plan_path)
     assert plan["keywords"] == ["compass"] and plan["backup_file"] == os.path.basename(backup)
     assert plan["backup_sha256"] == P._sha256(backup)
@@ -451,7 +475,7 @@ def test_apply_plan_mutates_only_the_plan_with_the_array_guard(tmp_path):
     _c, plan_path, _b, _d, _o = _plan(tmp_path)
     client = _Client(changed_urls={OTHER_MIXED["url"]})
     assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 0
-    muts = {dict((c, v) for c, op, v in q.filters if op == "eq")["url"]: q for q in client.calls}
+    muts = _mutations(client)
     assert set(muts) == {CAR["url"], OTHER_MIXED["url"]}
     assert muts[CAR["url"]].op == "delete"
     assert ("matched_keywords", "eq", '{"Compass"}') in muts[CAR["url"]].filters
@@ -498,12 +522,11 @@ def test_keywords_not_exact_is_case_insensitive():
 
 
 def test_workflow_uploads_the_plan_before_the_apply_step():
-    import pytest
-
-    yaml = pytest.importorskip("yaml")
+    import yaml  # declared in requirements.txt: this test must never skip
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         ".github", "workflows", "purge_keyword_sense_exclusions.yml")
     wf = _load_yaml(yaml, path)
+    assert "github.run_attempt" in wf["jobs"]["purge"]["steps"][4]["with"]["name"]
     assert wf["permissions"] == {"contents": "read"}
     job = wf["jobs"]["purge"]
     steps = job["steps"]
@@ -561,3 +584,109 @@ def test_throttled_refetcher_stops_starting_fetches_after_the_deadline():
     for i in range(5):
         last = r({"url": f"https://e{i}.com/a"})
     assert len(fetched) == 3 and not last.ok and "deadline" in last.reason
+
+
+# ---------------------------------------------------------------------------
+# QA round 2: hand-edited plans, resume / re-apply reporting, plan age
+# ---------------------------------------------------------------------------
+
+def _rewrite_plan(plan_path, edit):
+    plan = _load(plan_path)
+    edit(plan)
+    with open(plan_path, "w", encoding="utf-8") as fh:
+        json.dump(plan, fh)
+
+
+def test_apply_plan_refuses_a_hand_added_row_missing_from_the_backup(tmp_path):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+
+    def add_row(plan):
+        extra = dict(plan["mutations"][0], url="https://example.com/not-backed-up")
+        plan["mutations"].append(extra)
+
+    _rewrite_plan(plan_path, add_row)
+    client = _Client()
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 2
+    assert client.calls == []
+
+
+def test_apply_plan_refuses_a_non_mutating_action(tmp_path):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+
+    def make_keep(plan):
+        plan["mutations"][0]["action"] = P.KEEP_COMPANY
+
+    _rewrite_plan(plan_path, make_keep)
+    client = _Client()
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 2
+    assert client.calls == []
+
+
+def _stored(*rows):
+    return [json.loads(json.dumps(r)) for r in rows]  # independent copies
+
+
+def test_reapplying_a_plan_reports_already_applied_not_changed(tmp_path, capsys):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+    client = _Client(rows=_stored(CAR, OTHER_MIXED, COMPANY), stateful=True)
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 0
+    assert [r["url"] for r in client.rows] == [OTHER_MIXED["url"], COMPANY["url"]]
+    assert client.rows[0]["matched_keywords"] == ["pipeline"]
+    capsys.readouterr()
+    # Second run of the same plan (e.g. "Re-run jobs" after a late failure).
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 0
+    out = capsys.readouterr().out
+    assert "Mutation attempts: already_applied=2  " in out
+    assert "changed" not in out.split("| action | rows |")[0]
+
+
+def test_row_rewritten_by_the_scanner_is_reported_changed_and_left_alone(tmp_path, capsys):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+    car_now = dict(_stored(CAR)[0], matched_keywords=["Compass", "gás"])
+    mixed_now = dict(_stored(OTHER_MIXED)[0], matched_keywords=["Compass", "pipeline", "gás"])
+    client = _Client(rows=[car_now, mixed_now], stateful=True)
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 0
+    assert [r["matched_keywords"] for r in client.rows] == [["Compass", "gás"], ["Compass", "pipeline", "gás"]]
+    assert "Mutation attempts: changed=2  " in capsys.readouterr().out
+
+
+def test_strip_whose_row_disappeared_is_changed_not_already_applied():
+    d = P.decide_row(OTHER_MIXED)
+    client = _Client(rows=[], stateful=True)
+    assert P.apply_decision(_Sink(client), d) == "changed"
+
+
+def test_duplicate_attempts_are_all_counted():
+    d = P.decide_row(CAR)
+    client = _Client(rows=_stored(CAR), stateful=True)
+    outcomes = P.apply_decisions(_Sink(client), [d, d])
+    assert outcomes == [(CAR["url"], P.DELETE, "ok"), (CAR["url"], P.DELETE, "already_applied")]
+    md = P.render_summary([d], applied=True, outcomes=outcomes)
+    assert "Mutation attempts: already_applied=1, ok=1  " in md
+    assert "delete (ok, already_applied)" in md
+
+
+def test_duplicate_rows_from_a_paginated_read_are_decided_once():
+    decisions = P.decide_all([CAR, OTHER_MIXED, dict(CAR)], keywords=None, refetch=None)
+    assert [d.url for d in decisions] == [CAR["url"], OTHER_MIXED["url"]]
+
+
+def test_apply_plan_refuses_a_plan_older_than_the_max_age(tmp_path):
+    created = datetime(2026, 9, 15, 12, tzinfo=timezone.utc)
+    _c, plan_path, _b, _d, _o = _plan(tmp_path, now=created)
+    client = _Client()
+    late = datetime(2026, 9, 15, 18, 30, tzinfo=timezone.utc)
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact, now=late) == 2
+    assert client.calls == []
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact, now=late,
+                              max_age_hours=7) == 0
+    on_time = datetime(2026, 9, 15, 17, 30, tzinfo=timezone.utc)
+    assert P._main_apply_plan(plan_path, sink=_Sink(_Client()), get_config=_exact, now=on_time) == 0
+
+
+def test_apply_plan_refuses_a_plan_without_a_valid_created_at(tmp_path):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+    _rewrite_plan(plan_path, lambda plan: plan.update(created_at="2026-09-15 12:00"))
+    client = _Client()
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 2
+    assert client.calls == []
