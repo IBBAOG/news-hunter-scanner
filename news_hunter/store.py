@@ -73,6 +73,58 @@ _ARTICLE_PATH = re.compile(r"\.s?html?$", re.IGNORECASE)
 # counterpart at the same path, so the /amp/ prefix is only collapsed elsewhere.
 _AMP_PREFIX_KEEP = ("/amp/story/",)
 
+# Hosts that serve ONLY on the `www.` name: stripping the prefix (what this
+# module does for every other host) produces a url that CANNOT BE FETCHED by
+# anything. Measured from the runner on 2026-09-15 — `https://<apex>/` fails for
+# all five while `https://www.<apex>/` answers 200 with the page:
+#
+#   lngindustry.com, worldpipelines.com, tanksterminals.com,
+#   hydrocarbonengineering.com  -> SSLError (Palladian Publications serves the
+#       four titles from one www vhost; the certificate does not carry the apex
+#       name, so TLS fails before HTTP)
+#   rivieramm.com               -> ConnectTimeout (the apex answers nothing on
+#       443 at all)
+#
+# The stored url is NOT only a key: the dashboard's clipping generator GETs it,
+# and so do the scanner's own body fetches (enrich -> lede rescue -> snippet
+# backfill, all of which pass Article.url / RawItem.url straight to fetch_html).
+# An apex url is therefore a row that can never gain a body: all 8 rivieramm rows
+# in news_articles had snippet = '' when this landed (measured 2026-09-15), and
+# ex_auto on the www page yields 22 paragraphs.
+#
+# PRIMARY-KEY NOTE: news_articles is url-keyed, so this constant CHANGES the
+# primary key for these five hosts. The apex rows already stored (35 on
+# 2026-09-15 — lngindustry 13, hydrocarbonengineering 8, rivieramm 8,
+# tanksterminals 3, worldpipelines 3) keep their apex url, and a re-scan of the
+# same article lands a SECOND row under the www url. Re-keying the existing rows
+# is a separate Supabase task (an UPDATE on news_articles.url); nothing in the
+# scanner runs it, on purpose — this module never writes SQL.
+WWW_ONLY_HOSTS: frozenset[str] = frozenset({
+    "lngindustry.com",
+    "worldpipelines.com",
+    "tanksterminals.com",
+    "hydrocarbonengineering.com",
+    "rivieramm.com",
+})
+
+
+def _canonical_netloc(netloc: str) -> str:
+    """Strip a leading `www.`, except on the hosts that only exist WITH it.
+
+    Both directions matter: the www form must survive normalisation (the feeds
+    hand over www links) AND an apex form arriving from somewhere else — a
+    Google News resolve, a hand-typed url, a row written before this existed —
+    must be lifted to www, or the two spellings would be two rows of which one
+    is unfetchable. Only the exact apex and its www form are affected; a real
+    subdomain (news.rivieramm.com) is left alone, as everywhere else in here.
+    """
+    if netloc.startswith("www."):
+        apex = netloc[4:]
+        return netloc if apex in WWW_ONLY_HOSTS else apex
+    if netloc in WWW_ONLY_HOSTS:
+        return f"www.{netloc}"
+    return netloc
+
 
 def _host_matches(netloc: str, host: str) -> bool:
     return netloc == host or netloc.endswith("." + host)
@@ -136,15 +188,14 @@ def normalize_url(url: str) -> str:
     Removes in-page fragments, tracking params, AMP mirrors and 'www.' so the
     same article reached through different links is ONE row — and therefore one
     translation, not one per link variant. A hash-route fragment that
-    identifies the page is kept (see _route_fragment).
+    identifies the page is kept (see _route_fragment), and the five hosts that
+    only answer on www keep (or regain) the prefix (see WWW_ONLY_HOSTS).
     """
     try:
         p = urlparse(url)
     except ValueError:
         return url
-    netloc = p.netloc.lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
+    netloc = _canonical_netloc(p.netloc.lower())
     path = _deamp_path(p.path)
     if any(_host_matches(netloc, h) for h in _DROP_QUERY_ON_ARTICLE_PATH) and _ARTICLE_PATH.search(path):
         query: list[tuple[str, str]] = []
