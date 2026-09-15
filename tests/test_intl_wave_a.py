@@ -79,7 +79,11 @@ def test_every_wave_5a_gnews_domain_is_still_registered():
         f"dropped from ENGLISH_NO_RSS_DOMAINS: {missing} — these outlets would "
         "stop being queried with no error anywhere"
     )
-    assert len(set(WAVE_5A_GNEWS)) == 21
+    # NOT `len(set(WAVE_5A_GNEWS)) == 21`: that only measured this file's own
+    # literal and stayed green while the registry emptied. Assert against the
+    # live roster instead -- the wave's 21 domains must all still be in it.
+    assert set(WAVE_5A_GNEWS) & set(ENGLISH_NO_RSS_DOMAINS) == set(WAVE_5A_GNEWS)
+    assert len(set(WAVE_5A_GNEWS)) == len(WAVE_5A_GNEWS), "duplicate in the wave roster"
 
 
 def test_wave_5a_rss_outlets_keep_their_feeds():

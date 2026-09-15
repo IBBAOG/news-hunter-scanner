@@ -1716,7 +1716,7 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
-    # --- Wave 5D (2026-09-14): the 13 RSS outlets registered in RSS_FEEDS
+    # Wave 5D roster (2026-09-14): the RSS outlets registered in RSS_FEEDS
     #     above. Apex AND www forms, per the invariant at the top of this set;
     #     the five subdomain-only outlets (e.vnexpress.net,
     #     timesofindia.indiatimes.com, economictimes.indiatimes.com,
@@ -1748,9 +1748,11 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # --- Wave 5E (2026-09-14): the eleven RSS registrations of the O&G /
-    # refining / shipping trade-press wave. Apex AND www for each, per the
-    # invariant above; without these the outlets are classified as NATIONAL.
+    # Wave 5E roster (2026-09-14): the RSS registrations of the O&G / refining /
+    # shipping trade-press wave -- eleven at the wave, thirteen after the
+    # post-merge promotions of intellinews and globalenergynetwork. Apex AND www
+    # for each, per the invariant above; without these the outlets are
+    # classified as NATIONAL.
     "lngindustry.com", "www.lngindustry.com",                   # LNG Industry
     "worldpipelines.com", "www.worldpipelines.com",             # World Pipelines
     "tanksterminals.com", "www.tanksterminals.com",             # Tanks and Terminals
@@ -3737,7 +3739,7 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # ~3.3x the measurement and still a third of COLLECT_DEADLINE, and it costs
     # nothing on a normal day: the budget is a ceiling, not a delay.
     "irishtimes.com": 8.0,
-    # --- Wave 5B (2026-09-14): NO override needed for the rest, measured not
+    # Wave 5B roster (2026-09-14): NO override needed for the rest, measured not
     #     assumed. The slowest feed this wave registered is The Irish Times
     #     business feed at fetch=2.42s (see above); every other registered feed
     #     came back in 0.05-0.98s (afr 0.05 / 0.15s, lemonde 0.08s, investing
@@ -3778,7 +3780,7 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # --- Wave 5E (2026-09-14): the first two entries this dict has ever had.
+    # Wave 5E roster (2026-09-14): the first two entries this dict has ever had.
     # Both are 2026-08-18 timeout casualties, re-measured on the runner.
     # US EIA -- Today in Energy. Registered in RSS_FEEDS above (items=15 fresh=2
     # pass=2 over 7d) and it needs this budget or it silently returns 0 items

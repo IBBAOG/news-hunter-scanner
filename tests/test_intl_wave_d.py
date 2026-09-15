@@ -136,16 +136,35 @@ def test_wave_5d_rejects_stay_unregistered():
 def test_the_two_economic_times_surfaces_do_not_collide():
     """ET EnergyWorld (2026-08-18) and the ET oil & gas section feed (5D).
 
-    Different hosts, different desks. The apex registration must not have
-    displaced the subdomain one, and both must be tagged international.
+    Different hosts, different desks, one publisher. Rewritten 2026-09-14: the
+    old version compared two dict values read out of the same dict and asserted
+    they differed, which is true by construction of the literal and says nothing
+    about the pipeline. What actually matters is the ITEM path -- an ET
+    EnergyWorld link and an economictimes link must keep their own
+    source_domain, because that is the key SOURCE_NAMES, the per-domain caps and
+    the dashboard's grouping all use. Collapse them and one desk's articles are
+    attributed to the other.
     """
-    assert "energy.economictimes.indiatimes.com" in RSS_FEEDS
-    assert "economictimes.indiatimes.com" in RSS_FEEDS
-    assert RSS_FEEDS["energy.economictimes.indiatimes.com"] != RSS_FEEDS[
-        "economictimes.indiatimes.com"
-    ]
-    for host in ("energy.economictimes.indiatimes.com", "economictimes.indiatimes.com"):
-        assert host in INTERNATIONAL_RSS_DOMAINS
+    energyworld = _entry_to_item(
+        {"link": "https://energy.economictimes.indiatimes.com/news/oil-and-gas/"
+                 "ongc-raises-output-target/134200001",
+         "title": "ONGC raises output target", "summary": "body"},
+        "energy.economictimes.indiatimes.com",
+    )
+    main = _entry_to_item(
+        {"link": "https://economictimes.indiatimes.com/industry/energy/oil-gas/"
+                 "centre-proposes-easier-norms/articleshow/134247112.cms",
+         "title": "Centre proposes easier norms", "summary": "body"},
+        "economictimes.indiatimes.com",
+    )
+    assert energyworld.source_domain == "energy.economictimes.indiatimes.com"
+    assert main.source_domain == "economictimes.indiatimes.com"
+    assert energyworld.source_domain != main.source_domain
+    # Both are international, on the same mechanism.
+    assert energyworld.source_lang == "en" and main.source_lang == "en"
+    # And both registrations are still live, on their own feeds.
+    assert RSS_FEEDS["energy.economictimes.indiatimes.com"]
+    assert RSS_FEEDS["economictimes.indiatimes.com"]
 
 
 def test_a_www_wave_5d_item_resolves_to_the_apex_and_is_tagged_en():
