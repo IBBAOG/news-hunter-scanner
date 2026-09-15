@@ -903,19 +903,34 @@ another company from the Cosan business.
 - `news_hunter/keyword_senses.py` holds `KEYWORD_SENSE_EXCLUSIONS`
   (keyword -> off-topic senses + on-topic context + protected occurrences). Only
   `compass` has an entry: senses `automotive` and `other_entity`, company context
-  (Cosan, Comgás, PASS3, biometano, gas release, "empresa de gás", "da Edge"...)
-  that always wins, and `Nefte Compass` (Energy Intelligence) protected.
+  (Cosan, Comgás, PASS3, GNV, biometano, gas release, "empresa de gás", the state
+  gas distributors, "da Edge"...) that always wins, and `Nefte Compass` (Energy
+  Intelligence) protected.
 - `filter.matches_keywords` applies it to every hit, so every stage (slug, title,
-  summary, lede rescue, Stage 4 and its fast-mode fallback) honours it. A hit is
-  dropped only when the keyword occurs and every occurrence reads in an excluded
-  sense; other keywords on the same article are untouched. Title and summary are
-  judged together (`sense_context`).
-- `scripts/purge_keyword_sense_exclusions.py` (+ `purge_keyword_sense_exclusions.yml`,
-  dry-run by default, JSON backup artifact kept 90 days) applies the same rule to
-  stored rows: strip the label, delete the row when no keyword is left, keep
-  anything without positive evidence. `--refetch-missing-evidence` re-fetches
-  rows whose stored text has no whole-word occurrence and strips only when the
-  fetched article proves it; a failed or thin fetch keeps the row.
+  summary, lede rescue, Stage 4 and its fast-mode fallback) honours it. Title and
+  summary are judged together (`sense_context`); other keywords on the same
+  article are untouched. A hit is dropped only when every occurrence is
+  explained by an excluded sense:
+  - an occurrence pattern (`Jeep Compass`, `Renegade, Compass e Commander`,
+    `Vinci Compass`, `Compass Group`) explains only the occurrence it touches, so
+    "Vinci Compass e Compass divulgam balanço hoje" keeps the label;
+  - document vocabulary (`Jeep`, `SUV`, `km/l`; `psilocibina`, `mercado
+    imobiliário`, `$0,02`) explains every occurrence in the text. That is the one
+    spill-over: a bare `Compass` in a text that says `SUV` is read as the car.
+  Vocabulary is kept narrow because Compass sells natural gas for vehicles:
+  `montadora`, `Stellantis`, `veículos` + `rodovias` and a bare model year
+  (`Compass 2026: guidance...`) are deliberately NOT evidence.
+- `scripts/purge_keyword_sense_exclusions.py` + `purge_keyword_sense_exclusions.yml`
+  apply the same rule to stored rows: strip the label, delete the row when no
+  keyword is left, keep anything without positive evidence.
+  `--refetch-missing-evidence` re-fetches rows whose stored text has no whole-word
+  occurrence (per-domain throttle, cap, deadline) and strips only when the fetched
+  article proves it; a failed fetch or parse, or a thin body, keeps the row. The
+  workflow runs three steps: plan (`--plan-out`: JSON backup of every affected
+  row + the plan, no writes), upload (artifact, 90 days, fails when files are
+  missing), and only with `apply=true` apply (`--apply-plan`: backup checksum
+  verified, each write guarded on url + the planned array). Applying refuses a
+  keyword whose live `match_type` is not `exact`.
 - The scan cannot re-add a purged label: `supabase_sync` writes
   `matched_keywords` straight from the fresh match (no write-once or union for
   that column). The one-off `dedupe_canonical_urls.py` does union labels across

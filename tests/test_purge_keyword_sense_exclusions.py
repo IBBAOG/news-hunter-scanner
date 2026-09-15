@@ -13,6 +13,7 @@ import csv
 import glob
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -273,8 +274,8 @@ def test_apply_backs_up_first_then_mutates_guarded_on_the_read_array(tmp_path):
     seen_backup_before_mutation = []
 
     def on_mutation(_q):
-        files = glob.glob(str(backup_dir / "*.json"))
-        seen_backup_before_mutation.append(bool(files))
+        files = glob.glob(str(backup_dir / "*backup*.json"))
+        seen_backup_before_mutation.append(bool(files) and os.path.exists(backup_dir / "plan.json"))
 
     client = _Client(changed_urls={OTHER_MIXED["url"]}, on_mutation=on_mutation)
     page = _page(LONG_BODY + " em compasso de espera")
@@ -343,8 +344,8 @@ def test_pg_array_literal_quotes_every_element():
     assert P.pg_array_literal(["Compass", 'a "b"', "c,d"]) == '{"Compass","a \\"b\\"","c,d"}'
 
 
-def test_label_variants_cover_case_and_configured_forms():
-    assert set(P.label_variants(["compass"], ["Compass", "PETROBRAS"])) == {"compass", "COMPASS", "Compass"}
+def test_label_variants_cover_case_forms():
+    assert set(P.label_variants(["Compass"])) == {"compass", "COMPASS", "Compass"}
 
 
 def test_throttled_refetcher_spaces_same_domain_calls_and_caps():
@@ -396,3 +397,167 @@ def test_scanner_upsert_writes_the_fresh_match_and_never_reads_stored_keywords()
     assert upserts and upserts[0].payload[0]["matched_keywords"] == ["gás"]
     selects = [q.cols or "" for q in client.calls if q.op == "select"]
     assert selects and not any("matched_keywords" in c for c in selects)
+
+
+# ---------------------------------------------------------------------------
+# Plan -> upload -> apply (QA 2026-09-15: the backup is durable before any write)
+# ---------------------------------------------------------------------------
+
+def _exact():
+    return {"exact_keywords": {"Compass"}}
+
+
+def _not_exact():
+    return {"exact_keywords": {"Petrobras"}}
+
+
+def _plan(tmp_path, rows=None):
+    client = _Client()
+    plan_path = str(tmp_path / "out" / "plan.json")
+    decisions, outcomes, backup = P.run(
+        rows if rows is not None else ROWS, keywords=["compass"], refetch=None, apply=False,
+        sink=_Sink(client), csv_path=str(tmp_path / "out" / "decisions.csv"),
+        plan_out=plan_path, now=datetime(2026, 9, 15, 12, tzinfo=timezone.utc),
+    )
+    return client, plan_path, backup, decisions, outcomes
+
+
+def _load(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_plan_out_writes_backup_and_plan_and_never_writes_the_database(tmp_path):
+    client, plan_path, backup, _d, outcomes = _plan(tmp_path)
+    assert client.calls == [] and outcomes == {}
+    plan = _load(plan_path)
+    assert plan["keywords"] == ["compass"] and plan["backup_file"] == os.path.basename(backup)
+    assert plan["backup_sha256"] == P._sha256(backup)
+    muts = {m["url"]: m for m in plan["mutations"]}
+    assert set(muts) == {CAR["url"], OTHER_MIXED["url"]}
+    assert muts[OTHER_MIXED["url"]]["matched_keywords"] == ["Compass", "pipeline"]
+    assert muts[OTHER_MIXED["url"]]["new_keywords"] == ["pipeline"]
+    saved = _load(backup)
+    assert {e["row"]["url"] for e in saved} == set(muts)
+    assert all("snippet" in e["row"] and "found_at" in e["row"] for e in saved)
+
+
+def test_plan_with_nothing_to_mutate_still_writes_both_files(tmp_path):
+    _c, plan_path, backup, _d, _o = _plan(tmp_path, rows=[COMPANY, NEFTE])
+    assert _load(plan_path)["mutations"] == [] and _load(backup) == []
+
+
+def test_apply_plan_mutates_only_the_plan_with_the_array_guard(tmp_path):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+    client = _Client(changed_urls={OTHER_MIXED["url"]})
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 0
+    muts = {dict((c, v) for c, op, v in q.filters if op == "eq")["url"]: q for q in client.calls}
+    assert set(muts) == {CAR["url"], OTHER_MIXED["url"]}
+    assert muts[CAR["url"]].op == "delete"
+    assert ("matched_keywords", "eq", '{"Compass"}') in muts[CAR["url"]].filters
+    assert muts[OTHER_MIXED["url"]].payload == {"matched_keywords": ["pipeline"]}
+    assert ("matched_keywords", "eq", '{"Compass","pipeline"}') in muts[OTHER_MIXED["url"]].filters
+
+
+def test_apply_plan_refuses_a_missing_or_altered_backup(tmp_path):
+    _c, plan_path, backup, _d, _o = _plan(tmp_path)
+    with open(backup, "a", encoding="utf-8") as fh:
+        fh.write(" ")
+    client = _Client()
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 2
+    os.remove(backup)
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_exact) == 2
+    assert client.calls == []
+
+
+def test_apply_plan_refuses_when_the_keyword_is_not_exact(tmp_path):
+    _c, plan_path, _b, _d, _o = _plan(tmp_path)
+    client = _Client()
+    assert P._main_apply_plan(plan_path, sink=_Sink(client), get_config=_not_exact) == 2
+    assert client.calls == []
+
+
+def test_main_apply_refuses_when_the_keyword_is_not_exact(tmp_path, monkeypatch):
+    from news_hunter import store, supabase_sync
+
+    client = _Client(rows=[CAR])
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "service-key")
+    monkeypatch.setattr(supabase_sync, "get_sink", lambda: _Sink(client))
+    monkeypatch.setattr(store, "get_config", _not_exact)
+    assert P.main(["--apply", "--output-dir", str(tmp_path / "o")]) == 2
+    assert client.calls == []
+    monkeypatch.setattr(store, "get_config", _exact)
+    assert P.main(["--apply", "--output-dir", str(tmp_path / "o")]) == 0
+    assert [q.op for q in client.calls] == ["select", "delete"]
+
+
+def test_keywords_not_exact_is_case_insensitive():
+    assert P.keywords_not_exact(["compass"], lambda: {"exact_keywords": {"COMPASS"}}) == []
+    assert P.keywords_not_exact(["compass"], lambda: {"exact_keywords": set()}) == ["compass"]
+
+
+def test_workflow_uploads_the_plan_before_the_apply_step():
+    import pytest
+
+    yaml = pytest.importorskip("yaml")
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        ".github", "workflows", "purge_keyword_sense_exclusions.yml")
+    wf = _load_yaml(yaml, path)
+    assert wf["permissions"] == {"contents": "read"}
+    job = wf["jobs"]["purge"]
+    steps = job["steps"]
+    runs = [s.get("run", "") for s in steps]
+    plan_i = next(i for i, r in enumerate(runs) if "--plan-out" in r)
+    upload_i = next(i for i, s in enumerate(steps) if "upload-artifact" in s.get("uses", ""))
+    apply_i = next(i for i, r in enumerate(runs) if "--apply-plan" in r)
+    assert plan_i < upload_i < apply_i
+    assert all(not re.search(r"--apply\b(?!-plan)", r) for r in runs)
+    upload = steps[upload_i]
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert upload["with"]["retention-days"] == 90 and "if" not in upload
+    assert "inputs.apply" in steps[apply_i]["if"] and "if" not in steps[plan_i]
+    deadline = float(re.search(r"--refetch-deadline-minutes (\d+)", runs[plan_i]).group(1))
+    assert job["timeout-minutes"] >= deadline + 30
+
+
+def _load_yaml(yaml, path):
+    with open(path, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+# ---------------------------------------------------------------------------
+# Refetch robustness
+# ---------------------------------------------------------------------------
+
+def test_parse_error_on_a_fetched_page_is_a_failed_fetch(monkeypatch):
+    import bs4
+
+    from news_hunter import _clipinator_shim
+
+    monkeypatch.setattr(_clipinator_shim, "fetch_html", lambda url, timeout=15: "<html>" + "x" * 900)
+
+    def boom(*_a, **_k):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(bs4, "BeautifulSoup", boom)
+    page = P.fetch_article_page("https://example.com/a")
+    assert not page.ok and "parse error" in page.reason
+    assert P.decide_row(NOISE, refetch=lambda r: page).action == P.KEEP_FETCH_FAILED
+
+
+def test_throttled_refetcher_stops_starting_fetches_after_the_deadline():
+    t = [0.0]
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        t[0] += 50.0
+        return _page(LONG_BODY)
+
+    r = P.ThrottledRefetcher(fetch, per_domain_s=0, cap=100, deadline_s=120,
+                             sleep=lambda s: None, clock=lambda: t[0])
+    last = None
+    for i in range(5):
+        last = r({"url": f"https://e{i}.com/a"})
+    assert len(fetched) == 3 and not last.ok and "deadline" in last.reason

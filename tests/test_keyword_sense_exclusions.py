@@ -113,7 +113,20 @@ COMPANY_ROWS = [
     # Titles alone, no context word: no evidence either way -> kept.
     ("Lucro da Compass no 2º trimestre recua 19%", ""),
     ("Compass contrata BTG para atuar como formador de mercado", ""),
+    ("Compass lucra R$ 287,2 milhões entre abril e junho, queda de 19%", ""),
     ("Nefte Compass Market Trends: Sep. 9, 2026", "Current market highlights in charts."),
+    # QA 2026-09-15 (synthetic): Compass sells natural gas FOR vehicles.
+    ("Compass leva GNV a veículos pesados em rodovias de São Paulo", ""),
+    ("Compass quer GNV em 100 mil carros de motoristas de aplicativo", ""),
+    ("Compass fecha acordo com montadora para caminhões movidos a GNV", ""),
+    ("Compass vai fornecer gás para fábrica da Stellantis em Betim", ""),
+    ("Compass conclui compra da MSGás; carros a GNV crescem em rodovias do MS", ""),
+    # QA 2026-09-15 (synthetic): a year or amount right after the name.
+    ("Compass 2026: guidance prevê Ebitda de R$ 6 bilhões", ""),
+    ("Compass 2025 results beat estimates as gas volumes grow", ""),
+    ("Compass 1.3 bi em debêntures", ""),
+    # QA 2026-09-15 (synthetic): dollar amounts that are not a US EPS template.
+    ("Brazil's Compass prices IPO at 28 reais per share, raising $560 million", ""),
 ]
 
 
@@ -122,10 +135,53 @@ def test_company_rows_keep_the_label(title, snippet):
     assert KW in _match(f"{title} \n {snippet}")
 
 
+# Each removed signal on its own, with no company context to hide it (so reverting
+# that one signal turns exactly these red).
+@pytest.mark.parametrize("text", [
+    # weak pair terms ('veículos' + 'rodovias', 'carros' + 'motoristas')
+    "Compass leva gás a veículos pesados em rodovias de São Paulo",
+    "Compass amplia oferta para carros de motoristas de aplicativo",
+    # 'montadora' / 'Stellantis'
+    "Compass fecha acordo com montadora para frota de caminhões",
+    "Compass vai fornecer gás para fábrica da Stellantis em Betim",
+    # bare model year / bare '1.3'
+    "Compass 2026: guidance prevê Ebitda de R$ 6 bilhões",
+    "Compass 1.3 bi em debêntures",
+])
+def test_removed_signals_are_not_evidence(text):
+    v = evaluate_keyword_sense(text, KW, exact=True)
+    assert v.status == "no_evidence" and _match(text, keywords=[KW]) == [KW]
+
+
+@pytest.mark.parametrize("context", [
+    "GNV", "MSGás", "SCGás", "Copergás", "Gasmig", "Bahiagás", "Potigás", "Sergás",
+])
+def test_gas_for_vehicles_context_beats_car_vocabulary(context):
+    # Synthetic: 'SUV' alone would be car evidence; the gas context wins.
+    text = f"Compass e {context}: frota de SUVs de locadoras troca de combustível"
+    assert _match(text, keywords=[KW]) == [KW]
+
+
+def test_com_gas_phrase_is_not_comgas_context():
+    # 'com gás' ('with gas') is an ordinary phrase, not the distributor Comgás.
+    assert _match("Jeep Compass roda com gás e etanol", keywords=[KW]) == []
+    assert _match("Jeep Compass roda com Comgás", keywords=[KW]) == [KW]
+
+
+def test_accented_distributor_names_do_not_match_ordinary_words():
+    # 'algas' (seaweed) and 'cegas' (blind) must not read as Algás / Cegás.
+    assert _match("Compass Point cita algas e pessoas cegas", keywords=[KW]) == []
+    assert _match("Compass Point, Algás e Cegás", keywords=[KW]) == [KW]
+
+
+def test_used_car_listing_year_is_still_car_evidence():
+    assert _match("Vendo Compass 2021/2022 blindado, único dono") == []
+
+
 def test_company_context_beats_automotive_vocabulary():
-    # valor.globo.com, plus a synthetic 'montadora' that alone would be car evidence.
+    # valor.globo.com, plus a synthetic 'SUV' that alone would be car evidence.
     text = ("Edge, da Compass, vai fornecer GNL e biometano para frota de caminhões "
-            "pesados da JAC Motors, montadora chinesa")
+            "pesados e SUVs da JAC Motors")
     assert _match(text) == [KW]
 
 
@@ -160,12 +216,46 @@ def test_other_entity_rows_are_dropped(title):
     assert _match(title) == []
 
 
-def test_bare_occurrence_reads_as_the_named_homonym():
-    # Title names Compass Pathways; the lede says just "a Compass".
-    text = ("Por que a ação da Compass Pathways está subindo hoje? \n "
+def test_us_eps_dollar_template_is_other_entity_evidence():
+    # br.investing.com, real rows (Compass Inc. / Compass Minerals templates).
+    assert _match("Lucro da Compass superou projeções por $0,02; receita supera estimativas") == []
+    assert _match("Lucro da Compass veio abaixo das projeções por $0,08") == []
+
+
+@pytest.mark.parametrize("amount", [
+    "levanta $560 million", "tem preço-alvo de US$ 15", "paga R$ 0,57 por ação",
+    "paga R $ 0,57 por ação", "paga R $0,57 por ação", "vale US $0,57", "vê bitcoin a $62 mil",
+])
+def test_other_dollar_amounts_are_not_evidence(amount):
+    assert _match(f"Compass {amount}") == [KW]
+
+
+def test_dollar_in_the_summary_does_not_drop_a_title_hit():
+    assert _match("Compass sobe 5% na B3", context="bitcoin opera a $62 mil") == [KW]
+    it = _item("Compass sobe 5% na B3", "bitcoin opera a $62 mil")
+    assert _keep_candidate(it, KEYWORDS, 24, EXACT) == [KW]
+
+
+def test_homonym_pattern_explains_only_its_own_occurrence():
+    # QA 2026-09-15 (synthetic): the bare second 'Compass' is not explained.
+    text = "Agenda de resultados: Vinci Compass e Compass divulgam balanço hoje"
+    v = evaluate_keyword_sense(text, KW, exact=True)
+    assert v.status == "no_evidence" and v.occurrences == 2 and v.unexplained == 1
+    assert v.evidence == ("other_entity: Vinci Compass",)
+    assert _match(text) == [KW]
+    # Same shape: title names Compass Pathways, the lede says just "a Compass".
+    lede = ("Por que a ação da Compass Pathways está subindo hoje? \n "
             "A Compass informou dados positivos do estudo de fase 3.")
+    assert _match(lede) == [KW]
+
+
+def test_document_vocabulary_is_the_one_spill_over():
+    # Vocabulary explains every occurrence, bare ones included.
+    text = ("Por que a ação da Compass Pathways está subindo hoje? \n "
+            "A Compass informou que o FDA aceitou o pedido.")
     v = evaluate_keyword_sense(text, KW, exact=True)
     assert v.excluded and v.occurrences == 2 and v.senses == ("other_entity",)
+    assert _match("Compass lidera vendas entre os SUVs médios") == []
 
 
 # ---------------------------------------------------------------------------

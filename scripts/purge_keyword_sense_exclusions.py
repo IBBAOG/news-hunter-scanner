@@ -7,7 +7,7 @@ again inside its scan window, and an article whose only keyword is now excluded
 is not written at all. This job re-applies the SAME rule (imported, never
 copied) to the stored rows.
 
-WHAT IT DOES, per row tagged with a keyword that has a SenseExclusion:
+WHAT IT DECIDES, per row tagged with a keyword that has a SenseExclusion:
 
   * Judge the keyword on the stored text (title, title_original, title_en,
     snippet, snippet_en) with WHOLE-WORD occurrences.
@@ -15,40 +15,53 @@ WHAT IT DOES, per row tagged with a keyword that has a SenseExclusion:
         ... and the array becomes empty -> delete the row    (delete)
       - company context found           -> keep_company
       - protected occurrence            -> keep_<sense>      (keep_nefte_compass)
-      - whole word, no sense evidence   -> keep_no_evidence
+      - an occurrence left unexplained  -> keep_no_evidence
   * No whole-word occurrence in the stored text (the hit came from the article
     body under substring matching: 'compasso', 'descompasso', 'compassivo'):
       - without --refetch-missing-evidence -> keep_no_evidence
       - with it, re-fetch the article with the scanner's own fetch_html +
-        extractor (throttled per domain) and strip the label only when the
-        fetched page has no whole-word occurrence, or only excluded-sense ones
-        (strip_label_no_wholeword / delete_no_wholeword). A failed fetch, a page
-        that is not the stored article, or a body too thin to prove absence ->
-        keep_fetch_failed.
+        extractor (throttled per domain, capped, deadline) and strip the label
+        only when the fetched page has no whole-word occurrence, or only
+        excluded-sense ones (strip_label_no_wholeword / delete_no_wholeword). A
+        failed fetch or parse, a page that is not the stored article, or a body
+        too thin to prove absence -> keep_fetch_failed.
 
-SAFETY. Dry-run by default. With --apply: every affected full row is written to
-a JSON backup FIRST, then each mutation is guarded on the matched_keywords value
-that was read (a row the scanner rewrote meanwhile is skipped and counted), then
-a summary goes to stdout and $GITHUB_STEP_SUMMARY.
+MODES (never more than one):
+
+  (default)            dry-run: decisions + CSV + step summary, no files that
+                       could be mistaken for a plan, no writes.
+  --plan-out PATH      as the dry-run, plus a JSON BACKUP of every affected full
+                       row and a PLAN (the mutations, each with the array it was
+                       decided on). Still no database writes.
+  --apply-plan PATH    read a plan, check its backup is present and intact,
+                       mutate. The workflow uploads plan + backup as an artifact
+                       BEFORE this step runs, so the backup is durable first.
+  --apply              local one-shot: plan (backup written first), then mutate.
+
+Every mutation is guarded on url AND the matched_keywords array the decision was
+made on: a row the scanner rewrote meanwhile is skipped and counted as 'changed'.
+--apply and --apply-plan abort unless each target keyword is match_type 'exact'
+in the live keyword config: under substring matching the next scan would re-tag
+a 'compasso' article still inside the 24 h window.
 
 WHY THE NEXT SCAN CANNOT PUT THE LABEL BACK. supabase_sync writes
 matched_keywords straight from the fresh match on every upsert; there is no
 write-once / union for that column. The fresh match runs through the same sense
 rule, so an excluded label is never re-computed, and an article whose only hit
-is excluded is not upserted at all. Run this AFTER the 'Compass' match_type is
-'exact' in the database (done 2026-09-15), otherwise a substring 'compasso' hit
-still inside the 24 h scan window would be re-tagged.
+is excluded is not upserted at all.
 
 Usage:
     python -m scripts.purge_keyword_sense_exclusions                       # dry-run, last 3 days
-    python -m scripts.purge_keyword_sense_exclusions --all-history --refetch-missing-evidence
-    python -m scripts.purge_keyword_sense_exclusions --apply --days 3
+    python -m scripts.purge_keyword_sense_exclusions --all-history --refetch-missing-evidence \\
+        --plan-out purge_output/plan.json
+    python -m scripts.purge_keyword_sense_exclusions --apply-plan purge_output/plan.json
     python -m scripts.purge_keyword_sense_exclusions --input-json rows.json --csv out.csv   # offline
 """
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import logging
 import os
@@ -56,13 +69,14 @@ import re
 import sys
 import time
 from collections import Counter, OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterable
 from urllib.parse import urlparse
 
 from news_hunter.keyword_senses import (
     KEYWORD_SENSE_EXCLUSIONS,
+    SenseVerdict,
     evaluate_keyword_sense,
     rule_for,
 )
@@ -70,6 +84,7 @@ from news_hunter.keyword_senses import (
 log = logging.getLogger("purge_keyword_sense_exclusions")
 
 PAGE = 500
+PLAN_VERSION = 1
 TEXT_FIELDS = ("title", "title_original", "title_en", "snippet", "snippet_en")
 CSV_COLUMNS = ("url", "domain", "title", "matched_keywords", "action", "reason")
 
@@ -164,6 +179,19 @@ def _keep_action_for(status: str, senses: tuple[str, ...]) -> str:
     return KEEP_NO_EVIDENCE
 
 
+def _detail(verdict: SenseVerdict, label: str) -> str:
+    """Human reason for a verdict, including partial evidence on a keep."""
+    evidence = "; ".join(verdict.evidence)
+    if verdict.status == "no_evidence":
+        if evidence:
+            return (
+                f"{verdict.unexplained} of {verdict.occurrences} whole-word '{label}' "
+                f"without sense evidence ({evidence})"
+            )
+        return f"whole-word '{label}', no sense evidence"
+    return evidence
+
+
 def _judge_refetched(row: dict, label: str, page: FetchedPage) -> tuple[bool, str, str]:
     """(remove?, keep_action_if_not, reason) for a row with no stored whole word."""
     if not page.ok:
@@ -189,6 +217,7 @@ def _judge_refetched(row: dict, label: str, page: FetchedPage) -> tuple[bool, st
     # the stored text, exactly like the scanner judges title + lede.
     body_doc = f"{stored_document(row)} \n {page.page_title} \n {page.article_text}"
     verdict = evaluate_keyword_sense(body_doc, label, exact=True)
+    where = "refetched body: "
     if verdict.status == "no_occurrence":
         # The whole word sits outside the extracted paragraphs: a list of cars,
         # an asset table, a market-wrap bullet, a related-links rail. Absence is
@@ -197,19 +226,11 @@ def _judge_refetched(row: dict, label: str, page: FetchedPage) -> tuple[bool, st
             f"{stored_document(row)} \n {page.page_title} \n "
             f"{_occurrence_windows(page.full_text, label)}"
         )
-        near = evaluate_keyword_sense(near_doc, label, exact=True)
+        verdict = evaluate_keyword_sense(near_doc, label, exact=True)
         where = "refetched page, outside the extracted paragraphs: "
-        if near.excluded:
-            return True, "", where + "; ".join(near.evidence)
-        keep = _keep_action_for(near.status, near.senses)
-        return False, keep, where + (
-            "; ".join(near.evidence) or f"whole-word '{label}', no sense evidence"
-        )
     if verdict.excluded:
-        return True, "", "refetched body: " + "; ".join(verdict.evidence)
-    keep = _keep_action_for(verdict.status, verdict.senses)
-    detail = "; ".join(verdict.evidence) or f"whole-word '{label}', no sense evidence"
-    return False, keep, "refetched body: " + detail
+        return True, "", where + _detail(verdict, label)
+    return False, _keep_action_for(verdict.status, verdict.senses), where + _detail(verdict, label)
 
 
 def decide_row(
@@ -238,14 +259,11 @@ def decide_row(
         verdict = evaluate_keyword_sense(doc, label, exact=True)
         if verdict.excluded:
             removed.append(label)
-            reasons.append("stored text: " + "; ".join(verdict.evidence))
+            reasons.append("stored text: " + _detail(verdict, label))
             continue
         if verdict.status != "no_occurrence":
             keep_actions.append(_keep_action_for(verdict.status, verdict.senses))
-            reasons.append(
-                "stored text: " + ("; ".join(verdict.evidence)
-                                   or f"whole-word '{label}', no sense evidence")
-            )
+            reasons.append("stored text: " + _detail(verdict, label))
             continue
         if refetch is None:
             pending = True
@@ -290,6 +308,7 @@ def decide_row(
 # ---------------------------------------------------------------------------
 
 def fetch_article_page(url: str, *, timeout: int = 15) -> FetchedPage:
+    """Fetch and parse one article. Any fetch OR parse error -> ok=False."""
     from bs4 import BeautifulSoup
 
     from news_hunter._clipinator_shim import (
@@ -306,35 +325,38 @@ def fetch_article_page(url: str, *, timeout: int = 15) -> FetchedPage:
         return FetchedPage(False, f"{type(e).__name__}: {str(e)[:120]}")
     if not html or len(html) < 500:
         return FetchedPage(False, f"empty page ({len(html or '')} bytes)")
-    domain = urlparse(url).netloc.lower()
-    paragraphs: list[str] = []
-    if resolve_extractor_domain(domain) is not None:
-        try:
-            _t, paragraphs = _extract(html, domain)
-        except Exception as e:  # noqa: BLE001
-            log.debug("extractor failed on %s: %s", url, e)
-    soup = BeautifulSoup(html, "lxml")
-    if not paragraphs:
-        paragraphs = clean_paragraphs(_json_ld_article_body(soup))
-    titles: list[str] = []
-    for attrs in ({"property": "og:title"}, {"name": "twitter:title"}):
-        tag = soup.find("meta", attrs=attrs)
-        if tag and tag.get("content"):
-            titles.append(tag["content"].strip())
-    if soup.title and soup.title.string:
-        titles.append(soup.title.string.strip())
-    titles.extend(h.get_text(" ", strip=True) for h in soup.find_all("h1")[:3])
-    desc = soup.find("meta", attrs={"property": "og:description"}) or soup.find(
-        "meta", attrs={"name": "description"}
-    )
-    for tag in soup(["script", "style", "noscript", "template", "svg"]):
-        tag.decompose()
-    if not paragraphs:
-        paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
-        paragraphs = [p for p in paragraphs if len(p) > 40]
-    full_text = soup.get_text(" ", strip=True)
-    if desc is not None and desc.get("content"):
-        full_text = f"{desc['content']} \n {full_text}"
+    try:
+        domain = urlparse(url).netloc.lower()
+        paragraphs: list[str] = []
+        if resolve_extractor_domain(domain) is not None:
+            try:
+                _t, paragraphs = _extract(html, domain)
+            except Exception as e:  # noqa: BLE001
+                log.debug("extractor failed on %s: %s", url, e)
+        soup = BeautifulSoup(html, "lxml")
+        if not paragraphs:
+            paragraphs = clean_paragraphs(_json_ld_article_body(soup))
+        titles: list[str] = []
+        for attrs in ({"property": "og:title"}, {"name": "twitter:title"}):
+            tag = soup.find("meta", attrs=attrs)
+            if tag and tag.get("content"):
+                titles.append(tag["content"].strip())
+        if soup.title and soup.title.string:
+            titles.append(soup.title.string.strip())
+        titles.extend(h.get_text(" ", strip=True) for h in soup.find_all("h1")[:3])
+        desc = soup.find("meta", attrs={"property": "og:description"}) or soup.find(
+            "meta", attrs={"name": "description"}
+        )
+        for tag in soup(["script", "style", "noscript", "template", "svg"]):
+            tag.decompose()
+        if not paragraphs:
+            paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
+            paragraphs = [p for p in paragraphs if len(p) > 40]
+        full_text = soup.get_text(" ", strip=True)
+        if desc is not None and desc.get("content"):
+            full_text = f"{desc['content']} \n {full_text}"
+    except Exception as e:  # noqa: BLE001
+        return FetchedPage(False, f"parse error: {type(e).__name__}: {str(e)[:120]}")
     return FetchedPage(
         True,
         page_title=" | ".join(dict.fromkeys(t for t in titles if t)),
@@ -344,7 +366,13 @@ def fetch_article_page(url: str, *, timeout: int = 15) -> FetchedPage:
 
 
 class ThrottledRefetcher:
-    """Calls `fetch_page` at most once per `per_domain_s` per domain, `cap` total."""
+    """Calls `fetch_page` at most once per `per_domain_s` per domain.
+
+    Bounded twice: `cap` fetches in total, and no fetch STARTS after
+    `deadline_s` seconds from the first one (a slow outlet can hold a single
+    fetch for timeout x 4 through the impersonation retries). Past either bound
+    the row gets ok=False, i.e. keep_fetch_failed.
+    """
 
     def __init__(
         self,
@@ -352,23 +380,31 @@ class ThrottledRefetcher:
         *,
         per_domain_s: float = 3.0,
         cap: int = 400,
+        deadline_s: float | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.fetch_page = fetch_page
         self.per_domain_s = per_domain_s
         self.cap = cap
+        self.deadline_s = deadline_s
         self.sleep = sleep
         self.clock = clock
         self.calls = 0
+        self._started: float | None = None
         self._next: dict[str, float] = {}
 
     def __call__(self, row: dict) -> FetchedPage:
         url = row.get("url") or ""
         if self.calls >= self.cap:
             return FetchedPage(False, f"refetch cap of {self.cap} reached")
+        now = self.clock()
+        if self._started is None:
+            self._started = now
+        if self.deadline_s is not None and now - self._started >= self.deadline_s:
+            return FetchedPage(False, f"refetch deadline of {self.deadline_s / 60:.0f} min reached")
         domain = urlparse(url).netloc.lower()
-        wait = self._next.get(domain, 0.0) - self.clock()
+        wait = self._next.get(domain, 0.0) - now
         if wait > 0:
             self.sleep(wait)
         self.calls += 1
@@ -393,7 +429,7 @@ def domain_round_robin(rows: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Database access
+# Database access and guards
 # ---------------------------------------------------------------------------
 
 def pg_array_literal(values: Iterable[str]) -> str:
@@ -405,12 +441,10 @@ def pg_array_literal(values: Iterable[str]) -> str:
     return "{" + ",".join(items) + "}"
 
 
-def label_variants(keys: Iterable[str], configured: Iterable[str] = ()) -> list[str]:
-    keys = {k.lower() for k in keys}
+def label_variants(keys: Iterable[str]) -> list[str]:
     out: set[str] = set()
-    for k in keys:
+    for k in {k.lower() for k in keys}:
         out.update({k, k.upper(), k.capitalize(), k.title()})
-    out.update(c for c in configured if c and c.lower() in keys)
     return sorted(out)
 
 
@@ -432,6 +466,16 @@ def fetch_tagged_rows(sink, variants: list[str], since_iso: str | None) -> list[
         offset += PAGE
 
 
+def keywords_not_exact(keys: Iterable[str], get_config: Callable[[], dict] | None = None) -> list[str]:
+    """Target keywords whose live effective match_type is not 'exact'."""
+    if get_config is None:
+        from news_hunter.store import get_config as _live_config
+
+        get_config = _live_config
+    exact = {k.lower() for k in (get_config().get("exact_keywords") or ()) if k}
+    return sorted({k.lower() for k in keys} - exact)
+
+
 def apply_decision(sink, d: RowDecision) -> str:
     """Mutate one row, guarded on the array we read. 'ok' | 'changed' | 'failed'."""
     snapshot = pg_array_literal(d.matched_keywords)
@@ -448,6 +492,90 @@ def apply_decision(sink, d: RowDecision) -> str:
         log.warning("mutation failed on %s: %s", d.url, e)
         return "failed"
     return "ok" if (res.data or []) else "changed"
+
+
+def apply_decisions(sink, decisions: Iterable[RowDecision]) -> dict[str, str]:
+    outcomes = {d.url: apply_decision(sink, d) for d in decisions if d.mutates}
+    oc = Counter(outcomes.values())
+    log.info("mutations: %s", ", ".join(f"{k}={v}" for k, v in sorted(oc.items())) or "none")
+    return outcomes
+
+
+# ---------------------------------------------------------------------------
+# Plan + backup files
+# ---------------------------------------------------------------------------
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_plan(
+    plan_path: str,
+    decisions: list[RowDecision],
+    rows: list[dict],
+    *,
+    keywords: list[str],
+    scope: str,
+    now: datetime | None = None,
+) -> tuple[str, str]:
+    """Write the backup (full affected rows) and then the plan. Returns both paths.
+
+    Always writes both files, even with nothing to mutate, so an upload step
+    configured with if-no-files-found: error proves the planning step ran.
+    """
+    affected = [d for d in decisions if d.mutates]
+    by_url = {r.get("url"): r for r in rows}
+    out_dir = os.path.dirname(os.path.abspath(plan_path))
+    os.makedirs(out_dir, exist_ok=True)
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = os.path.join(out_dir, f"purge_keyword_sense_exclusions_backup_{stamp}.json")
+    with open(backup_path, "w", encoding="utf-8") as fh:
+        json.dump(
+            [{"row": by_url[d.url], "action": d.action, "new_keywords": d.new_keywords}
+             for d in affected],
+            fh, ensure_ascii=False, indent=1, default=str,
+        )
+        fh.flush()
+        os.fsync(fh.fileno())
+    plan = {
+        "version": PLAN_VERSION,
+        "created_at": (now or datetime.now(timezone.utc)).isoformat(),
+        "scope": scope,
+        "keywords": sorted({k.lower() for k in keywords}),
+        "backup_file": os.path.basename(backup_path),
+        "backup_sha256": _sha256(backup_path),
+        "backup_rows": len(affected),
+        "mutations": [asdict(d) for d in affected],
+    }
+    with open(plan_path, "w", encoding="utf-8") as fh:
+        json.dump(plan, fh, ensure_ascii=False, indent=1)
+    log.info("backup of %d affected rows: %s", len(affected), backup_path)
+    log.info("plan written: %s", plan_path)
+    return plan_path, backup_path
+
+
+def load_plan(plan_path: str) -> tuple[dict, list[RowDecision]]:
+    """Read a plan and refuse it unless its backup file is present and intact."""
+    with open(plan_path, encoding="utf-8") as fh:
+        plan = json.load(fh)
+    if plan.get("version") != PLAN_VERSION:
+        raise ValueError(f"unsupported plan version {plan.get('version')!r}")
+    backup = os.path.join(os.path.dirname(os.path.abspath(plan_path)), plan["backup_file"])
+    if not os.path.exists(backup):
+        raise ValueError(f"backup file missing: {backup}")
+    if _sha256(backup) != plan["backup_sha256"]:
+        raise ValueError(f"backup file does not match the plan checksum: {backup}")
+    mutations = [RowDecision(**m) for m in plan["mutations"]]
+    with open(backup, encoding="utf-8") as fh:
+        backed_up = {e["row"]["url"] for e in json.load(fh)}
+    missing = [d.url for d in mutations if d.url not in backed_up]
+    if missing or any(not d.mutates for d in mutations):
+        raise ValueError(f"plan lists rows absent from its backup or non-mutating actions: {missing[:3]}")
+    return plan, mutations
 
 
 # ---------------------------------------------------------------------------
@@ -475,15 +603,14 @@ def render_summary(
     outcomes: dict[str, str] | None = None,
     scope: str = "",
     backup_path: str | None = None,
+    heading: str | None = None,
 ) -> str:
     counts = Counter(d.action for d in decisions)
-    lines = [
-        "## Keyword sense exclusion purge - " + ("APPLIED" if applied else "dry-run (nothing written)"),
-        "",
-    ]
+    title = heading or ("APPLIED" if applied else "dry-run (nothing written)")
+    lines = ["## Keyword sense exclusion purge - " + title, ""]
     if scope:
         lines.append(f"Scope: {scope}  ")
-    lines.append(f"Rows tagged with a keyword that has a sense rule: {len(decisions)}  ")
+    lines.append(f"Rows in this summary: {len(decisions)}  ")
     if backup_path:
         lines.append(f"Backup of affected rows: `{backup_path}`  ")
     if outcomes:
@@ -504,22 +631,24 @@ def render_summary(
     return "\n".join(lines) + "\n"
 
 
+def _emit(summary: str) -> None:
+    print(summary)
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary:
+        with open(step_summary, "a", encoding="utf-8") as fh:
+            fh.write(summary)
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def run(
+def decide_all(
     rows: list[dict],
     *,
     keywords: list[str] | None,
     refetch: Callable[[dict], FetchedPage] | None,
-    apply: bool,
-    sink=None,
-    backup_dir: str = "purge_output",
-    csv_path: str | None = None,
-    scope: str = "",
-    now: datetime | None = None,
-) -> tuple[list[RowDecision], dict[str, str], str | None]:
+) -> list[RowDecision]:
     decisions: list[RowDecision] = []
     # Stored-text decisions first; only the rows needing a refetch go to the
     # network, interleaved by domain.
@@ -540,43 +669,52 @@ def run(
             decisions.append(d)
         if i % 25 == 0:
             log.info("  refetched %d/%d", i, len(needs_page))
-
     counts = Counter(d.action for d in decisions)
     log.info("decisions: %s", ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none")
+    return decisions
+
+
+def run(
+    rows: list[dict],
+    *,
+    keywords: list[str] | None,
+    refetch: Callable[[dict], FetchedPage] | None,
+    apply: bool,
+    sink=None,
+    backup_dir: str = "purge_output",
+    csv_path: str | None = None,
+    scope: str = "",
+    now: datetime | None = None,
+    plan_out: str | None = None,
+) -> tuple[list[RowDecision], dict[str, str], str | None]:
+    """Decide; with plan_out or apply write backup + plan; with apply, mutate.
+
+    The backup and the plan are on disk (fsync'd) before the first mutation.
+    """
+    decisions = decide_all(rows, keywords=keywords, refetch=refetch)
     if csv_path:
         write_csv(csv_path, decisions)
         log.info("csv written: %s", csv_path)
-
-    outcomes: dict[str, str] = {}
     backup_path: str | None = None
-    affected = [d for d in decisions if d.mutates]
-    if apply and affected:
-        if sink is None or getattr(sink, "client", None) is None:
+    if plan_out or apply:
+        if apply and (sink is None or getattr(sink, "client", None) is None):
             raise RuntimeError("--apply needs a configured Supabase sink")
-        by_url = {r.get("url"): r for r in rows}
-        stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_path = os.path.join(backup_dir, f"purge_keyword_sense_exclusions_backup_{stamp}.json")
-        with open(backup_path, "w", encoding="utf-8") as fh:
-            json.dump(
-                [
-                    {"row": by_url[d.url], "action": d.action, "new_keywords": d.new_keywords}
-                    for d in affected
-                ],
-                fh, ensure_ascii=False, indent=1, default=str,
-            )
-        log.info("backup of %d affected rows written: %s", len(affected), backup_path)
-        for d in affected:
-            outcomes[d.url] = apply_decision(sink, d)
-        oc = Counter(outcomes.values())
-        log.info("mutations: %s", ", ".join(f"{k}={v}" for k, v in sorted(oc.items())))
+        _p, backup_path = write_plan(
+            plan_out or os.path.join(backup_dir, "plan.json"),
+            decisions, rows,
+            keywords=list(keywords or KEYWORD_SENSE_EXCLUSIONS), scope=scope, now=now,
+        )
+    outcomes: dict[str, str] = apply_decisions(sink, decisions) if apply else {}
     return decisions, outcomes, backup_path
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--apply", action="store_true", help="write changes (default: dry-run)")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="plan (backup first), then write changes")
+    mode.add_argument("--plan-out", default=None, help="write backup + plan to this path; no DB writes")
+    mode.add_argument("--apply-plan", default=None, help="mutate from a plan written by --plan-out")
     ap.add_argument("--days", type=int, default=3, help="rows with found_at in the last N days (default 3)")
     ap.add_argument("--all-history", action="store_true", help="ignore --days, scan every tagged row")
     ap.add_argument("--keyword", action="append", default=None,
@@ -586,16 +724,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--refetch-per-domain-seconds", type=float, default=3.0)
     ap.add_argument("--refetch-timeout", type=int, default=15)
     ap.add_argument("--refetch-cap", type=int, default=400)
+    ap.add_argument("--refetch-deadline-minutes", type=float, default=60.0,
+                    help="no refetch starts after this many minutes (default 60)")
     ap.add_argument("--input-json", default=None,
-                    help="read rows from a JSON array instead of Supabase (dry-run only)")
+                    help="read rows from a JSON array instead of Supabase (no --apply)")
     ap.add_argument("--output-dir", default="purge_output", help="backup + csv directory")
     ap.add_argument("--csv", default=None, help="csv report path (default: <output-dir>/decisions.csv)")
     args = ap.parse_args(argv)
+
+    if args.apply_plan:
+        return _main_apply_plan(args.apply_plan)
 
     keys = [k.lower() for k in (args.keyword or list(KEYWORD_SENSE_EXCLUSIONS))]
     unknown = [k for k in keys if k not in KEYWORD_SENSE_EXCLUSIONS]
     if unknown:
         log.error("no sense rule for: %s", ", ".join(unknown))
+        return 2
+    if args.apply and args.input_json:
+        log.error("--apply cannot be combined with --input-json")
         return 2
     csv_path = args.csv or os.path.join(args.output_dir, "decisions.csv")
     refetch = None
@@ -604,13 +750,11 @@ def main(argv: list[str] | None = None) -> int:
             lambda url: fetch_article_page(url, timeout=args.refetch_timeout),
             per_domain_s=args.refetch_per_domain_seconds,
             cap=args.refetch_cap,
+            deadline_s=args.refetch_deadline_minutes * 60,
         )
 
     sink = None
     if args.input_json:
-        if args.apply:
-            log.error("--apply cannot be combined with --input-json")
-            return 2
         with open(args.input_json, encoding="utf-8") as fh:
             rows = json.load(fh)
         variants = set(label_variants(keys))
@@ -626,6 +770,11 @@ def main(argv: list[str] | None = None) -> int:
         if sink.client is None:
             log.error("Supabase client unavailable - aborting")
             return 2
+        if args.apply:
+            not_exact = keywords_not_exact(keys)
+            if not_exact:
+                log.error("refusing to apply: match_type is not 'exact' for %s", ", ".join(not_exact))
+                return 2
         since = None
         if not args.all_history:
             since = (datetime.now(timezone.utc) - timedelta(days=args.days)).isoformat()
@@ -642,15 +791,42 @@ def main(argv: list[str] | None = None) -> int:
         backup_dir=args.output_dir,
         csv_path=csv_path,
         scope=scope,
+        plan_out=args.plan_out,
     )
-    summary = render_summary(
-        decisions, applied=args.apply, outcomes=outcomes, scope=scope, backup_path=backup_path
-    )
-    print(summary)
-    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if step_summary:
-        with open(step_summary, "a", encoding="utf-8") as fh:
-            fh.write(summary)
+    heading = "plan written (nothing written to the database)" if args.plan_out else None
+    _emit(render_summary(
+        decisions, applied=args.apply, outcomes=outcomes, scope=scope,
+        backup_path=backup_path, heading=heading,
+    ))
+    return 1 if any(v == "failed" for v in outcomes.values()) else 0
+
+
+def _main_apply_plan(plan_path: str, *, sink=None, get_config: Callable[[], dict] | None = None) -> int:
+    try:
+        plan, mutations = load_plan(plan_path)
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        log.error("refusing plan %s: %s", plan_path, e)
+        return 2
+    if sink is None:
+        if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_KEY"):
+            log.error("SUPABASE_URL / SUPABASE_SERVICE_KEY missing - aborting")
+            return 2
+        from news_hunter.supabase_sync import get_sink
+
+        sink = get_sink()
+    if getattr(sink, "client", None) is None:
+        log.error("Supabase client unavailable - aborting")
+        return 2
+    not_exact = keywords_not_exact(plan["keywords"], get_config)
+    if not_exact:
+        log.error("refusing to apply: match_type is not 'exact' for %s", ", ".join(not_exact))
+        return 2
+    log.info("applying plan %s: %d mutations (backup %s)", plan_path, len(mutations), plan["backup_file"])
+    outcomes = apply_decisions(sink, mutations)
+    _emit(render_summary(
+        mutations, applied=True, outcomes=outcomes, scope=plan.get("scope", ""),
+        backup_path=plan["backup_file"],
+    ))
     return 1 if any(v == "failed" for v in outcomes.values()) else 0
 
 

@@ -144,8 +144,13 @@ def matches_keywords(
     behaviour (same as before the match_type feature shipped).
 
     Keyword sense exclusion (keyword_senses.py): a hit whose keyword has an
-    entry in KEYWORD_SENSE_EXCLUSIONS is dropped when EVERY occurrence of the
-    keyword is in an off-topic sense ('Jeep Compass', 'Vinci Compass').
+    entry in KEYWORD_SENSE_EXCLUSIONS is dropped when every occurrence is
+    explained by an off-topic sense. An occurrence pattern ('Jeep Compass',
+    'Vinci Compass') explains only the occurrence it touches, so "Vinci Compass
+    e Compass divulgam balanco" keeps the hit. Document vocabulary ('SUV',
+    'psilocibina') explains every occurrence in the text: that is the one
+    spill-over, and it is why a bare 'Compass' next to 'SUV' is dropped.
+    Company context ('Cosan', 'GNV', 'Comgas') always keeps the hit.
     Other keywords on the same text are unaffected. `sense_context` is extra
     text from the same article (e.g. the RSS summary next to a title) that the
     sense judgement reads but that is never matched for hits itself.
