@@ -7,11 +7,15 @@ things at once on any domain starting with `w`:
 
   * ACCEPTED `orldpipelines.com` as same-site;
   * for feed_domain `www.worldpipelines.com`, never produced `worldpipelines.com`,
-    so the outlet's own article links were discarded as foreign and the scraper
-    returned an empty listing — a silent zero.
+    so the outlet's own article links would be discarded as foreign and the
+    scraper would return an empty listing — a silent zero.
 
-Invisible on every other domain, which is why it lived in production. These
-tests fail against the old expression (replicated below) and pass with
+SCOPE, so nobody reads this as an outage: `_same_site` is consumed only by
+`_scrape_homepage`, and none of the three registered HOMEPAGE_SCRAPERS
+(brasilenergia, agencia.petrobras, atribuna) starts with `w` after the prefix —
+no registered scraper changed behaviour. This is preventative hardening; the
+only pair the fix moves belongs to a host that is never scraped. These tests
+fail against the old expression (replicated below) and pass with
 `removeprefix`.
 
 Run from repo root: python -m pytest tests/test_fetcher_same_domain_filter.py -v

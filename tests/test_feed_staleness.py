@@ -19,7 +19,9 @@ from news_hunter.fetcher import (
 from news_hunter.sources import (
     FEED_STALE_HOURS,
     FEED_STALE_HOURS_DEFAULT,
+    HOMEPAGE_SCRAPERS,
     RSS_FEEDS,
+    STANDARD_SITEMAPS,
     feed_stale_hours,
 )
 
@@ -112,10 +114,14 @@ def test_every_staleness_budget_is_keyed_on_a_real_registry_key():
     nagging every run against the 48h default: exactly the kind of entry that
     trains a reader to ignore the staleness line.
     """
+    # Every registry whose key reaches _stale_feeds as `dom`: feeds, plain
+    # sitemaps and homepage scrapers all flow through the same collect loop.
+    fetched = set(RSS_FEEDS) | set(STANDARD_SITEMAPS) | set(HOMEPAGE_SCRAPERS)
     for key in FEED_STALE_HOURS:
-        assert key in RSS_FEEDS, (
-            f"{key!r} has a staleness budget but is not an RSS_FEEDS key — "
-            "the lookup is exact, so this budget never applies"
+        assert key in fetched, (
+            f"{key!r} has a staleness budget but is not a key of RSS_FEEDS / "
+            "STANDARD_SITEMAPS / HOMEPAGE_SCRAPERS — the lookup is exact, so "
+            "this budget never applies"
         )
 
 

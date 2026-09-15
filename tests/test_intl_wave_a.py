@@ -79,10 +79,10 @@ def test_every_wave_5a_gnews_domain_is_still_registered():
         f"dropped from ENGLISH_NO_RSS_DOMAINS: {missing} — these outlets would "
         "stop being queried with no error anywhere"
     )
-    # NOT `len(set(WAVE_5A_GNEWS)) == 21`: that only measured this file's own
-    # literal and stayed green while the registry emptied. Assert against the
-    # live roster instead -- the wave's 21 domains must all still be in it.
-    assert set(WAVE_5A_GNEWS) & set(ENGLISH_NO_RSS_DOMAINS) == set(WAVE_5A_GNEWS)
+    # The `missing` check above IS the registry assertion; what it cannot see is
+    # a duplicate in this file's own roster, which would make any count of it
+    # lie. (It replaces `len(set(WAVE_5A_GNEWS)) == 21`, which only measured the
+    # literal and stayed green while the registry emptied.)
     assert len(set(WAVE_5A_GNEWS)) == len(WAVE_5A_GNEWS), "duplicate in the wave roster"
 
 

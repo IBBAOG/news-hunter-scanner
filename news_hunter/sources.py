@@ -554,7 +554,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # Registered 2026-08-18. Every yield below was MEASURED on the GHA runner
     # (measure_source.yml — so from a datacenter IP, with the Supabase secrets)
     # against the LIVE keyword set (91 keywords, 41 exact) with --lede, 7-day
-    # window. English outlets match only on the Latin subset of the set (oil /
+    # window. THE LEXICON GROWS: 91/41 is what the live set held on 2026-08-18
+    # and every 2026-08-18 block below quotes that same figure correctly; by
+    # 2026-09-14 it was 187 keywords (78 exact). Do not "fix" the old numbers --
+    # each one is the count on ITS measurement date, and measure_source prints
+    # the live count at the top of every run.
+    # English outlets match only on the Latin subset of the set (oil /
     # gas / diesel / Brent / WTI / OPEC / LNG / crude / offshore / tanker /
     # pipeline / Hormuz / ExxonMobil / Chevron / Petrobras / ... — accents never
     # fire), which is plenty: these feeds carry full descriptions, so most
@@ -855,6 +860,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # ENGLISH_NO_RSS_DOMAINS Wave 5B REJECTED block). Yields measured on the
     # runner (measure_source.yml, live 91-keyword set, 7d window, --lede)
     # 2026-09-14.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     #
     # SURFACE PICK for this wave, since almost every candidate has BOTH a feed
     # and a GNews surface: take the higher measured 7-DAY yield, normalising a
@@ -1050,6 +1061,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # japantimes /feed/topstories/: 5 items, fresh=0) and the rest because
     # GNews measured several times richer than the feed. Yields measured on the
     # runner (measure_source.yml, live 91-keyword set, 7d window) 2026-09-14.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # No feed of this wave needed more than 4s, so the wave's
     # FEED_TIMEOUT_OVERRIDES block stays empty (slowest: BusinessLive 1.74s).
     # =======================================================================
@@ -1172,6 +1189,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # ENGLISH_NO_RSS_DOMAINS, where the five rejects are recorded too. No feed
     # of this wave needed more than the 4s default (slowest fetch=1.99s), so
     # the FEED_TIMEOUT_OVERRIDES Wave 5D block stays empty on purpose.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # =====================================================================
     # The Straits Times (straitstimes.com) -- Singapore's daily of record and
     # the Asia-markets read of this wave. Section feed /news/business/rss.xml:
@@ -1389,6 +1412,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # off-beat). The eleven below have a runner-reachable, DATED feed; the other
     # fourteen outlets of the wave are WAF-blocked, dateless, credential-walled
     # or feed-frozen and live in ENGLISH_NO_RSS_DOMAINS.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     #
     # FOLLOW-UP this wave could not do, DONE 2026-09-14 post-merge:
     # FEED_STALE_HOURS had no Wave 5 anchor, so the wave left it untouched and
@@ -2633,6 +2662,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # wave had a feed that BEAT their GNews surface and are in RSS_FEEDS.
     # Yields are the GNews title-pass count over 7d, measured on the runner
     # (measure_source.yml) against the live 91-keyword set on 2026-09-14.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     #
     # SURFACE PICK (recorded once, applied per entry): higher measured 7-day
     # yield, normalising a short-span feed as pass x 168/span, tie-break to RSS
@@ -2880,6 +2915,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # measured on the runner (measure_source.yml) against the live 91-keyword
     # set on 2026-09-14. The other six candidates had a usable feed and are in
     # RSS_FEEDS / INTERNATIONAL_RSS_DOMAINS.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # -----------------------------------------------------------------------
     # --- Africa ---
     # AllAfrica (allafrica.com) -- pan-African aggregator, the widest African
@@ -3094,6 +3135,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # 7d measured on the runner (measure_source.yml, live 91-keyword set) on
     # 2026-09-14. The wave's thirteen RSS outlets are in RSS_FEEDS +
     # INTERNATIONAL_RSS_DOMAINS.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # =====================================================================
     # The Edge Malaysia (theedgemalaysia.com) -- Malaysia's business daily and
     # the single richest surface of this wave: GNews items=100 fresh=87 pass=69
@@ -3280,6 +3327,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # registers; only a 0-item or >=80%-off-beat candidate is rejected). Every
     # feed autopsy quoted below was ALSO run on the runner (measure_source.yml
     # with the feed URL), never from a residential IP.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # =======================================================================
     # Offshore Magazine (offshore-mag.com) -- Endeavor Business Media's offshore
     # E&P title: same publisher as OGJ (Wave 1a above) and the same WAF story.
