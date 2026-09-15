@@ -15,6 +15,7 @@ from .keyword_senses import drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
 from .store import (
     Article,
+    excluded_url_reason,
     finish_run,
     get_cached_snippets,
     get_config,
@@ -654,6 +655,11 @@ def run_search(
     n_translated = 0
     n_retried = 0
     n_backfilled = 0
+    # Non-article urls dropped before persistence, per EXCLUDED_URL_PATTERNS key
+    # (store.py). Counted at the three points an item's real url becomes known —
+    # collect, GNews resolve, stage 4 — and each drop removes the item from the
+    # flow, so the counts are drop EVENTS, never double counted.
+    n_excluded: dict[str, int] = {}
 
     try:
         t0 = time.time()
@@ -708,6 +714,13 @@ def run_search(
                     if key in seen_urls:
                         continue
                     seen_urls.add(key)
+                    # Non-article surface (job board, topic hub, video player,
+                    # wire wrapper): drop BEFORE the keyword match so it never
+                    # costs a resolve, a fetch or a row. See store.py.
+                    _ex = excluded_url_reason(key)
+                    if _ex:
+                        n_excluded[_ex] = n_excluded.get(_ex, 0) + 1
+                        continue
                     matched = _keep_candidate(
                         it, match_keywords, hours, exact_keywords,
                         allow_lede_rescue=True,
@@ -769,6 +782,13 @@ def run_search(
                     resolved_url, resolved_domain = it.url, it.source_domain
                 if resolved_url.startswith("https://news.google.com/"):
                     continue  # nao resolvido — descarta
+                # The GNews route is where every non-article shape came from:
+                # the wrapper hides the real url until here, so this is the
+                # first point the rule can see it — and it is before the enrich.
+                _ex = excluded_url_reason(resolved_url)
+                if _ex:
+                    n_excluded[_ex] = n_excluded.get(_ex, 0) + 1
+                    continue
                 _cnt = _enrich_count.get(resolved_domain, 0)
                 if _cnt >= _ENRICH_CAP:
                     continue
@@ -844,6 +864,12 @@ def run_search(
         to_persist: list[Article] = []
         n_dropped_blind = 0
         for it, matched, snippet, published, resolved_url, resolved_domain, ext_title in enriched:
+            # Last gate before persistence: enrich can hand back a url the
+            # earlier gates never saw (cache hits, a redirect followed).
+            _ex = excluded_url_reason(resolved_url)
+            if _ex:
+                n_excluded[_ex] = n_excluded.get(_ex, 0) + 1
+                continue
             is_topic = it.feed_domain in HOMEPAGE_SCRAPERS
             # Titulo real, em ordem de confianca: feed > pagina > listagem.
             # (O fallback de slug NAO conta como titulo real — ver abaixo.)
@@ -958,6 +984,15 @@ def run_search(
                 source_lang=it.source_lang,
             ))
 
+        # Always logged, zero included: a filter nobody can see the size of is
+        # a filter nobody notices eating real articles.
+        log.info(
+            "excluded %d non-article urls%s",
+            sum(n_excluded.values()),
+            (" (" + ", ".join(f"{k}={v}" for k, v in sorted(n_excluded.items())) + ")")
+            if n_excluded else "",
+        )
+
         if n_dropped_blind:
             # Observabilidade: um scraper de listagem que passa a falhar por
             # completo (sessao expirada, WAF novo) agora some do feed em vez de
@@ -1023,6 +1058,8 @@ def run_search(
         "snippets_backfilled": n_backfilled,
         "translated": n_translated,
         "translation_retried": n_retried,
+        "excluded": sum(n_excluded.values()),
+        "excluded_by_rule": dict(sorted(n_excluded.items())),
     }
 
 

@@ -211,6 +211,77 @@ def _route_fragment(fragment: str) -> str:
     return ""
 
 
+# =============================================================================
+# Non-article url shapes (added 2026-09-15)
+# =============================================================================
+# Surfaces that are NOT a news article but which the GNews route keeps resolving
+# to and the pipeline kept persisting: a job board, topic hubs, video players and
+# a syndicated-wire wrapper. Each one is a permanent row with no body — the
+# clipping generator returns nothing for it, and the feed shows a headline that
+# leads to a page with no article.
+#
+# This is the only host-scoped url filter in the scanner; keep new cases HERE
+# rather than adding a second mechanism. (fetcher._NON_ARTICLE_SEGMENTS is a
+# different job: it prunes listing/category links while SCRAPING a homepage, and
+# never sees an RSS or a Google News url.)
+#
+# Format: key -> (netloc regex, path-prefix regex or None). The netloc regex is
+# fullmatched (so a rule cannot leak onto another host), the path regex is
+# matched from the start of the path; both are case-insensitive. A None path
+# excludes the whole host. Row counts below are news_articles on 2026-09-15 —
+# the audit that produced this list.
+EXCLUDED_URL_PATTERNS: dict[str, tuple[str, str | None]] = {
+    # The Times' JOB BOARD, not the newspaper. Google files its listings under
+    # the outlet, so they arrive named "The Times" and carry ZERO <p>. 8 rows.
+    "thetimes-appointments": (r"appointments\.thetimes\.com", None),
+    # AP topic hubs (/hub/oil-and-gas): a perpetually-updated index page, no
+    # article, no date of its own. 1 row.
+    "apnews-topic-hub": (r"(?:www\.)?apnews\.com", r"/hub/"),
+    # Video players: the "body" is a transcript-less player shell. 3 + 1 rows.
+    "cbsnews-video": (r"(?:www\.)?cbsnews\.com", r"/video/"),
+    "usatoday-video": (r"(?:www\.)?usatoday\.com", r"/videos/"),
+    # NPR's embeddable audio player, not the story page. 1 row.
+    "npr-player-embed": (r"(?:www\.)?npr\.org", r"/player/"),
+    # Sky's video desk — 8 of the 9 stored news.sky.com rows.
+    "skynews-video": (r"news\.sky\.com", r"/video/"),
+    # The Globe and Mail republishes Newswire.ca press releases inside a
+    # JS-rendered wrapper (/investing/markets/markets-news/Newswire.ca/<id>);
+    # the served HTML holds no prose. 3 rows.
+    "globeandmail-newswire": (r"(?:www\.)?theglobeandmail\.com", r"/.*/Newswire\.ca/"),
+}
+
+_EXCLUDED_URL_RULES: tuple[tuple[str, re.Pattern[str], re.Pattern[str] | None], ...] = tuple(
+    (
+        key,
+        re.compile(host_re, re.IGNORECASE),
+        re.compile(path_re, re.IGNORECASE) if path_re else None,
+    )
+    for key, (host_re, path_re) in EXCLUDED_URL_PATTERNS.items()
+)
+
+
+def excluded_url_reason(url: str) -> str | None:
+    """Return the EXCLUDED_URL_PATTERNS key this url matches, or None.
+
+    Returns the KEY rather than a bool so the caller can log which rule fired:
+    a silent drop is how a rule that starts eating real articles stays invisible.
+    """
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return None
+    netloc = p.netloc.lower()
+    if not netloc:
+        return None
+    path = p.path or "/"
+    for key, host_re, path_re in _EXCLUDED_URL_RULES:
+        if not host_re.fullmatch(netloc):
+            continue
+        if path_re is None or path_re.match(path):
+            return key
+    return None
+
+
 def normalize_url(url: str) -> str:
     """Canonical form of an article url, used as the news_articles primary key.
 

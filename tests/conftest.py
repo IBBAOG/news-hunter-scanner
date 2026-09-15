@@ -52,7 +52,11 @@ ARTICLE_HOSTS: dict[str, str] = {
     "africa.businessinsider.com": "Business Insider",     # 17 rows, Africa desk
     "www-cdn.abcnews.com": "ABC News",                    # 9 rows, CDN host
     "ingest.abcnews.com": "ABC News",                     # 3 rows, ingest host
-    "appointments.thetimes.com": "The Times",             # 8 rows, job board
+    # 8 rows, job board. EXCLUDED at ingest since 2026-09-15 (store.
+    # EXCLUDED_URL_PATTERNS) so no new row can appear; the name and the
+    # extractor stay registered as defence in depth for the rows already
+    # stored and for any variant the rule does not cover.
+    "appointments.thetimes.com": "The Times",
 }
 
 
