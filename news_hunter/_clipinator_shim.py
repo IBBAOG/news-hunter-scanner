@@ -165,7 +165,16 @@ SOURCE_NAMES: dict[str, str] = {
     "claudiodantas.com.br": "Cláudio Dantas",
     "www.claudiodantas.com.br": "Cláudio Dantas",
     "br.tradingview.com": "TradingView",
+    # Apex twins of two www.-only registrations, added 2026-09-14 with the
+    # Wave 5 pass: both outlets are registered apex-side in sources.py too (the
+    # GNews block lists the www. host, but normalize_url hands the enricher the
+    # apex), and `news_articles` already holds 120 rows under "cnn.com" that
+    # rendered as the bare domain. NOT fixed in the same pass: "cnbc.com", the
+    # third case, whose absence is what tests/test_extractor_domain_resolution
+    # ::test_host_variants_resolve_to_a_registered_key[m.cnbc.com] asserts on.
+    "theedgesingapore.com": "The Edge Singapore",
     "www.theedgesingapore.com": "The Edge Singapore",
+    "cnn.com": "CNN",
     "www12.senado.leg.br": "Senado Federal",
     "www.camara.leg.br": "Câmara dos Deputados",
     "camara.leg.br": "Câmara dos Deputados",
@@ -221,9 +230,11 @@ SOURCE_NAMES: dict[str, str] = {
     # Premium / paywalled international wires covered via Google News — Wave 1b.
     # GNews resolves items to the www article netloc (NOT normalize_url'd), so
     # the www key is the one that renders the name; apex is kept for
-    # completeness AND because source_name_for's lstrip("www.") fallback is
-    # charset-buggy (it strips leading w/. chars, not the "www." prefix), so we
-    # never rely on it — both keys are exact matches.
+    # completeness AND because source_name_for's www. fallback used to be
+    # charset-buggy (lstrip("www.") strips leading w/. characters, not the
+    # "www." prefix), so we never relied on it — both keys are exact matches.
+    # The fallback was fixed to removeprefix on 2026-09-14; keying both forms
+    # stays the rule anyway, since an exact key needs no fallback at all.
     "bloomberg.com": "Bloomberg",
     "www.bloomberg.com": "Bloomberg",
     "spglobal.com": "S&P Global Commodity Insights",
@@ -310,6 +321,313 @@ SOURCE_NAMES: dict[str, str] = {
     "www.globaltimes.cn": "Global Times",
     "scmp.com": "South China Morning Post",
     "www.scmp.com": "South China Morning Post",
+    # =========================================================================
+    # --- Wave 5 (2026-09-14) ---
+    # The 112 English-language outlets of the 2026-09 international expansion
+    # (README "International coverage", tables 5A-5E) shipped with no entry
+    # here and none in EXTRACTORS. That costs three things at once: the
+    # dashboard renders the bare domain instead of the outlet name,
+    # _SITE_SUFFIX_PATTERNS (built from SOURCE_NAMES.values()) cannot strip the
+    # " | LNG Industry" style suffix off a title, and the lede-rescue / snippet
+    # backfill body fetch skips the outlet because it gates on the extractor
+    # registry - the same silent fall-through the 30 foreign-language domains
+    # took until 2026-08-18.
+    #
+    # Keyed per host form the scanner can actually produce: the apex (RSS item
+    # links are normalize_url'd, so www is stripped), the www. form (GNews
+    # resolves to the article's real netloc and does NOT strip it), the
+    # registered subdomain where the outlet has no apex English edition, and
+    # the host behind a path-scoped ENGLISH_NO_RSS_DOMAINS entry
+    # (marketwatch.com/story -> marketwatch.com, aa.com.tr/en -> aa.com.tr,
+    # tradearabia.com/news -> tradearabia.com, www3.nhk.or.jp/nhkworld ->
+    # www3.nhk.or.jp). Hosts marked MEASURED were read off `news_articles`
+    # after the merge; the rest of the second-host aliases (bbc.co.uk,
+    # abcnews.go.com, markets.businessinsider.com, thetimes.co.uk,
+    # mercopress.com) are the outlet's other live host, registered so the name
+    # survives whichever one Google hands back.
+    #
+    # Display name = the README "Outlet" column minus the surface/edition
+    # parenthesis, one name per outlet so a source filter does not split an
+    # outlet in two ("Investing.com (EN edition)" -> "Investing.com", which is
+    # what br.investing.com already renders; "Al Arabiya English" -> the "Al
+    # Arabiya" of the Arabic keys above). The country survives only where it
+    # disambiguates: "Business Day (South Africa)" against "BusinessDay
+    # Nigeria".
+    # --- Wave 5A: Global wires & US mainstream ---
+    "apnews.com": "Associated Press",
+    "www.apnews.com": "Associated Press",
+    "ft.com": "Financial Times",
+    "www.ft.com": "Financial Times",
+    "wsj.com": "The Wall Street Journal",
+    "www.wsj.com": "The Wall Street Journal",
+    "nytimes.com": "The New York Times",
+    "www.nytimes.com": "The New York Times",
+    "washingtonpost.com": "The Washington Post",
+    "www.washingtonpost.com": "The Washington Post",
+    "economist.com": "The Economist",
+    "www.economist.com": "The Economist",
+    # bbc.co.uk serves the same newsroom
+    "bbc.com": "BBC News",
+    "www.bbc.com": "BBC News",
+    "bbc.co.uk": "BBC News",
+    "www.bbc.co.uk": "BBC News",
+    "theguardian.com": "The Guardian",
+    "www.theguardian.com": "The Guardian",
+    # co.uk is the legacy host
+    "thetimes.com": "The Times",
+    "www.thetimes.com": "The Times",
+    "thetimes.co.uk": "The Times",
+    "www.thetimes.co.uk": "The Times",
+    "telegraph.co.uk": "The Telegraph",
+    "www.telegraph.co.uk": "The Telegraph",
+    # subdomain-only outlet
+    "news.sky.com": "Sky News",
+    "www.news.sky.com": "Sky News",
+    "politico.com": "POLITICO",
+    "www.politico.com": "POLITICO",
+    "politico.eu": "POLITICO Europe",
+    "www.politico.eu": "POLITICO Europe",
+    "axios.com": "Axios",
+    "www.axios.com": "Axios",
+    "forbes.com": "Forbes",
+    "www.forbes.com": "Forbes",
+    "fortune.com": "Fortune",
+    "www.fortune.com": "Fortune",
+    # markets. carries the syndicated wire copy
+    "businessinsider.com": "Business Insider",
+    "www.businessinsider.com": "Business Insider",
+    "markets.businessinsider.com": "Business Insider",
+    # ENGLISH_NO_RSS entry is marketwatch.com/story
+    "marketwatch.com": "MarketWatch",
+    "www.marketwatch.com": "MarketWatch",
+    "barrons.com": "Barron's",
+    "www.barrons.com": "Barron's",
+    "npr.org": "NPR",
+    "www.npr.org": "NPR",
+    # articles live on the .go.com host
+    "abcnews.com": "ABC News",
+    "www.abcnews.com": "ABC News",
+    "abcnews.go.com": "ABC News",
+    "nbcnews.com": "NBC News",
+    "www.nbcnews.com": "NBC News",
+    "cbsnews.com": "CBS News",
+    "www.cbsnews.com": "CBS News",
+    "foxbusiness.com": "Fox Business",
+    "www.foxbusiness.com": "Fox Business",
+    # --- Wave 5B: US regional, Europe, Canada, Oceania mainstream ---
+    # EN edition; br.investing.com above is the pt one
+    "investing.com": "Investing.com",
+    "www.investing.com": "Investing.com",
+    "france24.com": "France 24",
+    "www.france24.com": "France 24",
+    # /en/ edition
+    "lemonde.fr": "Le Monde",
+    "www.lemonde.fr": "Le Monde",
+    "irishtimes.com": "The Irish Times",
+    "www.irishtimes.com": "The Irish Times",
+    "cityam.com": "City A.M.",
+    "www.cityam.com": "City A.M.",
+    "financialpost.com": "Financial Post",
+    "www.financialpost.com": "Financial Post",
+    "calgaryherald.com": "Calgary Herald",
+    "www.calgaryherald.com": "Calgary Herald",
+    # kept distinct from ABC News (US)
+    "abc.net.au": "ABC News Australia",
+    "www.abc.net.au": "ABC News Australia",
+    "afr.com": "Australian Financial Review",
+    "www.afr.com": "Australian Financial Review",
+    "houstonchronicle.com": "Houston Chronicle",
+    "www.houstonchronicle.com": "Houston Chronicle",
+    "latimes.com": "Los Angeles Times",
+    "www.latimes.com": "Los Angeles Times",
+    "usatoday.com": "USA Today",
+    "www.usatoday.com": "USA Today",
+    "dw.com": "Deutsche Welle",
+    "www.dw.com": "Deutsche Welle",
+    "euronews.com": "Euronews",
+    "www.euronews.com": "Euronews",
+    "swissinfo.ch": "Swissinfo",
+    "www.swissinfo.ch": "Swissinfo",
+    "theglobeandmail.com": "The Globe and Mail",
+    "www.theglobeandmail.com": "The Globe and Mail",
+    "cbc.ca": "CBC News",
+    "www.cbc.ca": "CBC News",
+    "theaustralian.com.au": "The Australian",
+    "www.theaustralian.com.au": "The Australian",
+    "energynewsbulletin.net": "Energy News Bulletin",
+    "www.energynewsbulletin.net": "Energy News Bulletin",
+    "sodir.no": "Norwegian Offshore Directorate",
+    "www.sodir.no": "Norwegian Offshore Directorate",
+    # --- Wave 5C: Africa, Middle East & North-East Asia mainstream ---
+    "allafrica.com": "AllAfrica",
+    "www.allafrica.com": "AllAfrica",
+    "businessday.ng": "BusinessDay Nigeria",
+    "www.businessday.ng": "BusinessDay Nigeria",
+    "punchng.com": "Punch",
+    "www.punchng.com": "Punch",
+    "thisdaylive.com": "ThisDay",
+    "www.thisdaylive.com": "ThisDay",
+    # businessday.co.za MEASURED in news_articles (8 rows)
+    "businesslive.co.za": "Business Day (South Africa)",
+    "www.businesslive.co.za": "Business Day (South Africa)",
+    "businessday.co.za": "Business Day (South Africa)",
+    "www.businessday.co.za": "Business Day (South Africa)",
+    "theeastafrican.co.ke": "The East African",
+    "www.theeastafrican.co.ke": "The East African",
+    "africaoilgasreport.com": "Africa Oil+Gas Report",
+    "www.africaoilgasreport.com": "Africa Oil+Gas Report",
+    "energycapitalpower.com": "Energy Capital & Power",
+    "www.energycapitalpower.com": "Energy Capital & Power",
+    # English edition of the ar outlet keyed above; same display name on purpose
+    "english.alarabiya.net": "Al Arabiya",
+    "middleeasteye.net": "Middle East Eye",
+    "www.middleeasteye.net": "Middle East Eye",
+    "timesofisrael.com": "The Times of Israel",
+    "www.timesofisrael.com": "The Times of Israel",
+    "haaretz.com": "Haaretz",
+    "www.haaretz.com": "Haaretz",
+    # ENGLISH_NO_RSS entry is aa.com.tr/en
+    "aa.com.tr": "Anadolu Agency",
+    "www.aa.com.tr": "Anadolu Agency",
+    "english.ahram.org.eg": "Ahram Online",
+    "dailysabah.com": "Daily Sabah",
+    "www.dailysabah.com": "Daily Sabah",
+    "tehrantimes.com": "Tehran Times",
+    "www.tehrantimes.com": "Tehran Times",
+    "oilandgasmiddleeast.com": "Oil & Gas Middle East",
+    "www.oilandgasmiddleeast.com": "Oil & Gas Middle East",
+    "agbi.com": "AGBI",
+    "www.agbi.com": "AGBI",
+    # ENGLISH_NO_RSS entry is tradearabia.com/news; apex MEASURED (2 rows)
+    "tradearabia.com": "Trade Arabia",
+    "www.tradearabia.com": "Trade Arabia",
+    "pipelineoilandgasnews.com": "Pipeline Oil & Gas Magazine",
+    "www.pipelineoilandgasnews.com": "Pipeline Oil & Gas Magazine",
+    # The feed host is NOT the article host. www.pipelineoilandgasnews.com
+    # links 30/30 of its items to energyconnects.com (measured on the parallel
+    # branch intl-post-sources, item A, which registers the article host in
+    # INTERNATIONAL_RSS_DOMAINS), so the feed keys above never render anything:
+    # `news_articles` holds 16 rows under host energyconnects.com and
+    # source_name "energyconnects.com", and none under the magazine's own host.
+    # "Energy Connects" is the site's own masthead; Pipeline Oil & Gas Magazine
+    # is its sister title, which is why both names live here rather than one
+    # being folded into the other.
+    "energyconnects.com": "Energy Connects",
+    "www.energyconnects.com": "Energy Connects",
+    # MEASURED (1 row)
+    "asia.nikkei.com": "Nikkei Asia",
+    "japantimes.co.jp": "The Japan Times",
+    "www.japantimes.co.jp": "The Japan Times",
+    # www3 is NOT a www. prefix - it needs its own key
+    "www3.nhk.or.jp": "NHK World",
+    "koreaherald.com": "The Korea Herald",
+    "www.koreaherald.com": "The Korea Herald",
+    # --- Wave 5D: South & South-East Asia, Latin America mainstream, downstream trade press I ---
+    "straitstimes.com": "The Straits Times",
+    "www.straitstimes.com": "The Straits Times",
+    "channelnewsasia.com": "CNA (Channel NewsAsia)",
+    "www.channelnewsasia.com": "CNA (Channel NewsAsia)",
+    "bangkokpost.com": "Bangkok Post",
+    "www.bangkokpost.com": "Bangkok Post",
+    "e.vnexpress.net": "VnExpress International",
+    "timesofindia.indiatimes.com": "The Times of India",
+    # energy.economictimes... above is ET EnergyWorld, a different desk
+    "economictimes.indiatimes.com": "The Economic Times",
+    "business-standard.com": "Business Standard",
+    "www.business-standard.com": "Business Standard",
+    "dawn.com": "Dawn",
+    "www.dawn.com": "Dawn",
+    "astanatimes.com": "The Astana Times",
+    "www.astanatimes.com": "The Astana Times",
+    # apex MEASURED in news_articles (2 rows); feed is the en. subdomain
+    "en.trend.az": "Trend News Agency",
+    "trend.az": "Trend News Agency",
+    "www.trend.az": "Trend News Agency",
+    "en.mercopress.com": "MercoPress",
+    "mercopress.com": "MercoPress",
+    "www.mercopress.com": "MercoPress",
+    "batimes.com.ar": "Buenos Aires Times",
+    "www.batimes.com.ar": "Buenos Aires Times",
+    "mexiconewsdaily.com": "Mexico News Daily",
+    "www.mexiconewsdaily.com": "Mexico News Daily",
+    "thejakartapost.com": "The Jakarta Post",
+    "www.thejakartapost.com": "The Jakarta Post",
+    "theedgemalaysia.com": "The Edge Malaysia",
+    "www.theedgemalaysia.com": "The Edge Malaysia",
+    "kaieteurnewsonline.com": "Kaieteur News",
+    "www.kaieteurnewsonline.com": "Kaieteur News",
+    "bnamericas.com": "BNamericas",
+    "www.bnamericas.com": "BNamericas",
+    "hydrocarbonprocessing.com": "Hydrocarbon Processing",
+    "www.hydrocarbonprocessing.com": "Hydrocarbon Processing",
+    "hydrocarbonengineering.com": "Hydrocarbon Engineering",
+    "www.hydrocarbonengineering.com": "Hydrocarbon Engineering",
+    # --- Wave 5E: O&G / refining / shipping trade press & institutions ---
+    "lngindustry.com": "LNG Industry",
+    "www.lngindustry.com": "LNG Industry",
+    "worldpipelines.com": "World Pipelines",
+    "www.worldpipelines.com": "World Pipelines",
+    "tanksterminals.com": "Tanks and Terminals",
+    "www.tanksterminals.com": "Tanks and Terminals",
+    # IADC
+    "drillingcontractor.org": "Drilling Contractor",
+    "www.drillingcontractor.org": "Drilling Contractor",
+    "rbnenergy.com": "RBN Energy",
+    "www.rbnenergy.com": "RBN Energy",
+    # F+L Daily
+    "fuelsandlubes.com": "Fuels & Lubes",
+    "www.fuelsandlubes.com": "Fuels & Lubes",
+    "energymonitor.ai": "Energy Monitor",
+    "www.energymonitor.ai": "Energy Monitor",
+    "shipandbunker.com": "Ship & Bunker",
+    "www.shipandbunker.com": "Ship & Bunker",
+    "seatrade-maritime.com": "Seatrade Maritime News",
+    "www.seatrade-maritime.com": "Seatrade Maritime News",
+    # Insights blog
+    "kpler.com": "Kpler",
+    "www.kpler.com": "Kpler",
+    # Today in Energy
+    "eia.gov": "US EIA",
+    "www.eia.gov": "US EIA",
+    "offshore-mag.com": "Offshore Magazine",
+    "www.offshore-mag.com": "Offshore Magazine",
+    "gasprocessingnews.com": "Gas Processing & LNG",
+    "www.gasprocessingnews.com": "Gas Processing & LNG",
+    "qcintel.com": "Quantum Commodity Intelligence",
+    "www.qcintel.com": "Quantum Commodity Intelligence",
+    "lloydslist.com": "Lloyd's List",
+    "www.lloydslist.com": "Lloyd's List",
+    "rivieramm.com": "Riviera Maritime Media",
+    "www.rivieramm.com": "Riviera Maritime Media",
+    # ex-PetrolPlaza, which 301s here
+    "mobilityplaza.com": "Mobility Plaza",
+    "www.mobilityplaza.com": "Mobility Plaza",
+    # "IEA" and "OPEC" are the only two names in this dict that are also
+    # everyday attribution tokens in a headline. _SITE_SUFFIX_PATTERNS is built
+    # from SOURCE_NAMES.values(), so clean_title would read a genuine
+    # "Demand revised up - IEA" as a site suffix and cut the attribution off.
+    # Inert today, and verified as inert rather than assumed: clean_title has
+    # exactly one caller, `_extract`, and its only consumer in enrich.py
+    # discards that title (`_, paragrafos = _extract(...)`). The title the
+    # dashboard shows comes from the feed / GNews item, or from
+    # _extract_title_from_html, neither of which passes through clean_title. If
+    # it is ever put on that path, these two values need an opt-out from
+    # _SITE_SUFFIX_PATTERNS - not a rewrite of the outlet's name.
+    "iea.org": "IEA",
+    "www.iea.org": "IEA",
+    "opec.org": "OPEC",
+    "www.opec.org": "OPEC",
+    "woodmac.com": "Wood Mackenzie",
+    "www.woodmac.com": "Wood Mackenzie",
+    "rystadenergy.com": "Rystad Energy",
+    "www.rystadenergy.com": "Rystad Energy",
+    "vortexa.com": "Vortexa",
+    "www.vortexa.com": "Vortexa",
+    "oxfordenergy.org": "Oxford Institute for Energy Studies",
+    "www.oxfordenergy.org": "Oxford Institute for Energy Studies",
+    "icis.com": "ICIS",
+    "www.icis.com": "ICIS",
+    "jpt.spe.org": "JPT (SPE)",
 }
 
 
@@ -652,6 +970,9 @@ EXTRACTORS: dict[str, Extractor] = {
     "claudiodantas.com.br": ex_auto,
     "www.claudiodantas.com.br": ex_auto,
     "br.tradingview.com": ex_auto,
+    # Apex twin (see the SOURCE_NAMES comment): this dict is compared to
+    # SOURCE_NAMES key by key, so a name without its extractor is a red test.
+    "theedgesingapore.com": ex_auto,
     "www.theedgesingapore.com": ex_auto,
     # Radio Itatiaia (Belo Horizonte/MG). Next.js + Tailwind: the body wrapper
     # carries only utility classes ("mx-auto flex w-full max-w-[640px] ..."),
@@ -682,6 +1003,7 @@ EXTRACTORS: dict[str, Extractor] = {
     "camara.leg.br": ex_auto,
     "edition.cnn.com": ex_auto,
     "www.cnn.com": ex_auto,
+    "cnn.com": ex_auto,
     "clickpetroleoegas.com.br": ex_auto,
     "www.clickpetroleoegas.com.br": ex_auto,
     "ineep.org.br": ex_auto,
@@ -859,6 +1181,262 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.ambito.com": ex_auto,
     "portafolio.co": ex_auto,
     "www.portafolio.co": ex_auto,
+    # =========================================================================
+    # --- Wave 5 (2026-09-14) ---
+    # ex_auto for every Wave 5 host named above. Almost all of these outlets are
+    # title-only on the main scan path (GNews) or arrive with an RSS summary, so
+    # the extractor powers the lede rescue and the snippet backfill - which is
+    # exactly the path that was skipped for 30 domains before 2026-08-18,
+    # because the gate is `resolve_extractor_domain(...) is not None`.
+    #
+    # ex_auto, not a bespoke extractor: none of these pages was measured by this
+    # pass, and a per-site selector invented without a fetched page is a guess
+    # wearing a specific name. Bespoke extractors are a separate, evidence-led
+    # change.
+    #
+    # Every host named above is keyed literally, www. twin included, even
+    # though resolve_extractor_domain would strip a "www." / "m." / "amp." /
+    # "mobile." prefix and find the apex. That redundancy is the rule this file
+    # already enforces (test_every_named_source_now_has_an_extractor_or_a_
+    # stated_reason compares the two dicts key by key, not through the
+    # resolver), and "www3.nhk.or.jp" shows why leaning on the resolver is not
+    # enough anyway: "www3." is not one of the prefixes it knows.
+    # --- Wave 5A: Global wires & US mainstream ---
+    "apnews.com": ex_auto,
+    "www.apnews.com": ex_auto,
+    "ft.com": ex_auto,
+    "www.ft.com": ex_auto,
+    "wsj.com": ex_auto,
+    "www.wsj.com": ex_auto,
+    "nytimes.com": ex_auto,
+    "www.nytimes.com": ex_auto,
+    "washingtonpost.com": ex_auto,
+    "www.washingtonpost.com": ex_auto,
+    "economist.com": ex_auto,
+    "www.economist.com": ex_auto,
+    "bbc.com": ex_auto,
+    "www.bbc.com": ex_auto,
+    "bbc.co.uk": ex_auto,
+    "www.bbc.co.uk": ex_auto,
+    "theguardian.com": ex_auto,
+    "www.theguardian.com": ex_auto,
+    "thetimes.com": ex_auto,
+    "www.thetimes.com": ex_auto,
+    "thetimes.co.uk": ex_auto,
+    "www.thetimes.co.uk": ex_auto,
+    "telegraph.co.uk": ex_auto,
+    "www.telegraph.co.uk": ex_auto,
+    "news.sky.com": ex_auto,
+    "www.news.sky.com": ex_auto,
+    "politico.com": ex_auto,
+    "www.politico.com": ex_auto,
+    "politico.eu": ex_auto,
+    "www.politico.eu": ex_auto,
+    "axios.com": ex_auto,
+    "www.axios.com": ex_auto,
+    "forbes.com": ex_auto,
+    "www.forbes.com": ex_auto,
+    "fortune.com": ex_auto,
+    "www.fortune.com": ex_auto,
+    "businessinsider.com": ex_auto,
+    "www.businessinsider.com": ex_auto,
+    "markets.businessinsider.com": ex_auto,
+    "marketwatch.com": ex_auto,
+    "www.marketwatch.com": ex_auto,
+    "barrons.com": ex_auto,
+    "www.barrons.com": ex_auto,
+    "npr.org": ex_auto,
+    "www.npr.org": ex_auto,
+    "abcnews.com": ex_auto,
+    "www.abcnews.com": ex_auto,
+    "abcnews.go.com": ex_auto,
+    "nbcnews.com": ex_auto,
+    "www.nbcnews.com": ex_auto,
+    "cbsnews.com": ex_auto,
+    "www.cbsnews.com": ex_auto,
+    "foxbusiness.com": ex_auto,
+    "www.foxbusiness.com": ex_auto,
+    # --- Wave 5B: US regional, Europe, Canada, Oceania mainstream ---
+    "investing.com": ex_auto,
+    "www.investing.com": ex_auto,
+    "france24.com": ex_auto,
+    "www.france24.com": ex_auto,
+    "lemonde.fr": ex_auto,
+    "www.lemonde.fr": ex_auto,
+    "irishtimes.com": ex_auto,
+    "www.irishtimes.com": ex_auto,
+    "cityam.com": ex_auto,
+    "www.cityam.com": ex_auto,
+    "financialpost.com": ex_auto,
+    "www.financialpost.com": ex_auto,
+    "calgaryherald.com": ex_auto,
+    "www.calgaryherald.com": ex_auto,
+    "abc.net.au": ex_auto,
+    "www.abc.net.au": ex_auto,
+    "afr.com": ex_auto,
+    "www.afr.com": ex_auto,
+    "houstonchronicle.com": ex_auto,
+    "www.houstonchronicle.com": ex_auto,
+    "latimes.com": ex_auto,
+    "www.latimes.com": ex_auto,
+    "usatoday.com": ex_auto,
+    "www.usatoday.com": ex_auto,
+    "dw.com": ex_auto,
+    "www.dw.com": ex_auto,
+    "euronews.com": ex_auto,
+    "www.euronews.com": ex_auto,
+    "swissinfo.ch": ex_auto,
+    "www.swissinfo.ch": ex_auto,
+    "theglobeandmail.com": ex_auto,
+    "www.theglobeandmail.com": ex_auto,
+    "cbc.ca": ex_auto,
+    "www.cbc.ca": ex_auto,
+    "theaustralian.com.au": ex_auto,
+    "www.theaustralian.com.au": ex_auto,
+    "energynewsbulletin.net": ex_auto,
+    "www.energynewsbulletin.net": ex_auto,
+    "sodir.no": ex_auto,
+    "www.sodir.no": ex_auto,
+    # --- Wave 5C: Africa, Middle East & North-East Asia mainstream ---
+    "allafrica.com": ex_auto,
+    "www.allafrica.com": ex_auto,
+    "businessday.ng": ex_auto,
+    "www.businessday.ng": ex_auto,
+    "punchng.com": ex_auto,
+    "www.punchng.com": ex_auto,
+    "thisdaylive.com": ex_auto,
+    "www.thisdaylive.com": ex_auto,
+    "businesslive.co.za": ex_auto,
+    "www.businesslive.co.za": ex_auto,
+    "businessday.co.za": ex_auto,
+    "www.businessday.co.za": ex_auto,
+    "theeastafrican.co.ke": ex_auto,
+    "www.theeastafrican.co.ke": ex_auto,
+    "africaoilgasreport.com": ex_auto,
+    "www.africaoilgasreport.com": ex_auto,
+    "energycapitalpower.com": ex_auto,
+    "www.energycapitalpower.com": ex_auto,
+    "english.alarabiya.net": ex_auto,
+    "middleeasteye.net": ex_auto,
+    "www.middleeasteye.net": ex_auto,
+    "timesofisrael.com": ex_auto,
+    "www.timesofisrael.com": ex_auto,
+    "haaretz.com": ex_auto,
+    "www.haaretz.com": ex_auto,
+    "aa.com.tr": ex_auto,
+    "www.aa.com.tr": ex_auto,
+    "english.ahram.org.eg": ex_auto,
+    "dailysabah.com": ex_auto,
+    "www.dailysabah.com": ex_auto,
+    "tehrantimes.com": ex_auto,
+    "www.tehrantimes.com": ex_auto,
+    "oilandgasmiddleeast.com": ex_auto,
+    "www.oilandgasmiddleeast.com": ex_auto,
+    "agbi.com": ex_auto,
+    "www.agbi.com": ex_auto,
+    "tradearabia.com": ex_auto,
+    "www.tradearabia.com": ex_auto,
+    "pipelineoilandgasnews.com": ex_auto,
+    "www.pipelineoilandgasnews.com": ex_auto,
+    # Article host of the feed above (see the SOURCE_NAMES comment): without
+    # these keys the body fetch is skipped for every item the magazine
+    # publishes, since the gate resolves the ARTICLE host, not the feed host.
+    "energyconnects.com": ex_auto,
+    "www.energyconnects.com": ex_auto,
+    "asia.nikkei.com": ex_auto,
+    "japantimes.co.jp": ex_auto,
+    "www.japantimes.co.jp": ex_auto,
+    "www3.nhk.or.jp": ex_auto,
+    "koreaherald.com": ex_auto,
+    "www.koreaherald.com": ex_auto,
+    # --- Wave 5D: South & South-East Asia, Latin America mainstream, downstream trade press I ---
+    "straitstimes.com": ex_auto,
+    "www.straitstimes.com": ex_auto,
+    "channelnewsasia.com": ex_auto,
+    "www.channelnewsasia.com": ex_auto,
+    "bangkokpost.com": ex_auto,
+    "www.bangkokpost.com": ex_auto,
+    "e.vnexpress.net": ex_auto,
+    "timesofindia.indiatimes.com": ex_auto,
+    "economictimes.indiatimes.com": ex_auto,
+    "business-standard.com": ex_auto,
+    "www.business-standard.com": ex_auto,
+    "dawn.com": ex_auto,
+    "www.dawn.com": ex_auto,
+    "astanatimes.com": ex_auto,
+    "www.astanatimes.com": ex_auto,
+    "en.trend.az": ex_auto,
+    "trend.az": ex_auto,
+    "www.trend.az": ex_auto,
+    "en.mercopress.com": ex_auto,
+    "mercopress.com": ex_auto,
+    "www.mercopress.com": ex_auto,
+    "batimes.com.ar": ex_auto,
+    "www.batimes.com.ar": ex_auto,
+    "mexiconewsdaily.com": ex_auto,
+    "www.mexiconewsdaily.com": ex_auto,
+    "thejakartapost.com": ex_auto,
+    "www.thejakartapost.com": ex_auto,
+    "theedgemalaysia.com": ex_auto,
+    "www.theedgemalaysia.com": ex_auto,
+    "kaieteurnewsonline.com": ex_auto,
+    "www.kaieteurnewsonline.com": ex_auto,
+    "bnamericas.com": ex_auto,
+    "www.bnamericas.com": ex_auto,
+    "hydrocarbonprocessing.com": ex_auto,
+    "www.hydrocarbonprocessing.com": ex_auto,
+    "hydrocarbonengineering.com": ex_auto,
+    "www.hydrocarbonengineering.com": ex_auto,
+    # --- Wave 5E: O&G / refining / shipping trade press & institutions ---
+    "lngindustry.com": ex_auto,
+    "www.lngindustry.com": ex_auto,
+    "worldpipelines.com": ex_auto,
+    "www.worldpipelines.com": ex_auto,
+    "tanksterminals.com": ex_auto,
+    "www.tanksterminals.com": ex_auto,
+    "drillingcontractor.org": ex_auto,
+    "www.drillingcontractor.org": ex_auto,
+    "rbnenergy.com": ex_auto,
+    "www.rbnenergy.com": ex_auto,
+    "fuelsandlubes.com": ex_auto,
+    "www.fuelsandlubes.com": ex_auto,
+    "energymonitor.ai": ex_auto,
+    "www.energymonitor.ai": ex_auto,
+    "shipandbunker.com": ex_auto,
+    "www.shipandbunker.com": ex_auto,
+    "seatrade-maritime.com": ex_auto,
+    "www.seatrade-maritime.com": ex_auto,
+    "kpler.com": ex_auto,
+    "www.kpler.com": ex_auto,
+    "eia.gov": ex_auto,
+    "www.eia.gov": ex_auto,
+    "offshore-mag.com": ex_auto,
+    "www.offshore-mag.com": ex_auto,
+    "gasprocessingnews.com": ex_auto,
+    "www.gasprocessingnews.com": ex_auto,
+    "qcintel.com": ex_auto,
+    "www.qcintel.com": ex_auto,
+    "lloydslist.com": ex_auto,
+    "www.lloydslist.com": ex_auto,
+    "rivieramm.com": ex_auto,
+    "www.rivieramm.com": ex_auto,
+    "mobilityplaza.com": ex_auto,
+    "www.mobilityplaza.com": ex_auto,
+    "iea.org": ex_auto,
+    "www.iea.org": ex_auto,
+    "opec.org": ex_auto,
+    "www.opec.org": ex_auto,
+    "woodmac.com": ex_auto,
+    "www.woodmac.com": ex_auto,
+    "rystadenergy.com": ex_auto,
+    "www.rystadenergy.com": ex_auto,
+    "vortexa.com": ex_auto,
+    "www.vortexa.com": ex_auto,
+    "oxfordenergy.org": ex_auto,
+    "www.oxfordenergy.org": ex_auto,
+    "icis.com": ex_auto,
+    "www.icis.com": ex_auto,
+    "jpt.spe.org": ex_auto,
 }
 
 

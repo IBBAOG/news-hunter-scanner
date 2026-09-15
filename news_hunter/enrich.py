@@ -40,6 +40,7 @@ _GNEWS_TIMEOUT = 8.0  # timeout por chamada (gnewsdecoder leva ~1.5s quando sem 
 log = logging.getLogger(__name__)
 
 from ._clipinator_shim import (
+    _HOST_PREFIXES,
     SOURCE_NAMES,
     _extract,
     clean_paragraphs,
@@ -82,11 +83,40 @@ def _truncate(s: str, max_chars: int = SNIPPET_MAX_CHARS) -> str:
 
 
 def source_name_for(domain: str) -> str:
+    """Display name for a host, falling back to the host itself.
+
+    Resolution mirrors `resolve_extractor_domain` step for step, off the same
+    `_HOST_PREFIXES` tuple: exact host, then the host with a "www." / "m." /
+    "amp." / "mobile." PREFIX removed, then the "www." form of that. The two
+    lookups answering different questions about the same host is how
+    `m.yicai.com` got an extractor and no name for a whole wave, so they share
+    the prefix list rather than each keeping their own.
+
+    The prefix strip used to be `lstrip("www.")`, which removes CHARACTERS from
+    the set {w, .} instead of a prefix: "www.wsj.com" -> "sj.com",
+    "worldoil.com" -> "orldoil.com", "www3.nhk.or.jp" -> "3.nhk.or.jp". Every
+    mangled host missed the dict and the function returned the raw domain -
+    exactly the "outlet renders as its bare domain" symptom of an unregistered
+    host - so the miss was invisible and the registry keyed both forms of every
+    outlet to compensate. It keeps doing so: an exact key needs no fallback.
+
+    Case is NOT normalised here, deliberately: the callers hand over a netloc
+    that `normalize_url` already lowercased, and silently accepting a host this
+    function has never actually seen would widen the contract past what is
+    measured.
+    """
     if domain in SOURCE_NAMES:
         return SOURCE_NAMES[domain]
-    stripped = domain.lstrip("www.")
-    if stripped in SOURCE_NAMES:
-        return SOURCE_NAMES[stripped]
+    for prefix in _HOST_PREFIXES:
+        if domain.startswith(prefix):
+            stripped = domain[len(prefix):]
+            if stripped in SOURCE_NAMES:
+                return SOURCE_NAMES[stripped]
+            # Third step: the outlet may be registered www.-only (cnbc.com,
+            # cnn.com before this pass), so "m.cnbc.com" has to re-add it.
+            if f"www.{stripped}" in SOURCE_NAMES:
+                return SOURCE_NAMES[f"www.{stripped}"]
+            break
     return domain
 
 

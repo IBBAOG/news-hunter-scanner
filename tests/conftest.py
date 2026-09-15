@@ -22,6 +22,53 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from news_hunter import translate as _translate  # noqa: E402
 
 
+#: Hosts that carry the ARTICLE while `sources.py` registers a different host
+#: for the same outlet, so `registered_hosts()` below cannot derive them.
+#:
+#: A feed host is not always the article host: www.pipelineoilandgasnews.com
+#: links 30/30 items to energyconnects.com (measured on the parallel branch
+#: intl-post-sources, item A, which registers that host in
+#: INTERNATIONAL_RSS_DOMAINS), Business Day South Africa publishes on
+#: businessday.co.za while its feed is businesslive.co.za, and Trend's feed is
+#: en.trend.az while Google hands back trend.az. Each one was seen in
+#: `news_articles` rendering as its bare domain. Listed literally on purpose:
+#: this branch reads main's registries, which do not carry these hosts yet, so
+#: deriving them would silently drop the cases until the branches merge.
+ARTICLE_HOSTS: dict[str, str] = {
+    "businessday.co.za": "Business Day (South Africa)",
+    "energyconnects.com": "Energy Connects",
+    "trend.az": "Trend News Agency",
+}
+
+
+def registered_hosts() -> set[str]:
+    """Every host the scanner can attribute an English-language item to.
+
+    A plain function, not a fixture: the international registry tests feed it to
+    `pytest.mark.parametrize`, which runs at collection time, before any fixture
+    exists.
+
+    RSS entries arrive normalize_url'd (www stripped) and are registered apex +
+    www in `INTERNATIONAL_RSS_DOMAINS`; a Google News entry may be path-scoped
+    (`marketwatch.com/story`, `aa.com.tr/en`, `www3.nhk.or.jp/nhkworld`) and what
+    reaches the enricher is the host part of it, with or without www. Derived
+    from `sources.py` on every call so a wave that registers a feed and forgets
+    the name or the extractor turns the tests red on its own.
+    """
+    from news_hunter.sources import (
+        ENGLISH_NO_RSS_DOMAINS,
+        INTERNATIONAL_RSS_DOMAINS,
+    )
+
+    hosts = set(INTERNATIONAL_RSS_DOMAINS)
+    for entry in ENGLISH_NO_RSS_DOMAINS:
+        host = entry.split("/")[0].lower()
+        hosts.add(host)
+        if host.startswith("www."):
+            hosts.add(host.removeprefix("www."))
+    return hosts
+
+
 @pytest.fixture(autouse=True)
 def _isolate_translate_backends(monkeypatch):
     _translate.reset_breakers()
