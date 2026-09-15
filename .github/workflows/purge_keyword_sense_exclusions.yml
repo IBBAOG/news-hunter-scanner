@@ -1,0 +1,105 @@
+name: Purge keyword sense exclusions
+
+# Removes keyword labels that news_hunter/keyword_senses.py now classifies as an
+# off-topic sense (e.g. 'Compass' on Jeep Compass or Vinci Compass stories) from
+# rows already stored in news_articles. The scanner applies the same rule to new
+# hits; this job cleans what was stored before it. See
+# scripts/purge_keyword_sense_exclusions.py for the decision table.
+#
+# workflow_dispatch ONLY: a repair pass, not a recurring job. Three steps, so the
+# backup is durable before anything is written:
+#   1. Plan    - decide every row, write the JSON backup of each affected full row
+#                and the plan (mutations + the array each was decided on). No DB
+#                writes. Runs on every dispatch.
+#   2. Upload  - plan, backup and decisions.csv as an artifact (90 days). Fails the
+#                job if the files are missing, and step 3 never runs after a
+#                failed upload.
+#   3. Apply   - only with apply=true: mutate exactly what the uploaded plan says,
+#                each write guarded on url + the planned array. The script also
+#                refuses when a target keyword is not match_type 'exact'.
+# Dispatch with apply=false first and read the step summary / CSV.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: write the planned changes (default is plan + upload only)
+        type: boolean
+        required: false
+        default: false
+      days:
+        description: only rows with found_at in the last N days
+        required: false
+        default: '3'
+      all_history:
+        description: ignore days and scan every tagged row
+        type: boolean
+        required: false
+        default: false
+      refetch_missing_evidence:
+        description: re-fetch rows whose stored text has no whole-word occurrence (throttled)
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: purge-keyword-sense-exclusions
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    # Refetch is bounded by --refetch-deadline-minutes 60 (no fetch starts after
+    # it; one slow fetch can still take ~60 s through the impersonation retries)
+    # and by --refetch-cap 300 (300 x ~18 s = 90 min). 100 min covers the plan,
+    # the install, the upload and the apply.
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `cache: pip`: see scan.yml (the --no-cache-dir install leaves the
+      # cache folder empty and the setup-python post step would fail the job).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Plan (no database writes)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
+          BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
+          DAYS: ${{ inputs.days || '3' }}
+          ALL_HISTORY: ${{ inputs.all_history }}
+          REFETCH: ${{ inputs.refetch_missing_evidence }}
+        run: |
+          case "${DAYS}" in
+            ''|*[!0-9]*) echo "days must be a whole number, got '${DAYS}'"; exit 2 ;;
+          esac
+          ARGS="--days ${DAYS} --output-dir purge_output --plan-out purge_output/plan.json"
+          ARGS="$ARGS --refetch-cap 300 --refetch-deadline-minutes 60"
+          if [ "${ALL_HISTORY}" = "true" ]; then ARGS="$ARGS --all-history"; fi
+          if [ "${REFETCH}" = "true" ]; then ARGS="$ARGS --refetch-missing-evidence"; fi
+          python -m scripts.purge_keyword_sense_exclusions $ARGS
+
+      - name: Upload plan, backup and decisions
+        uses: actions/upload-artifact@v4
+        with:
+          # run_attempt: "Re-run jobs" keeps the run_id, and a second upload under
+          # the same artifact name fails with 409.
+          name: purge-keyword-sense-exclusions-${{ github.run_id }}-${{ github.run_attempt }}
+          path: purge_output/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Apply the uploaded plan
+        if: ${{ inputs.apply }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python -m scripts.purge_keyword_sense_exclusions --apply-plan purge_output/plan.json

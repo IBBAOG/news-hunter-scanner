@@ -5,6 +5,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
+from .keyword_senses import drop_sense_excluded
+
 
 # Marcadores de blocos de "matérias relacionadas" dentro de summaries RSS.
 # Cortamos tudo apartir deles para evitar que o título de uma recomendação
@@ -121,6 +123,8 @@ def matches_keywords(
     text: str,
     keywords: list[str],
     exact_keywords: set[str] | None = None,
+    *,
+    sense_context: str = "",
 ) -> list[str]:
     """Return list of keywords matching the text (empty if none match).
 
@@ -138,6 +142,18 @@ def matches_keywords(
 
     Compatibility: callers that omit `exact_keywords` get all-substring
     behaviour (same as before the match_type feature shipped).
+
+    Keyword sense exclusion (keyword_senses.py): a hit whose keyword has an
+    entry in KEYWORD_SENSE_EXCLUSIONS is dropped when every occurrence is
+    explained by an off-topic sense. An occurrence pattern ('Jeep Compass',
+    'Vinci Compass') explains only the occurrence it touches, so "Vinci Compass
+    e Compass divulgam balanco" keeps the hit. Document vocabulary ('SUV',
+    'psilocibina') explains every occurrence in the text: that is the one
+    spill-over, and it is why a bare 'Compass' next to 'SUV' is dropped.
+    Company context ('Cosan', 'GNV', 'Comgas') always keeps the hit.
+    Other keywords on the same text are unaffected. `sense_context` is extra
+    text from the same article (e.g. the RSS summary next to a title) that the
+    sense judgement reads but that is never matched for hits itself.
     """
     if not text:
         return []
@@ -161,7 +177,8 @@ def matches_keywords(
         if orig not in seen:
             seen.add(orig)
             out.append(orig)
-    return out
+    sense_doc = f"{text} \n {sense_context}" if sense_context else text
+    return drop_sense_excluded(out, sense_doc, exact_keywords)
 
 
 def within_window(published_at: datetime | None, hours: int) -> bool:
