@@ -6,8 +6,9 @@ global deadline across ~65 feeds and wrong for the handful of feeds that answer
 ReadTimeout and the outlet looks unreachable. The 2026-08-18 international waves
 lost eia.gov (9-13s), intellinews.com and globalenergynetwork.net (~6.6s) that
 way and downgraded them to GNews title-only coverage or rejected them. All three
-are back on RSS since 2026-09-14 - two with an override, intellinews with none
-(re-measured at 0.53s).
+are back on RSS since 2026-09-14 - two with an override, intellinews with none:
+its origin turned out to be BIMODAL rather than slow (it answers in ~0.1-0.5s or
+hangs past 15s, measured 2026-09-15), and no budget converts a hang.
 
 sources.FEED_TIMEOUT_OVERRIDES lets one host declare a measured budget. What is
 pinned here:
@@ -112,6 +113,33 @@ def test_the_shipped_registry_changes_nothing_for_unlisted_hosts():
     host = "definitely-not-registered.invalid"
     assert host not in sources.FEED_TIMEOUT_OVERRIDES
     assert sources.feed_timeout(host, fetcher.FEED_TIMEOUT) == fetcher.FEED_TIMEOUT
+
+
+def test_intellinews_is_deliberately_not_given_an_override():
+    """The 2026-09-15 bimodal-origin decision, pinned so it is not undone blindly.
+
+    www.intellinews.com/feed/ does not have a latency, it has two: it answers in
+    ~0.1-0.5s or it hangs past any budget. Three runner probes minutes apart on
+    2026-09-15 with feed_timeout=15 read fetch=0.09s (items=15), then ReadTimeout
+    at 15.0s, then ReadTimeout at 15.0s; production at the 4s default was 50/50
+    over four scans, with no slow-but-successful case in either sample.
+
+    An entry here could only ever be a LONGER budget. It would convert none of
+    the failures and would spend that budget out of the 22s COLLECT_DEADLINE
+    shared by ~65 feeds on every second scan, so the host keeps the 4s default
+    and stays on RSS (its good mode lands rows with bodies).
+    """
+    for key in ("intellinews.com", "www.intellinews.com"):
+        assert key not in _SHIPPED, (
+            f"{key} was given a feed-timeout override: the origin hangs past 15s, "
+            "so a longer budget converts no failure and only burns the shared "
+            "collect deadline. See the Wave 5E block in sources.py."
+        )
+
+    # ...and the resolver must therefore hand it the default, either spelling.
+    sources.FEED_TIMEOUT_OVERRIDES.update(_SHIPPED)  # the fixture restores after
+    for spelling in ("intellinews.com", "www.intellinews.com"):
+        assert sources.feed_timeout(spelling, fetcher.FEED_TIMEOUT) == fetcher.FEED_TIMEOUT
 
 
 # --------------------------------------------------------------------------

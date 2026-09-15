@@ -1574,20 +1574,41 @@ RSS_FEEDS: dict[str, list[str]] = {
     #     the reason), which also gives 2 EN `site:` queries back to the burst
     #     budget -- and RSS carries bodies, which the GNews route never did.
     # bne IntelliNews (intellinews.com) -- CIS / emerging-markets energy &
-    # sanctions wire. Re-measured on the runner 2026-09-14 (feed_timeout=12) and
-    # AGAIN on 2026-09-14 post-merge through measure_source.yml:
+    # sanctions wire. Measured on the runner 2026-09-14 (feed_timeout=12) and
+    # again post-merge through measure_source.yml:
     # items=10 span=8h fresh=10 pass=4 near=6 fetch=0.53s (www) / 0.38s (apex)
     # -- "Nigeria's Dangote Refinery launches $1.6bn IPO in Africa's largest
     # share sale", "Missile War Monitor: Trump tells Ukraine to stop hitting
     # Russian diesel", "Iran warns insurers over Hormuz blacklist ships", plus an
-    # Iran sanctions item. That is ~8x inside the 4s default, so the 2026-08-18
-    # "Read timed out" was a slow-origin episode, NOT a standing budget problem:
-    # NO FEED_TIMEOUT_OVERRIDES entry, on purpose. GNews measured pass=11/7d but
-    # title-only; a 10-slot feed that turns over every 8h is harvested
-    # continuously by the 5-minute scan and lands with bodies.
+    # Iran sanctions item. GNews measured pass=11/7d but title-only; the feed
+    # carries bodies, which is why the outlet was promoted here on 2026-09-14.
+    #
+    # THE ORIGIN IS BIMODAL, NOT SLOW (2026-09-15: three runner probes minutes
+    # apart, plus four production scans). It either answers in ~0.1-0.5s or it
+    # hangs past 15s -- there is no middle, so a "one-off" reading is a coin
+    # flip, not a measurement. Runner, same URL, feed_timeout=15:
+    #   11:35:41 items=15 span=7h fresh=15 pass=7 near=8 fetch=0.09s
+    #   11:37:51 ERROR Read timed out (read timeout=15.0)
+    #   11:41:56 ERROR Read timed out (read timeout=15.0)
+    # Production on 4fe8c35 at the 4s default: 11:25 and 11:30 errored ("Read
+    # timed out (read timeout=4)", runs 34963165513 / 34963616108), 11:35 and
+    # 11:40 succeeded -- the 11:35 scan landed 7 rows, 6 of them WITH BODIES.
+    # TWO CONSEQUENCES, both counter-intuitive; do not undo either:
+    #   * NO FEED_TIMEOUT_OVERRIDES ENTRY. A 14s budget converts none of the
+    #     failures (the hang outlives 15s, above) and would burn 14s of the 22s
+    #     COLLECT_DEADLINE shared by ~65 feeds on every second scan. 4s is the
+    #     cheap ceiling for a failure that cannot be waited out.
+    #   * KEEP IT ON RSS despite the recurring error line. ~50% of polls
+    #     answering is NOT 50% coverage: 10-15 slots over a 7-8h span, polled
+    #     every 5 min, gives each item ~40+ chances before it falls out of the
+    #     feed. Treat "Read timed out" for this host as noise unless a row count
+    #     (news_articles, url LIKE %intellinews.com%) says otherwise.
     # NOTE for whoever re-measures: the feed answers 403 from residential IPs and
     # from generic cloud fetchers -- it is 200 from the GitHub runner. Measure it
-    # through measure_source.yml or you will conclude it is dead.
+    # through measure_source.yml or you will conclude it is dead -- and measure
+    # it MORE THAN ONCE: a single probe lands in one mode and "proves" whichever
+    # conclusion you were leaning towards. That is exactly how the 0.53s one-shot
+    # of 2026-09-14 shipped this entry with no caveat at all.
     "www.intellinews.com": [
         "https://www.intellinews.com/feed/",
     ],
@@ -3854,16 +3875,26 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # all; delete it and the feed silently goes back to 0.
     "globalenergynetwork.net": 14.0,
     # bne IntelliNews (intellinews.com) -- the THIRD 2026-08-18 casualty, and the
-    # one that needs NO entry here. Re-measured 2026-09-14 with feed_timeout=12,
-    # www.intellinews.com/feed/ answered in fetch=0.48s: items=10 span=8h
-    # fresh=10 pass=4 near=6. That is ~8x inside the 4s default, so the
-    # 2026-08-18 "Read timed out" was a transient / slow-origin episode, not a
-    # standing budget problem, and an override would be a no-op. Recorded here as
-    # a COMMENT (not an entry) so the next wave does not re-measure it.
-    # Confirmed 2026-09-14 post-merge (fetch=0.53s www / 0.38s apex) and the
-    # outlet was PROMOTED to RSS in the same change; it still needs no entry
-    # here. Do not add one "to be safe": an unnecessary override raises the worst
-    # case one feed can spend out of the 22s COLLECT_DEADLINE shared by ~65 feeds.
+    # one that still gets NO entry here, but for the OPPOSITE reason to the one
+    # recorded on 2026-09-14. Read this before "fixing" it.
+    # The 2026-09-14 readings (fetch=0.48s, then 0.53s post-merge) were true and
+    # misleading: a single probe catches this origin in one of TWO modes. It
+    # either answers in ~0.1-0.5s or it hangs past any budget you give it.
+    # Re-measured 2026-09-15 with feed_timeout=15, three runner probes minutes
+    # apart: fetch=0.09s (items=15), then Read timed out at 15.0s, then Read
+    # timed out at 15.0s again. In production it errored "Read timed out (read
+    # timeout=4)" on runs 34963165513 (11:25) and 34963616108 (11:30) and
+    # answered fine at 11:35 and 11:40 -- 50/50, with no slow-but-successful
+    # case anywhere in either sample.
+    # AN OVERRIDE IS THEREFORE WORSE THAN USELESS HERE, not merely unnecessary:
+    # 14.0 would convert not one failure, and would spend 14s of the 22s
+    # COLLECT_DEADLINE shared by ~65 feeds on every second scan -- on a scan
+    # where www.cnnbrasil.com.br already dies at that deadline. 4s is the right
+    # ceiling for a failure that cannot be waited out.
+    # The outlet STAYS on RSS regardless: the good mode lands rows with bodies
+    # (7 rows / 6 bodies from the 11:35 scan), and a 10-15 slot feed on a 7-8h
+    # span polled every 5 min loses ~nothing to a 50% answer rate.
+    # The absence of this key is pinned by tests/test_feed_timeout_overrides.py.
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----

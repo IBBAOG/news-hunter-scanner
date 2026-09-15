@@ -451,7 +451,7 @@ false-positive caveats. `pass` here is the title/summary pass count over a
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
 | The Moscow Times | themoscowtimes.com | RSS | 17 |
-| bne IntelliNews | intellinews.com | RSS | 4 (8h; promoted from GNews 2026-09-14, GNews was 11) |
+| bne IntelliNews | intellinews.com | RSS | 4 (8h; promoted from GNews 2026-09-14, GNews was 11; bimodal origin, ~50% of polls time out — see below) |
 | Interfax | interfax.com | GNews en-US | 11 |
 | TASS | tass.com | GNews en-US | 8 |
 
@@ -759,8 +759,19 @@ the measured `fetch=N.NNs` plus headroom (the default is 4s and the 2026-08-18
 waves lost eia.gov, intellinews and globalenergynetwork.net to it). All three
 were recovered on 2026-09-14 by re-measuring: eia.gov (10.14s) and
 globalenergynetwork.net (10.65s, a 1000-entry archive feed) with an override,
-intellinews with none — at 0.53s its "timeout" had been a slow-origin episode.
-A one-off timeout is not a verdict.
+intellinews with none. A one-off timeout is not a verdict.
+
+**Neither is a one-off success — measure more than once.** A host can be
+*bimodal* rather than slow, and then a single probe is a coin flip that will
+confirm whatever you already believed. intellinews is the worked example: read
+at `fetch=0.53s` on 2026-09-14 and promoted to RSS on that basis, it was
+re-measured on 2026-09-15 three times minutes apart at `feed_timeout=15` and
+gave `0.09s`, `ReadTimeout@15s`, `ReadTimeout@15s`; production at the 4s default
+was 50/50 over four scans. For that shape an override is *worse* than useless —
+a longer budget converts none of the hangs and burns the 22s `COLLECT_DEADLINE`
+shared by ~65 feeds on every second scan — so the host keeps the default and
+stays on RSS, because a 10-15 slot feed on a 7-8h span polled every 5 min loses
+~nothing to a 50% answer rate. Check a row count before calling it an outage.
 
 ### (b) A Google News en-US candidate
 
