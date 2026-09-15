@@ -378,6 +378,12 @@ SOURCE_NAMES: dict[str, str] = {
     "www.thetimes.com": "The Times",
     "thetimes.co.uk": "The Times",
     "www.thetimes.co.uk": "The Times",
+    # resolved host seen in news_articles 2026-09-15 (8 rows): the paper's job
+    # board, which the scanner reaches because vacancy titles match `oil` / `gas`
+    # as plain substrings. Named, NOT filtered -- relevance is the keyword
+    # gate's job, and dropping a host here would only hide it from the source
+    # filter while the rows kept landing.
+    "appointments.thetimes.com": "The Times",
     "telegraph.co.uk": "The Telegraph",
     "www.telegraph.co.uk": "The Telegraph",
     # subdomain-only outlet
@@ -397,6 +403,8 @@ SOURCE_NAMES: dict[str, str] = {
     "businessinsider.com": "Business Insider",
     "www.businessinsider.com": "Business Insider",
     "markets.businessinsider.com": "Business Insider",
+    # resolved host seen in news_articles 2026-09-15 (17 rows): the Africa desk
+    "africa.businessinsider.com": "Business Insider",
     # ENGLISH_NO_RSS entry is marketwatch.com/story
     "marketwatch.com": "MarketWatch",
     "www.marketwatch.com": "MarketWatch",
@@ -408,6 +416,10 @@ SOURCE_NAMES: dict[str, str] = {
     "abcnews.com": "ABC News",
     "www.abcnews.com": "ABC News",
     "abcnews.go.com": "ABC News",
+    # resolved hosts seen in news_articles 2026-09-15 (9 and 3 rows): CDN and
+    # ingest hosts Google hands back instead of the canonical one
+    "www-cdn.abcnews.com": "ABC News",
+    "ingest.abcnews.com": "ABC News",
     "nbcnews.com": "NBC News",
     "www.nbcnews.com": "NBC News",
     "cbsnews.com": "CBS News",
@@ -1224,6 +1236,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.thetimes.com": ex_auto,
     "thetimes.co.uk": ex_auto,
     "www.thetimes.co.uk": ex_auto,
+    # resolved host seen in news_articles 2026-09-15 (job board, see SOURCE_NAMES)
+    "appointments.thetimes.com": ex_auto,
     "telegraph.co.uk": ex_auto,
     "www.telegraph.co.uk": ex_auto,
     "news.sky.com": ex_auto,
@@ -1241,6 +1255,8 @@ EXTRACTORS: dict[str, Extractor] = {
     "businessinsider.com": ex_auto,
     "www.businessinsider.com": ex_auto,
     "markets.businessinsider.com": ex_auto,
+    # resolved host seen in news_articles 2026-09-15 (Africa desk)
+    "africa.businessinsider.com": ex_auto,
     "marketwatch.com": ex_auto,
     "www.marketwatch.com": ex_auto,
     "barrons.com": ex_auto,
@@ -1250,6 +1266,9 @@ EXTRACTORS: dict[str, Extractor] = {
     "abcnews.com": ex_auto,
     "www.abcnews.com": ex_auto,
     "abcnews.go.com": ex_auto,
+    # resolved hosts seen in news_articles 2026-09-15 (CDN / ingest hosts)
+    "www-cdn.abcnews.com": ex_auto,
+    "ingest.abcnews.com": ex_auto,
     "nbcnews.com": ex_auto,
     "www.nbcnews.com": ex_auto,
     "cbsnews.com": ex_auto,

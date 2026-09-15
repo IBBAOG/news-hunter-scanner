@@ -34,10 +34,25 @@ from news_hunter import translate as _translate  # noqa: E402
 #: `news_articles` rendering as its bare domain. Listed literally on purpose:
 #: this branch reads main's registries, which do not carry these hosts yet, so
 #: deriving them would silently drop the cases until the branches merge.
+#:
+#: The second group below is the same failure from the other direction: not a
+#: different outlet's article host, but a SUBDOMAIN of a registered one that
+#: Google attributes items to. `resolve_extractor_domain` only strips
+#: `www.`/`m.`/`amp.`/`mobile.`, so `africa.` / `ingest.` / `www-cdn.` /
+#: `appointments.` are unknown hosts: no display name, no body fetch. They
+#: cannot be derived from the registries either -- they are not registry
+#: entries -- so each one is a literal case, added when it shows up in
+#: `news_articles`.
 ARTICLE_HOSTS: dict[str, str] = {
     "businessday.co.za": "Business Day (South Africa)",
     "energyconnects.com": "Energy Connects",
     "trend.az": "Trend News Agency",
+    # resolved host variants seen in news_articles 2026-09-15 (row counts as of
+    # that date): Google attributed items to these and they rendered bare.
+    "africa.businessinsider.com": "Business Insider",     # 17 rows, Africa desk
+    "www-cdn.abcnews.com": "ABC News",                    # 9 rows, CDN host
+    "ingest.abcnews.com": "ABC News",                     # 3 rows, ingest host
+    "appointments.thetimes.com": "The Times",             # 8 rows, job board
 }
 
 
