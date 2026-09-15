@@ -364,22 +364,34 @@ Required secrets (in addition to those above): `BRASIL_ENERGIA_USER`,
 
 ## International coverage
 
-Alongside the ~60 Brazilian sources, the scanner carries **48 English-language
-international outlets** across seven regions — six that predated the program plus
-**42 added in four waves** (2026-08-18). Two surfaces are used, in this order of
-preference:
+Alongside the ~60 Brazilian sources, the scanner carries **161 English-language
+international outlets** — six that predated the program, 42 added in four waves
+(2026-08-18) and 113 added by the five Wave 5 branches and their post-merge
+corrections (2026-09-14). Two surfaces are used, in this order of preference:
 
 - **RSS** — a dated feed the scanner's feed path reaches from its datacenter
-  runner (15 outlets). Matches land on the item title/summary with no body fetch.
+  runner (**58 registrations**). Matches land on the item title/summary with no
+  body fetch, and the body is there when a keyword needs it.
 - **GNews en-US** — a Google News `site:<domain> when:<window> (<keywords>)`
-  query at `hl=en-US` (33 outlets), used when the outlet's own feed is
+  query at `hl=en-US` (**103 outlets**), used when the outlet's own feed is
   WAF-blocked, paywalled, dateless or absent. Google supplies the date; bodies
   stay unreachable, so these land **title-only** (empty snippet).
 
+Counts are from the registries themselves (`len(ENGLISH_NO_RSS_DOMAINS)` and the
+`RSS_FEEDS` keys tagged in `INTERNATIONAL_RSS_DOMAINS`) on 2026-09-14 and move
+with every wave — nothing asserts them, so re-count rather than trust them. The
+EN GNews list is past the per-scan burst budget (`EN_GNEWS_QUERIES_PER_SCAN`, 34),
+so it now rotates in **4 cohorts**: every domain is queried every ~20 minutes,
+well inside each query's 24h `when:` window.
+
 What makes English outlets yield at all is the keyword layer. Matching runs over
-the **full 91-keyword Supabase lexicon** (41 exact / 50 substring — `oil`, `gas`,
-`Brent`, `WTI`, `OPEC`, `LNG`, `crude`, `diesel`, `refinery`, `Hormuz`,
-`ExxonMobil`, `Petrobras`, …), while *retrieval* on the GNews route is narrowed to
+the **full live Supabase lexicon — 187 keywords (78 exact / 109 substring) on
+2026-09-14** (180 global rows in `news_hunter_default_keywords` plus the
+per-user rows the scanner unions in; `oil`, `gas`, `Brent`, `WTI`, `OPEC`, `LNG`,
+`crude`, `diesel`, `refinery`, `Hormuz`, `ExxonMobil`, `Petrobras`, …) — the
+number `measure_source` prints as `keywords: N total` at the top of every run,
+which is the only count worth quoting. While *retrieval* on the GNews route is
+narrowed to
 the **12-term `ENGLISH_KEYWORD_PRIORITY`** subset (`sources.py`), the block Google
 will not truncate. The two are different funnels — a matching gap is closed with a
 DB keyword row, never by editing the tuple.
@@ -409,7 +421,7 @@ false-positive caveats. `pass` here is the title/summary pass count over a
 | Upstream | upstreamonline.com | GNews en-US | 60 |
 | TradeWinds | tradewindsnews.com | GNews en-US | 44 |
 | Argus Media | argusmedia.com | GNews en-US | 8 |
-| Global Energy Network | globalenergynetwork.net | GNews en-US | 18 |
+| Global Energy Network | globalenergynetwork.net | RSS (14s timeout override) | 19 (promoted from GNews 2026-09-14; GNews was 18) |
 | CNN | cnn.com / edition.cnn.com | GNews en-US | ~16–29/30d |
 | The Edge Singapore | theedgesingapore.com | GNews en-US | 19 (24h) |
 
@@ -439,7 +451,7 @@ false-positive caveats. `pass` here is the title/summary pass count over a
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
 | The Moscow Times | themoscowtimes.com | RSS | 17 |
-| bne IntelliNews | intellinews.com | GNews en-US | 11 |
+| bne IntelliNews | intellinews.com | RSS | 4 (8h; promoted from GNews 2026-09-14, GNews was 11) |
 | Interfax | interfax.com | GNews en-US | 11 |
 | TASS | tass.com | GNews en-US | 8 |
 
@@ -549,9 +561,9 @@ items and is not what the outlet's own feed links to).
 | Houston Chronicle | houstonchronicle.com | GNews en-US | 35 |
 | Los Angeles Times | latimes.com | GNews en-US | 21 |
 | USA Today | usatoday.com | GNews en-US | 36 |
-| Deutsche Welle (EN edition) | dw.com | GNews en-US | 23 |
-| Euronews | euronews.com | GNews en-US | 23 |
-| Swissinfo | swissinfo.ch | GNews en-US | 12 |
+| Deutsche Welle (EN edition) | dw.com | GNews en-US | 23 (titles verified English 20/20, 2026-09-14) |
+| Euronews | euronews.com | GNews en-US | 23 (titles verified English 23/23, 2026-09-14) |
+| Swissinfo | swissinfo.ch | GNews en-US | 12 (titles verified English 11/11, 2026-09-14) |
 | The Globe and Mail | theglobeandmail.com | GNews en-US | 98 |
 | CBC News | cbc.ca | GNews en-US | 39 |
 | The Australian | theaustralian.com.au | GNews en-US | 46 |
@@ -639,7 +651,7 @@ comment in `sources.py` carries each rejected surface with its numbers.
 | Dawn | dawn.com | RSS | 15 (88h) |
 | The Astana Times | astanatimes.com | RSS | 2 (11h) |
 | Trend News Agency | en.trend.az | RSS | 2 (6h, +1 rescued) |
-| MercoPress | en.mercopress.com | RSS | 1 (48h); GNews cross-check 5 |
+| MercoPress | en.mercopress.com | GNews en-US | 5 (RSS moved out 2026-09-14: its only pass in 48h was an RAF refuelling "tanker") |
 | Buenos Aires Times | batimes.com.ar | RSS | 6 |
 | Mexico News Daily | mexiconewsdaily.com | RSS | 1 (28h) |
 | The Jakarta Post | thejakartapost.com | GNews en-US | 12 |
@@ -648,6 +660,12 @@ comment in `sources.py` carries each rejected surface with its numbers.
 | BNamericas | bnamericas.com | GNews en-US | 25 |
 | Hydrocarbon Processing | hydrocarbonprocessing.com | GNews en-US | 61 (~40 real articles) |
 | Hydrocarbon Engineering | hydrocarbonengineering.com | GNews en-US | 13 |
+
+**Surface correction, 2026-09-14 (post-merge):** MercoPress was registered on
+RSS and moved to GNews en-US. Its feed measured `pass=1` over 48h and that pass
+was a false positive (an RAF air-to-air refuelling *tanker*), i.e. an on-beat
+yield of zero, while `site:en.mercopress.com` measures `pass=5/7d` all on-beat.
+The feed line stays in `sources.py` commented out, with both numbers.
 
 Rejected by this wave, with the measurement recorded next to a commented-out
 entry in `ENGLISH_NO_RSS_DOMAINS`: Caixin Global (re-test, GNews pass=0/7d),
@@ -738,7 +756,11 @@ gh workflow run measure_source.yml -f urls="https://site.com/feed/" -f feed_time
 
 If it yields at 12s, the host belongs in `sources.FEED_TIMEOUT_OVERRIDES` with
 the measured `fetch=N.NNs` plus headroom (the default is 4s and the 2026-08-18
-waves lost eia.gov, intellinews and globalenergynetwork.net to it).
+waves lost eia.gov, intellinews and globalenergynetwork.net to it). All three
+were recovered on 2026-09-14 by re-measuring: eia.gov (10.14s) and
+globalenergynetwork.net (10.65s, a 1000-entry archive feed) with an override,
+intellinews with none — at 0.53s its "timeout" had been a slow-origin episode.
+A one-off timeout is not a verdict.
 
 ### (b) A Google News en-US candidate
 

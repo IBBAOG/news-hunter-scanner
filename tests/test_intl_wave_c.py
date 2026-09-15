@@ -25,10 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from news_hunter.sources import (  # noqa: E402
     ENGLISH_NO_RSS_DOMAINS,
-    FEED_TIMEOUT_OVERRIDES,
     INTERNATIONAL_RSS_DOMAINS,
     LANGUAGES,
     RSS_FEEDS,
+    feed_timeout,
 )
 
 # host key in RSS_FEEDS -> apex used by normalize_url / SOURCE_NAMES
@@ -117,8 +117,19 @@ def test_alarabiya_english_and_arabic_stay_separate():
     assert "english.alarabiya.net" not in LANGUAGES["ar"].no_rss_domains
 
 
-def test_wave_c_feeds_need_no_timeout_override():
-    """Measured 2026-09-14: slowest Wave 5C feed was 1.74s against a 4s default."""
-    for host in WAVE_C_RSS:
-        assert host not in FEED_TIMEOUT_OVERRIDES
-        assert WAVE_C_RSS[host] not in FEED_TIMEOUT_OVERRIDES
+def test_wave_c_feeds_run_on_the_default_budget():
+    """Measured 2026-09-14: the slowest Wave 5C feed was 1.74s against a 4s
+    default, so none of them was given an override.
+
+    Inverted on 2026-09-14 from `host not in FEED_TIMEOUT_OVERRIDES`: that form
+    asserted the shape of a dict instead of the behaviour, and it forbade the
+    only healthy reaction to a feed that starts timing out -- measuring it and
+    giving it a budget. What this pins is that no Wave 5C feed is being GIVEN
+    EXTRA TIME it never needed, since an inflated budget is spent out of the
+    22s COLLECT_DEADLINE ~65 feeds share. A wave that measures one of these
+    slower is expected to change this test, with the numbers.
+    """
+    default = 4.0
+    for host, apex in WAVE_C_RSS.items():
+        assert feed_timeout(host, default) == default, host
+        assert feed_timeout(apex, default) == default, apex

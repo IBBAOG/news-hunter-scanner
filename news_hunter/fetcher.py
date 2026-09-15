@@ -414,6 +414,27 @@ def _listing_hints(anchor) -> tuple[str, datetime | None]:
     return title, published
 
 
+def _same_site(feed_domain: str, netloc: str) -> bool:
+    """Is `netloc` the same site as `feed_domain`? www-insensitive both ways.
+
+    Was `netloc in (feed_domain, f"www.{feed_domain}", feed_domain.lstrip("www."))`
+    until 2026-09-14. `str.lstrip` takes a SET OF CHARACTERS, not a prefix, so
+    it ate every leading `w` and `.`: "worldpipelines.com" became
+    "orldpipelines.com" -- a netloc nobody owns, accepted as same-site -- while
+    "www.worldpipelines.com" never produced its own apex.
+
+    PREVENTATIVE HARDENING, NOT AN INCIDENT: this helper is consumed only by
+    _scrape_homepage, and none of the three registered HOMEPAGE_SCRAPERS
+    (brasilenergia, agencia.petrobras, atribuna) starts with `w` after the
+    prefix, so no registered scraper ever behaved differently. The only pair the
+    fix changes is a host that is never scraped. It is corrected because the
+    next scraper registration is one `w` away from a silent zero, and because a
+    filter that accepts a domain nobody owns should not be left in place.
+    """
+    apex = feed_domain.removeprefix("www.")
+    return netloc.lower() in (feed_domain, apex, f"www.{apex}")
+
+
 def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], str | None]:
     """Scrapa homepage com curl_cffi e extrai links de artigos.
 
@@ -453,7 +474,7 @@ def _scrape_homepage(page_url: str, feed_domain: str) -> tuple[list[RawItem], st
             continue
         # Descarta URLs de outros dominios ou de categorias/tags
         parsed = urlparse(href)
-        if parsed.netloc.lower() not in (feed_domain, f"www.{feed_domain}", feed_domain.lstrip("www.")):
+        if not _same_site(feed_domain, parsed.netloc):
             continue
         path = parsed.path.rstrip("/")
         segments = [s for s in path.split("/") if s]

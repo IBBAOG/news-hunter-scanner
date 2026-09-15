@@ -554,7 +554,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # Registered 2026-08-18. Every yield below was MEASURED on the GHA runner
     # (measure_source.yml — so from a datacenter IP, with the Supabase secrets)
     # against the LIVE keyword set (91 keywords, 41 exact) with --lede, 7-day
-    # window. English outlets match only on the Latin subset of the set (oil /
+    # window. THE LEXICON GROWS: 91/41 is what the live set held on 2026-08-18
+    # and every 2026-08-18 block below quotes that same figure correctly; by
+    # 2026-09-14 it was 187 keywords (78 exact). Do not "fix" the old numbers --
+    # each one is the count on ITS measurement date, and measure_source prints
+    # the live count at the top of every run.
+    # English outlets match only on the Latin subset of the set (oil /
     # gas / diesel / Brent / WTI / OPEC / LNG / crude / offshore / tanker /
     # pipeline / Hormuz / ExxonMobil / Chevron / Petrobras / ... — accents never
     # fire), which is plenty: these feeds carry full descriptions, so most
@@ -744,6 +749,10 @@ RSS_FEEDS: dict[str, list[str]] = {
     # >=3/7d on-beat bar. Only the industry feed was measured; a future wave
     # could try its markets/commodities feed before concluding the domain is
     # dead.
+    # SUPERSEDED by Wave 5D (2026-09-14): the markets feed
+    # (/rss/markets-106.rss) was exactly the untried surface this note pointed
+    # at -- pass=6/81h -- and the outlet is REGISTERED on it in the Wave 5D
+    # block below. This industry-feed rejection stands as written.
     # "www.business-standard.com": [
     #     "https://www.business-standard.com/rss/industry-217.rss",
     # ],
@@ -851,6 +860,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # ENGLISH_NO_RSS_DOMAINS Wave 5B REJECTED block). Yields measured on the
     # runner (measure_source.yml, live 91-keyword set, 7d window, --lede)
     # 2026-09-14.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     #
     # SURFACE PICK for this wave, since almost every candidate has BOTH a feed
     # and a GNews surface: take the higher measured 7-DAY yield, normalising a
@@ -1046,6 +1061,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # japantimes /feed/topstories/: 5 items, fresh=0) and the rest because
     # GNews measured several times richer than the feed. Yields measured on the
     # runner (measure_source.yml, live 91-keyword set, 7d window) 2026-09-14.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # No feed of this wave needed more than 4s, so the wave's
     # FEED_TIMEOUT_OVERRIDES block stays empty (slowest: BusinessLive 1.74s).
     # =======================================================================
@@ -1059,9 +1080,13 @@ RSS_FEEDS: dict[str, list[str]] = {
     # refinery collapse cost R76bn in extra fuel imports", Trump on Russian
     # refinery strikes, EPA power-plant gas rules). Noise class to watch, all
     # bounded (title-only, url-keyed): a "LETTERS TO THE EDITOR" digest and
-    # company copy matching the substring keywords (`sanction`, `refin`). Feed
-    # and article links are www, so normalize_url strips to the apex
-    # businesslive.co.za.
+    # company copy matching the substring keywords (`sanction`, `refin`).
+    # ARTICLE HOST != FEED HOST (corrected 2026-09-14 from production rows):
+    # the feed is served from www.businesslive.co.za but EVERY item link is
+    # https://www.businessday.co.za/..., which normalize_url strips to the apex
+    # businessday.co.za. Both businessday spellings are therefore registered in
+    # INTERNATIONAL_RSS_DOMAINS alongside businesslive; the first 8 rows landed
+    # source_lang=NULL (= NATIONAL) before that.
     "www.businesslive.co.za": [
         "https://www.businesslive.co.za/arc/outboundfeeds/rss/?outputType=xml",
     ],
@@ -1073,7 +1098,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # ~all on-beat (the Russia-Ukraine energy truce and the diesel / refinery
     # strikes behind it, the Dangote refinery IPO, the Asian LNG market, Houthi
     # attacks on Saudi Arabia, US EPA carbon standards for gas power plants).
-    # Feed and article links are www -> apex pipelineoilandgasnews.com.
+    # ARTICLE HOST != FEED HOST (corrected 2026-09-14 from production rows):
+    # the feed is served from www.pipelineoilandgasnews.com but every item link
+    # is https://www.energyconnects.com/... (the magazine's sister/successor
+    # site), apex energyconnects.com after normalize_url. Both energyconnects
+    # spellings are registered in INTERNATIONAL_RSS_DOMAINS; the first 6 rows
+    # landed source_lang=NULL (= NATIONAL) before that.
     "www.pipelineoilandgasnews.com": [
         "https://www.pipelineoilandgasnews.com/feed/",
     ],
@@ -1159,6 +1189,12 @@ RSS_FEEDS: dict[str, list[str]] = {
     # ENGLISH_NO_RSS_DOMAINS, where the five rejects are recorded too. No feed
     # of this wave needed more than the 4s default (slowest fetch=1.99s), so
     # the FEED_TIMEOUT_OVERRIDES Wave 5D block stays empty on purpose.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # =====================================================================
     # The Straits Times (straitstimes.com) -- Singapore's daily of record and
     # the Asia-markets read of this wave. Section feed /news/business/rss.xml:
@@ -1316,29 +1352,23 @@ RSS_FEEDS: dict[str, list[str]] = {
     # agency exposes no oil & gas section RSS; the near-misses are regional
     # economy / politics copy. The English edition is the `en.` subdomain -- the
     # apex trend.az 301-redirects to the Russian/Azeri site and is NOT
-    # registered.
+    # registered as a FEED.
+    # BUT its ITEM LINKS are https://www.trend.az/... (English articles served
+    # off the apex host), so trend.az + www.trend.az ARE registered in
+    # INTERNATIONAL_RSS_DOMAINS as the article hosts -- without them the items
+    # land source_lang=NULL and read as NATIONAL (2 rows did, 2026-09-14).
     "en.trend.az": [
         "https://en.trend.az/feeds/index.rss",
     ],
-    # MercoPress (en.mercopress.com) -- South Atlantic News Agency
-    # (Montevideo), the Mercosur / Falklands desk. /rss/: items=10 span=48h
-    # fresh=10 pass=1 near=9 rescued=0 no_body=0 fetch=0.33s -- and that single
-    # pass is a FALSE POSITIVE ("Falklands RAF's Voyager tanker back in MPA", an
-    # air-to-air refuelling aircraft matching `tanker`). The domain was
-    # therefore cross-checked on the OTHER surface before being registered:
-    # GNews en-US site:en.mercopress.com over 7d returns items=68 fresh=61
-    # pass=5 near=56, and those are on-beat -- "Argentina files lawsuit against
-    # oil firms operating off Malvinas", "Brent climbs back above US$100 to its
-    # highest level since late July", "Argentina claims Chile is committed to no
-    # logistic support for Falklands' oil industry". RSS is the registered
-    # surface (bodies reachable, and a 10-item/48h feed is harvested
-    # continuously by the 5-minute scan, which a one-shot 48h measurement
-    # under-counts); the GNews numbers are recorded here only as the on-beat
-    # proof. Watch the `tanker` naval/RAF false positive -- this is a
-    # military-heavy beat. Subdomain, no www form.
-    "en.mercopress.com": [
-        "https://en.mercopress.com/rss/",
-    ],
+    # MercoPress (en.mercopress.com) -- MOVED TO GNews on 2026-09-14, the day
+    # after it was registered here: the RSS surface it was registered on is
+    # 100% off-beat. See its entry in the ENGLISH_NO_RSS_DOMAINS Wave 5D block
+    # for both measurements. Left as a comment so a later wave does not
+    # "restore" the feed on the strength of the pass=1 that was a false
+    # positive.
+    # "en.mercopress.com": [
+    #     "https://en.mercopress.com/rss/",
+    # ],
     # Buenos Aires Times (batimes.com.ar) -- Argentina's English-language paper
     # (Perfil group), the Vaca Muerta / YPF read. /feed: items=100 span=405h
     # fresh=42 pass=6 near=36 rescued=0 no_body=0 fetch=0.36s -- six passes
@@ -1382,12 +1412,19 @@ RSS_FEEDS: dict[str, list[str]] = {
     # off-beat). The eleven below have a runner-reachable, DATED feed; the other
     # fourteen outlets of the wave are WAF-blocked, dateless, credential-walled
     # or feed-frozen and live in ENGLISH_NO_RSS_DOMAINS.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     #
-    # FOLLOW-UP this wave could not do: FEED_STALE_HOURS has no Wave 5 anchor, so
-    # it was left untouched -- eia.gov (newest item 102h old at measurement, one
-    # Today-in-Energy note per weekday) will nag against the 48h default every
-    # run until it gets an entry, and worldpipelines / tanksterminals (~1.3-1.7
-    # days between items) will nag occasionally.
+    # FOLLOW-UP this wave could not do, DONE 2026-09-14 post-merge:
+    # FEED_STALE_HOURS had no Wave 5 anchor, so the wave left it untouched and
+    # eia.gov (one Today-in-Energy note per weekday) nagged against the 48h
+    # default every run, with worldpipelines / tanksterminals (~1.3-1.7 days
+    # between items) nagging occasionally. All three now have a budget in the
+    # FEED_STALE_HOURS "Wave 5" block, keyed on the RSS_FEEDS key.
     # =======================================================================
     # LNG Industry (lngindustry.com) -- Palladian Publications' pure-LNG trade
     # daily; on-beat by construction. items=20 span=146h fresh=20 pass=20 near=0
@@ -1528,6 +1565,49 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.eia.gov": [
         "https://www.eia.gov/rss/todayinenergy.xml",
     ],
+    # --- PROMOTED FROM GNews ON 2026-09-14 (post-merge follow-up the wave could
+    #     not do inside its own anchors). Both are 2026-08-18 FEED_TIMEOUT
+    #     casualties that Wave 5E re-measured and found affordable again; the
+    #     wave could only record the numbers because RSS_FEEDS /
+    #     INTERNATIONAL_RSS_DOMAINS / ENGLISH_NO_RSS_DOMAINS edits crossed other
+    #     waves' blocks. Their GNews lines are now REMOVED (commented out with
+    #     the reason), which also gives 2 EN `site:` queries back to the burst
+    #     budget -- and RSS carries bodies, which the GNews route never did.
+    # bne IntelliNews (intellinews.com) -- CIS / emerging-markets energy &
+    # sanctions wire. Re-measured on the runner 2026-09-14 (feed_timeout=12) and
+    # AGAIN on 2026-09-14 post-merge through measure_source.yml:
+    # items=10 span=8h fresh=10 pass=4 near=6 fetch=0.53s (www) / 0.38s (apex)
+    # -- "Nigeria's Dangote Refinery launches $1.6bn IPO in Africa's largest
+    # share sale", "Missile War Monitor: Trump tells Ukraine to stop hitting
+    # Russian diesel", "Iran warns insurers over Hormuz blacklist ships", plus an
+    # Iran sanctions item. That is ~8x inside the 4s default, so the 2026-08-18
+    # "Read timed out" was a slow-origin episode, NOT a standing budget problem:
+    # NO FEED_TIMEOUT_OVERRIDES entry, on purpose. GNews measured pass=11/7d but
+    # title-only; a 10-slot feed that turns over every 8h is harvested
+    # continuously by the 5-minute scan and lands with bodies.
+    # NOTE for whoever re-measures: the feed answers 403 from residential IPs and
+    # from generic cloud fetchers -- it is 200 from the GitHub runner. Measure it
+    # through measure_source.yml or you will conclude it is dead.
+    "www.intellinews.com": [
+        "https://www.intellinews.com/feed/",
+    ],
+    # Global Energy Network (globalenergynetwork.net) -- international upstream
+    # wire (the rebranded home of OGV Energy; ogv.energy redirects here). The
+    # richest single source of Wave 2: re-measured 2026-09-14 with
+    # feed_timeout=12 -- items=1000 span=4193h fresh=21 pass=19 near=2
+    # fetch=10.65s, pass set ~100% on-beat (Petrobras Equatorial Margin / Amapa,
+    # Chevron Angola CABGOC, Venezuela gas licences, ExxonMobil Mozambique,
+    # Technip Malaysia LNG, US Gulf subsea tie-back). Slow because the feed is
+    # the full 1000-entry archive (~6.8 MB), not because the host is slow --
+    # hence its FEED_TIMEOUT_OVERRIDES entry (14.0s), which this promotion makes
+    # LIVE instead of inert. GNews was pass=18/7d and title-only; the feed also
+    # dwarfs the 24h `when:` window, so nothing is missed between scans.
+    # The APEX is registered, not www: www.globalenergynetwork.net 301s to the
+    # apex (measured 10.89s with the redirect vs 6.12s direct) and every one of
+    # the 1000 item links is https://globalenergynetwork.net/news-item/... .
+    "globalenergynetwork.net": [
+        "https://globalenergynetwork.net/feed/",
+    ],
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1556,8 +1636,17 @@ RSS_FEEDS: dict[str, list[str]] = {
 # (pipeline._run_translation) only translates source_lang not in ('en','pt',None).
 #
 # MEMBERSHIP = the "Surface = RSS" rows of the README "International coverage"
-# section (15 outlets: the 13 added across the four 2026-08-18 waves + CNBC and
-# The Moscow Times, which predated the program). Both apex AND www variants are
+# section. That was 15 outlets when this set landed (the 13 of the four
+# 2026-08-18 waves + CNBC and The Moscow Times, which predated the programme);
+# after the five Wave 5 branches and the 2026-09-14 post-merge corrections it is
+# 58 RSS registrations -- those 15, plus the 42 Wave 5 feeds minus MercoPress
+# (moved to GNews), plus intellinews and globalenergynetwork (promoted from
+# GNews). Do not treat any of those numbers as a constant: the roster moves with
+# every wave and nothing asserts its size, on purpose (five parallel branches
+# editing one equality assertion would be red between merges). The set also
+# holds a few hosts that are NOT feed registrations at all -- the ARTICLE hosts
+# of feeds served from a different domain, see KEEP IN SYNC below.
+# Both apex AND www variants are
 # listed: _entry_to_item resolves source_domain per item and, although
 # normalize_url strips a leading "www.", other item-construction paths may not.
 # Deliberately EXCLUDES the Brazilian (pt) feeds and the ENGLISH_NO_RSS_DOMAINS /
@@ -1565,7 +1654,16 @@ RSS_FEEDS: dict[str, list[str]] = {
 #
 # KEEP IN SYNC: when an international English RSS source is added to or removed
 # from RSS_FEEDS, add/remove its apex+www forms here in the same change — or it
-# silently reverts to being classified as national.
+# silently reverts to being classified as national. And register the ARTICLE
+# host(s), not only the feed host: _entry_to_item keys this set on the host of
+# the ITEM LINK, which is frequently NOT the host the feed is served from. Three
+# Wave 5 outlets shipped misclassified for exactly this reason (2026-09-14,
+# found in production): www.businesslive.co.za links to businessday.co.za,
+# www.pipelineoilandgasnews.com links to energyconnects.com and en.trend.az
+# links to www.trend.az. Before registering a feed, open one of its items and
+# look at the link host; tests/test_international_rss_source_lang.py pins one
+# real item URL per Wave 5 feed so the next such rename fails a test instead of
+# silently landing 8 English articles in the NATIONAL bucket.
 # -----------------------------------------------------------------------------
 INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # --- Global trade press & shipping ---
@@ -1632,11 +1730,13 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- BEGIN
     # --- Africa (Wave 5C, 2026-09-14) ---
     "businesslive.co.za", "www.businesslive.co.za",             # Business Day / BusinessLive (South Africa)
+    "businessday.co.za", "www.businessday.co.za",               # article host of www.businesslive.co.za (100/100 item links, 2026-09-14)
     # --- Middle East (Wave 5C, 2026-09-14) ---
     "middleeasteye.net", "www.middleeasteye.net",               # Middle East Eye
     "tehrantimes.com", "www.tehrantimes.com",                   # Tehran Times
     "dailysabah.com", "www.dailysabah.com",                     # Daily Sabah
     "pipelineoilandgasnews.com", "www.pipelineoilandgasnews.com",  # Pipeline Oil & Gas Magazine
+    "energyconnects.com", "www.energyconnects.com",             # article host of www.pipelineoilandgasnews.com (30/30 item links, 2026-09-14)
     # --- North-East Asia (Wave 5C, 2026-09-14) ---
     "koreaherald.com", "www.koreaherald.com",                   # The Korea Herald
     # --- Wave 5C (2026-09-14): Africa, Middle East & North-East Asia mainstream --- END
@@ -1645,11 +1745,12 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- BEGIN
-    # --- Wave 5D (2026-09-14): the 13 RSS outlets registered in RSS_FEEDS
+    # Wave 5D roster (2026-09-14): the RSS outlets registered in RSS_FEEDS
     #     above. Apex AND www forms, per the invariant at the top of this set;
     #     the five subdomain-only outlets (e.vnexpress.net,
     #     timesofindia.indiatimes.com, economictimes.indiatimes.com,
-    #     en.trend.az, en.mercopress.com) have no www form, exactly like ET
+    #     en.trend.az; en.mercopress.com was one until it moved to GNews on
+    #     2026-09-14) have no www form, exactly like ET
     #     EnergyWorld. Without these entries the outlet arrives with
     #     source_lang=None and the dashboard classifies it as NATIONAL. ---
     # South & South-East Asia
@@ -1664,8 +1765,10 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # Caspian / Central Asia
     "astanatimes.com", "www.astanatimes.com",                   # The Astana Times
     "en.trend.az",                                              # Trend News Agency (subdomain)
+    "trend.az", "www.trend.az",                                 # article host of en.trend.az (25/25 item links point at www.trend.az, 2026-09-14)
     # Latin America
-    "en.mercopress.com",                                        # MercoPress (subdomain)
+    # en.mercopress.com REMOVED 2026-09-14: moved to ENGLISH_NO_RSS_DOMAINS
+    # (its feed is 100% off-beat), and GNews stamps 'en' on its own route.
     "batimes.com.ar", "www.batimes.com.ar",                     # Buenos Aires Times
     "mexiconewsdaily.com", "www.mexiconewsdaily.com",           # Mexico News Daily
     # --- Wave 5D (2026-09-14): South & South-East Asia, Latin America mainstream, downstream trade press I --- END
@@ -1674,9 +1777,11 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # --- Wave 5E (2026-09-14): the eleven RSS registrations of the O&G /
-    # refining / shipping trade-press wave. Apex AND www for each, per the
-    # invariant above; without these the outlets are classified as NATIONAL.
+    # Wave 5E roster (2026-09-14): the RSS registrations of the O&G / refining /
+    # shipping trade-press wave -- eleven at the wave, thirteen after the
+    # post-merge promotions of intellinews and globalenergynetwork. Apex AND www
+    # for each, per the invariant above; without these the outlets are
+    # classified as NATIONAL.
     "lngindustry.com", "www.lngindustry.com",                   # LNG Industry
     "worldpipelines.com", "www.worldpipelines.com",             # World Pipelines
     "tanksterminals.com", "www.tanksterminals.com",             # Tanks and Terminals
@@ -1688,6 +1793,9 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     "seatrade-maritime.com", "www.seatrade-maritime.com",       # Seatrade Maritime News
     "kpler.com", "www.kpler.com",                               # Kpler (Insights blog feed)
     "eia.gov", "www.eia.gov",                                   # US EIA (Today in Energy)
+    # Promoted from GNews to RSS on 2026-09-14 (see their RSS_FEEDS entries):
+    "intellinews.com", "www.intellinews.com",                   # bne IntelliNews
+    "globalenergynetwork.net", "www.globalenergynetwork.net",   # Global Energy Network (articles are apex)
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -1960,7 +2068,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # it TIMES OUT against the scanner's 4s FEED_TIMEOUT from the runner (Read
     # timed out, 2026-08-18) -- not WAF, just slow -- so GNews is the reliable
     # surface. Articles resolve to www.intellinews.com.
-    "intellinews.com",
+    # PROMOTED TO RSS 2026-09-14: re-measured at fetch=0.53s, items=10 span=8h
+    # pass=4 -- the 2026-08-18 timeout was a slow-origin episode, not a budget
+    # problem. The feed is now registered in RSS_FEEDS (Wave 5E block, with the
+    # numbers) and this GNews line is retired: RSS carries bodies, GNews did not,
+    # and removing it returns one `site:` query to the EN burst budget. Left as a
+    # comment so the 2026-08-18 history is not lost.
+    # "intellinews.com",
     # TASS (tass.com) -- Russian state wire, English edition. GNews pass=8/7d
     # (items=100 near=92): Brent crude, Kazakhstan oil exports, Russian LNG,
     # OPEC+ output, Arctic LNG, Hormuz, Western sanctions. Its RSS FIREHOSE
@@ -2076,8 +2190,14 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # ~6.6s, so it TIMES OUT against the scanner's 4s FEED_TIMEOUT (same class as
     # intellinews), and site:ogv.energy returns 0 GNews items (content is indexed
     # under the new domain), so this apex is the reliable surface. Articles
-    # resolve to www.globalenergynetwork.net.
-    "globalenergynetwork.net",
+    # resolve to globalenergynetwork.net (apex -- the www form 301s to it).
+    # PROMOTED TO RSS 2026-09-14: re-measured at fetch=10.65s with
+    # feed_timeout=12 (items=1000 fresh=21 pass=19), and the 14.0s
+    # FEED_TIMEOUT_OVERRIDES entry Wave 5E added makes that affordable. The feed
+    # is now registered in RSS_FEEDS (Wave 5E block) with bodies, so this GNews
+    # line is retired -- one `site:` query back to the EN burst budget. Left as a
+    # comment so the 2026-08-18 history is not lost.
+    # "globalenergynetwork.net",
     # --- Wave 2 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
     # Neftegaz.RU (neftegaz.ru): no viable surface from the runner. Its RSS
@@ -2091,6 +2211,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # release (every opec.org page trivially matches OPEC) -- ~1 distinct
     # story, press-release-only, very low frequency. OPEC+ output / MOMR news
     # is already carried by TASS / Interfax / Zawya / MEES. Below bar.
+    # SUPERSEDED by Wave 5E (2026-09-14): re-measured under the lowered
+    # 2026-09 bar at pass=3/7d (~1 distinct story a week) and REGISTERED --
+    # see the live "opec.org" entry in the Wave 5E block below.
     # "opec.org",
     # --- Wave 3 REJECTED (measured 2026-08-18 on the runner; recorded so a
     #     future wave does not silently re-test) ---
@@ -2101,6 +2224,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # energy reporting. Path-scoping is unavailable: site:houstonchronicle.com/
     # business/energy returns 0 GNews items (Google honours a /news path for
     # Rigzone but ignores this deeper one). Duplicate-dominated + un-narrowable.
+    # SUPERSEDED by Wave 5B (2026-09-14): re-measured at pass=35/7d and
+    # REGISTERED -- see the live "houstonchronicle.com" entry in the Wave 5B
+    # block below. The 2026-08-18 numbers were not wrong, the bar moved.
     # "houstonchronicle.com",
     # Euractiv (euractiv.com): general EU-policy domain. RSS 403 from the
     # runner; bare site: GNews pass=2/7d (items=96 fresh=56 near=54), both
@@ -2111,6 +2237,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # ICIS (icis.com): chemicals/energy price wire, hard paywall -- Google
     # indexes few articles. site: GNews pass=2/7d (items=9 near=7), both
     # generic Hormuz duplicates. Below the paywall-source floor.
+    # SUPERSEDED by Wave 5E (2026-09-14): re-measured at pass=3/7d and
+    # REGISTERED under the lowered bar -- see the live "icis.com" entry in the
+    # Wave 5E block below.
     # "icis.com",
     # Recharge (rechargenews.com): energy-TRANSITION / renewables outlet.
     # site: GNews pass=7/7d (items=15 near=8) but six of seven passes are
@@ -2128,6 +2257,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # GNews pass=2/7d (items=9 near=7), both duplicates of stories other
     # sources carry (Rovuma LNG, Petrobras Equatorial Margin). Google indexes
     # few of a technical monthly. Below bar.
+    # SUPERSEDED by Wave 5E (2026-09-14): re-measured at pass=1/7d and
+    # REGISTERED under the lowered bar -- see the live "jpt.spe.org" entry in
+    # the Wave 5E block below.
     # "jpt.spe.org",
     # =======================================================================
     # India + China oil & gas / business press (English) -- Wave 4 (2026-08-18).
@@ -2222,6 +2354,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # outburst) but only 2 in 7d: a hard paywall means Google indexes few
     # articles. Below the >=3/7d bar despite being the markets-focused outlet
     # expected to be the strongest of the two.
+    # RE-TESTED by Wave 5D (2026-09-14) under the lowered bar and REJECTED
+    # AGAIN, worse: GNews items=7 fresh=7 pass=0. See the Wave 5D REJECTED
+    # sub-block below; the paywall, not the bar, is the binding constraint.
     # "caixinglobal.com",
 
     # =======================================================================
@@ -2527,6 +2662,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # wave had a feed that BEAT their GNews surface and are in RSS_FEEDS.
     # Yields are the GNews title-pass count over 7d, measured on the runner
     # (measure_source.yml) against the live 91-keyword set on 2026-09-14.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     #
     # SURFACE PICK (recorded once, applied per entry): higher measured 7-day
     # yield, normalising a short-span feed as pass x 168/span, tie-break to RSS
@@ -2603,6 +2744,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # NOT VIABLE for Persian in 2026-08-19 (see the `fa` note in LANGUAGES) --
     # different host path, different verdict, no conflict. Articles resolve to
     # www.dw.com.
+    # LANGUAGE CHECK (the one the Le Monde entry carries, run for this domain on
+    # 2026-09-14, measure_source run 34897630577): titles verified ENGLISH 20/20
+    # on the pass set. It matters here more than anywhere else on the roster --
+    # dw.com serves ~30 languages off one host, and an item landing in German
+    # would be stamped 'en' by the GNews en-US route and never translated.
+    # hl=en-US is what keeps the query on the English edition.
     "dw.com",
     # Euronews (euronews.com) -- pan-European news network, English edition, and
     # the best EU-energy-policy read of this wave. GNews pass=23/7d (items=100
@@ -2617,6 +2764,9 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # fresh=30 pass=6 fetch=0.14s -- 6/7d against 23/7d, GNews by 3.8x, past the
     # 2x tie-break, so GNews it is (the feed remains the fallback if Google ever
     # de-indexes the domain). Articles resolve to www.euronews.com.
+    # LANGUAGE CHECK (2026-09-14, measure_source run 34897630577): titles
+    # verified ENGLISH 23/23 on the pass set. Same reason as dw.com above --
+    # euronews.com serves 12 language editions from one apex.
     "euronews.com",
     # Swissinfo (swissinfo.ch) -- SWI, the Swiss public international service,
     # English edition. GNews pass=12/7d (items=62 fresh=54 near=42). NO RSS
@@ -2631,6 +2781,10 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # Swiss import costs, a UBS economist on $200 oil if Hormuz stays shut, and
     # Mercuria / Glencore on a Venezuela deal. Articles resolve to
     # www.swissinfo.ch.
+    # LANGUAGE CHECK (2026-09-14, measure_source run 34897630577): titles
+    # verified ENGLISH 11/11 on the pass set. SWI publishes in 10 languages
+    # under /eng, /ger, /fre ... off one apex, so the apex registration only
+    # holds up because hl=en-US keeps Google on the English edition.
     "swissinfo.ch",
     # The Globe and Mail (theglobeandmail.com) -- Canada national daily and the
     # RICHEST surface of this wave: GNews pass=98/7d (items=100 fresh=100
@@ -2761,6 +2915,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # measured on the runner (measure_source.yml) against the live 91-keyword
     # set on 2026-09-14. The other six candidates had a usable feed and are in
     # RSS_FEEDS / INTERNATIONAL_RSS_DOMAINS.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # -----------------------------------------------------------------------
     # --- Africa ---
     # AllAfrica (allafrica.com) -- pan-African aggregator, the widest African
@@ -2975,6 +3135,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # 7d measured on the runner (measure_source.yml, live 91-keyword set) on
     # 2026-09-14. The wave's thirteen RSS outlets are in RSS_FEEDS +
     # INTERNATIONAL_RSS_DOMAINS.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # =====================================================================
     # The Edge Malaysia (theedgemalaysia.com) -- Malaysia's business daily and
     # the single richest surface of this wave: GNews items=100 fresh=87 pass=69
@@ -3069,6 +3235,26 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # clears the bar and its EPC/vendor items are distinct. Articles resolve to
     # www.hydrocarbonengineering.com.
     "hydrocarbonengineering.com",
+    # MercoPress (en.mercopress.com) -- South Atlantic News Agency
+    # (Montevideo), the Mercosur / Falklands desk. REGISTERED ON RSS BY WAVE 5D
+    # AND MOVED HERE ON 2026-09-14, post-merge, on the QA finding that the
+    # registered surface was the wrong one. The two measurements:
+    #   RSS  /rss/: items=10 span=48h fresh=10 pass=1 near=9 fetch=0.33s -- and
+    #        that single pass is a FALSE POSITIVE ("Falklands RAF's Voyager
+    #        tanker back in MPA", an air-to-air refuelling aircraft matching the
+    #        substring `tanker`). On-beat yield of the feed: ZERO.
+    #   GNews site:en.mercopress.com 7d: items=68 fresh=61 pass=5 near=56, all
+    #        five on-beat -- "Argentina files lawsuit against oil firms
+    #        operating off Malvinas", "Brent climbs back above US$100 to its
+    #        highest level since late July", "Argentina claims Chile is
+    #        committed to no logistic support for Falklands' oil industry".
+    # Wave 5D preferred RSS anyway (bodies reachable, rolling feed harvested
+    # every 5 min); that reasoning does not survive a pass set that is 100%
+    # false positive. GNews is the proven surface, so it is the registered one;
+    # items land title-only, like every other entry in this list. Watch the
+    # `tanker` naval/RAF false positive -- this is a military-heavy beat.
+    # Subdomain: the apex mercopress.com is NOT what the English edition serves.
+    "en.mercopress.com",
     # --- Wave 5D REJECTED (measured 2026-09-14 on the runner under the LOWERED
     #     2026-09 bar; recorded so a future wave does not silently re-test) ---
     # Caixin Global (caixinglobal.com): RE-TEST of the 2026-08-18 Wave 4
@@ -3141,6 +3327,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # registers; only a 0-item or >=80%-off-beat candidate is rejected). Every
     # feed autopsy quoted below was ALSO run on the runner (measure_source.yml
     # with the feed URL), never from a residential IP.
+    # NOTE on that "91-keyword" figure: it was the README's count at the time
+    # of measurement and was already stale -- the live Supabase set on
+    # 2026-09-14 was 187 keywords (78 exact), which is what measure_source
+    # printed for these runs. The numbers above are unaffected (they were
+    # produced by the live set, whatever its size); see README section
+    # "International coverage" for the current count and how to read it.
     # =======================================================================
     # Offshore Magazine (offshore-mag.com) -- Endeavor Business Media's offshore
     # E&P title: same publisher as OGJ (Wave 1a above) and the same WAF story.
@@ -3495,6 +3687,33 @@ FEED_STALE_HOURS: dict[str, float] = {
     "www.gazetadopovo.com.br": 7 * 24.0,
     "obastidor.com.br": 5 * 24.0,
     "www.theagribiz.com": 5 * 24.0,
+    # --- Wave 5 (2026-09-14) ---
+    # The international expansion added 40+ feeds and, with them, the first
+    # feeds on the roster that are legitimately slower than the 48h default.
+    # These six were nagging in production logs within hours of the merge. The
+    # KEY IS THE RSS_FEEDS KEY: feed_stale_hours() is a plain dict lookup on the
+    # registry key the fetcher carries (unlike FEED_TIMEOUT_OVERRIDES, which is
+    # www-insensitive), so "eia.gov" here would be a silent no-op.
+    #
+    # Budgets are the observed publishing rhythm plus room for a holiday week --
+    # a budget that nags every run is a wrong budget, and a nag nobody reads is
+    # worth nothing when the feed really dies.
+    # US EIA Today in Energy: one note per weekday, most of them electricity /
+    # renewables; newest item measured 4.3d old, and 15 items spanning 912h.
+    "www.eia.gov": 7 * 24.0,
+    # Calgary Herald /business/energy section feed: 3.4d at measurement, a
+    # regional daily's single-section desk.
+    "calgaryherald.com": 7 * 24.0,
+    # Energy Monitor (GlobalData): analysis desk, 3.3d at measurement.
+    "www.energymonitor.ai": 5 * 24.0,
+    # Palladian trade titles -- 20-item feeds spanning 599h (World Pipelines)
+    # and 792h (Tanks and Terminals), i.e. ~30-40h between items on average and
+    # several days across a quiet week.
+    "www.worldpipelines.com": 14 * 24.0,
+    "www.tanksterminals.com": 14 * 24.0,
+    # The Guardian business/oil TAG feed (not the business section): 20 items
+    # over 290h. A tag feed moves only when the desk files on that tag.
+    "www.theguardian.com": 4 * 24.0,
 }
 
 
@@ -3565,9 +3784,17 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5B (2026-09-14): US regional, Europe, Canada, Oceania mainstream --- BEGIN
-    # --- Wave 5B (2026-09-14): NO override needed, measured not assumed. The
-    #     slowest feed this wave registered is The Irish Times business feed at
-    #     fetch=2.42s, inside the 4s FEED_TIMEOUT; every other registered feed
+    # The Irish Times -- the one Wave 5B feed with no headroom. Measured
+    # fetch=2.42s against the 4s default: inside it, but 60% of the way there,
+    # and it is a 100-item feed whose size is not going to shrink. A single slow
+    # afternoon turns that into a ReadTimeout and the outlet reads as dead --
+    # the exact failure that cost the 2026-08-18 waves three sources. 8.0s is
+    # ~3.3x the measurement and still a third of COLLECT_DEADLINE, and it costs
+    # nothing on a normal day: the budget is a ceiling, not a delay.
+    "irishtimes.com": 8.0,
+    # Wave 5B roster (2026-09-14): NO override needed for the rest, measured not
+    #     assumed. The slowest feed this wave registered is The Irish Times
+    #     business feed at fetch=2.42s (see above); every other registered feed
     #     came back in 0.05-0.98s (afr 0.05 / 0.15s, lemonde 0.08s, investing
     #     0.10s, france24 0.31s, abc 0.32s, cityam 0.40s, financialpost 0.44 /
     #     0.51s, calgaryherald 0.70s). The three candidates with no fetch time
@@ -3606,7 +3833,7 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     #
     #
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- BEGIN
-    # --- Wave 5E (2026-09-14): the first two entries this dict has ever had.
+    # Wave 5E roster (2026-09-14): the first two entries this dict has ever had.
     # Both are 2026-08-18 timeout casualties, re-measured on the runner.
     # US EIA -- Today in Energy. Registered in RSS_FEEDS above (items=15 fresh=2
     # pass=2 over 7d) and it needs this budget or it silently returns 0 items
@@ -3620,12 +3847,11 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # rich. items=1000 span=4193h fresh=21 pass=19 near=2 fetch=10.65s -- the
     # feed is the full 1000-entry archive (~6.8 MB), which is WHY it is slow; the
     # host itself is not. 14.0s covers it with headroom.
-    # Its GNews entry in ENGLISH_NO_RSS_DOMAINS (pass=18/7d) is deliberately LEFT
-    # IN PLACE: this wave only proves the feed is affordable again. Promoting it
-    # to RSS (an RSS_FEEDS entry + the apex/www pair in INTERNATIONAL_RSS_DOMAINS
-    # + removing the GNews line) touches lines outside this wave's blocks, so it
-    # is a follow-up call. Until then this entry is inert -- feed_timeout() is
-    # only consulted on the feed path.
+    # NO LONGER INERT (2026-09-14, post-merge): the follow-up this wave could not
+    # do landed -- globalenergynetwork.net is now an RSS_FEEDS registration (Wave
+    # 5E block) with its apex/www pair in INTERNATIONAL_RSS_DOMAINS and its GNews
+    # line retired. This entry is what makes that registration return items at
+    # all; delete it and the feed silently goes back to 0.
     "globalenergynetwork.net": 14.0,
     # bne IntelliNews (intellinews.com) -- the THIRD 2026-08-18 casualty, and the
     # one that needs NO entry here. Re-measured 2026-09-14 with feed_timeout=12,
@@ -3633,9 +3859,11 @@ FEED_TIMEOUT_OVERRIDES: dict[str, float] = {
     # fresh=10 pass=4 near=6. That is ~8x inside the 4s default, so the
     # 2026-08-18 "Read timed out" was a transient / slow-origin episode, not a
     # standing budget problem, and an override would be a no-op. Recorded here as
-    # a COMMENT (not an entry) so the next wave does not re-measure it; its GNews
-    # entry stays untouched and the RSS promotion is the same follow-up call as
-    # globalenergynetwork.net above.
+    # a COMMENT (not an entry) so the next wave does not re-measure it.
+    # Confirmed 2026-09-14 post-merge (fetch=0.53s www / 0.38s apex) and the
+    # outlet was PROMOTED to RSS in the same change; it still needs no entry
+    # here. Do not add one "to be safe": an unnecessary override raises the worst
+    # case one feed can spend out of the 22s COLLECT_DEADLINE shared by ~65 feeds.
     # --- Wave 5E (2026-09-14): O&G / refining / shipping trade press & institutions --- END
     #
     # ---- merge fence: keep >=4 lines between wave blocks ----
@@ -4507,11 +4735,20 @@ def google_news_site_queries_en(domains: list[str], keywords: list[str], hours: 
 # one — so they keep being submitted FIRST and in full, on the freshest
 # rate-limit budget. Capping EN is precisely what protects them.
 #
-# TODAY: len(ENGLISH_NO_RSS_DOMAINS) == 34 == EN_GNEWS_QUERIES_PER_SCAN, so
-# cohorts == 1 and the emitted query list is BYTE-IDENTICAL to the uncapped one
-# (pinned by tests/test_multilingual_en_frozen.py, untouched, plus the explicit
-# cohorts==1 identity tests in tests/test_gnews_cohort.py). The mechanism only
-# starts moving once a wave pushes the list past the budget.
+# TODAY (2026-09-14, after the five Wave 5 branches, the MercoPress surface swap
+# and the intellinews / globalenergynetwork promotions to RSS):
+# len(ENGLISH_NO_RSS_DOMAINS) == 103 against EN_GNEWS_QUERIES_PER_SCAN == 34, so
+# cohorts == ceil(103/34) == 4 and the mechanism is LIVE: one scan submits ~26
+# EN `site:` queries, every domain is queried every 4th scan, i.e. every ~20
+# minutes, two orders of magnitude inside the 24h `when:` window. Do not read the
+# numbers in this paragraph as constants -- read gnews_cohort_count(); the count
+# moves every time a wave lands, which is why nothing asserts it.
+# HISTORY (do not restore as fact): when this mechanism shipped the list was 34
+# domains, cohorts == 1, and the emitted query list was BYTE-IDENTICAL to the
+# uncapped one -- that identity is what made landing it a no-op. It is pinned by
+# the cohorts==1 identity tests in tests/test_gnews_cohort.py, which construct
+# their own 34-domain list, and by tests/test_multilingual_en_frozen.py; neither
+# depends on the live list still having 34 entries.
 # -----------------------------------------------------------------------------
 
 # How many EN `site:` queries one scan may submit. Set to today's list length so

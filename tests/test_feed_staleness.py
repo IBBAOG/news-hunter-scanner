@@ -19,7 +19,9 @@ from news_hunter.fetcher import (
 from news_hunter.sources import (
     FEED_STALE_HOURS,
     FEED_STALE_HOURS_DEFAULT,
+    HOMEPAGE_SCRAPERS,
     RSS_FEEDS,
+    STANDARD_SITEMAPS,
     feed_stale_hours,
 )
 
@@ -101,3 +103,38 @@ def test_poder360_keeps_a_second_independently_cached_feed_path():
     feeds = RSS_FEEDS["www.poder360.com.br"]
     assert "https://www.poder360.com.br/feed/" in feeds
     assert "https://www.poder360.com.br/feed/atom/" in feeds
+
+
+def test_every_staleness_budget_is_keyed_on_a_real_registry_key():
+    """A budget keyed on the wrong spelling is a silent no-op.
+
+    feed_stale_hours() is a PLAIN dict lookup on the key the fetcher carries
+    (the RSS_FEEDS key) — unlike feed_timeout(), which is www-insensitive. So
+    "eia.gov" would look registered, change nothing, and the feed would keep
+    nagging every run against the 48h default: exactly the kind of entry that
+    trains a reader to ignore the staleness line.
+    """
+    # Every registry whose key reaches _stale_feeds as `dom`: feeds, plain
+    # sitemaps and homepage scrapers all flow through the same collect loop.
+    fetched = set(RSS_FEEDS) | set(STANDARD_SITEMAPS) | set(HOMEPAGE_SCRAPERS)
+    for key in FEED_STALE_HOURS:
+        assert key in fetched, (
+            f"{key!r} has a staleness budget but is not a key of RSS_FEEDS / "
+            "STANDARD_SITEMAPS / HOMEPAGE_SCRAPERS — the lookup is exact, so "
+            "this budget never applies"
+        )
+
+
+def test_the_wave_5_slow_feeds_actually_get_their_budget():
+    """The six feeds that nagged in production right after the 2026-09 merge."""
+    for key, min_days in (
+        ("www.eia.gov", 5),              # one Today-in-Energy note per weekday
+        ("calgaryherald.com", 5),        # regional section feed
+        ("www.energymonitor.ai", 4),     # analysis desk
+        ("www.worldpipelines.com", 7),   # 20 items over 599h
+        ("www.tanksterminals.com", 7),   # 20 items over 792h
+        ("www.theguardian.com", 3),      # business/oil TAG feed, 20 items / 290h
+    ):
+        budget = feed_stale_hours(key)
+        assert budget > FEED_STALE_HOURS_DEFAULT, f"{key} still on the 48h default"
+        assert budget >= min_days * 24.0, f"{key} budget too tight to stop the nagging"
