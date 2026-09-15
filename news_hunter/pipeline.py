@@ -11,6 +11,7 @@ from .enrich import _resolve_google_news_url, enrich_item, source_name_for
 from .fetcher import RawItem, iter_collect
 
 from .filter import matches_keywords, strip_related, within_window
+from .keyword_senses import drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
 from .store import (
     Article,
@@ -184,12 +185,19 @@ def _keep_candidate(
         slug_match = matches_keywords(slug, keywords, exact_keywords)
         return slug_match if slug_match else None
     # Title-first: titulos sao curtos. Se casou, retorna imediatamente.
-    matched = matches_keywords(item.title, keywords, exact_keywords)
+    # The summary rides along as SENSE context only (keyword_senses.py): a bare
+    # "Compass" in the title is judged together with the "Jeep"/"SUV" of the
+    # summary. It never adds hits of its own at this step.
+    clean_summary = strip_related(item.summary)
+    matched = matches_keywords(
+        item.title, keywords, exact_keywords, sense_context=clean_summary
+    )
     if matched:
         return matched
-    clean_summary = strip_related(item.summary)
     summary_match = (
-        matches_keywords(clean_summary, keywords, exact_keywords)
+        matches_keywords(
+            clean_summary, keywords, exact_keywords, sense_context=item.title
+        )
         if clean_summary
         else None
     )
@@ -271,7 +279,10 @@ def _run_lede_rescue(
                 continue
             # Re-valida keyword contra titulo + lede. So segue se casar de fato.
             hay = f"{it.title} \n {snippet}"
-            final_match = matches_keywords(hay, keywords, exact_keywords)
+            final_match = matches_keywords(
+                hay, keywords, exact_keywords,
+                sense_context=strip_related(it.summary),
+            )
             if not final_match:
                 continue
             rescued += 1
@@ -901,7 +912,10 @@ def run_search(
                 published_is_approx = True
 
             final_hay = f"{display_title} \n {snippet}"
-            final_match = matches_keywords(final_hay, match_keywords, exact_keywords)
+            sense_ctx = strip_related(it.summary)
+            final_match = matches_keywords(
+                final_hay, match_keywords, exact_keywords, sense_context=sense_ctx
+            )
             if is_topic:
                 # Site ja e topico — se nao casou keyword especifica, marca como #topic.
                 if not final_match:
@@ -909,8 +923,15 @@ def run_search(
             elif not final_match:
                 # Sem snippet (fast_mode) items so casam via titulo; se _keep_candidate
                 # aprovou apenas pelo summary RSS, mantem os keywords originais.
+                # ...minus any keyword the final text shows in an excluded sense:
+                # without this filter the fallback would resurrect the very hit
+                # the sense exclusion just dropped (keyword_senses.py).
                 if fast_mode and matched:
-                    final_match = matched
+                    final_match = drop_sense_excluded(
+                        matched, f"{final_hay} \n {sense_ctx}", exact_keywords
+                    )
+                    if not final_match:
+                        continue
                 else:
                     # Re-validacao estrita para fontes genericas.
                     continue

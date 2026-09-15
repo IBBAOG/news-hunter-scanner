@@ -6,3 +6,4 @@ venv/
 *.log
 .DS_Store
 .be_session.json
+purge_output/

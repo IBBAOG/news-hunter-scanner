@@ -888,3 +888,38 @@ stayed native.
   row and one translation. `scripts/dedupe_canonical_urls.py`
   (+ `dedupe_canonical_urls.yml`, dry-run by default) folds rows already stored
   onto the canonical url, keeping every existing translation.
+
+## Keyword sense exclusion (2026-09-15)
+
+A keyword is a string; a reader follows a sense. `Compass` is meant for Compass
+Gás e Energia (Cosan: Comgás, Edge, biometano, gas release), but of the 571 rows
+tagged `Compass` on 2026-09-15 dozens were the Jeep Compass and many more were
+homonymous companies (Vinci Compass, Compass Group, Compass Diversified, Compass
+Point, Compass Pathways, Compass Minerals, Compass Therapeutics, Compass Inc.).
+Whole-word matching (`match_type = 'exact'`, set in the database the same day)
+removes `compasso` / `descompasso` / `compassivo`; it cannot tell a car or
+another company from the Cosan business.
+
+- `news_hunter/keyword_senses.py` holds `KEYWORD_SENSE_EXCLUSIONS`
+  (keyword -> off-topic senses + on-topic context + protected occurrences). Only
+  `compass` has an entry: senses `automotive` and `other_entity`, company context
+  (Cosan, Comgás, PASS3, biometano, gas release, "empresa de gás", "da Edge"...)
+  that always wins, and `Nefte Compass` (Energy Intelligence) protected.
+- `filter.matches_keywords` applies it to every hit, so every stage (slug, title,
+  summary, lede rescue, Stage 4 and its fast-mode fallback) honours it. A hit is
+  dropped only when the keyword occurs and every occurrence reads in an excluded
+  sense; other keywords on the same article are untouched. Title and summary are
+  judged together (`sense_context`).
+- `scripts/purge_keyword_sense_exclusions.py` (+ `purge_keyword_sense_exclusions.yml`,
+  dry-run by default, JSON backup artifact kept 90 days) applies the same rule to
+  stored rows: strip the label, delete the row when no keyword is left, keep
+  anything without positive evidence. `--refetch-missing-evidence` re-fetches
+  rows whose stored text has no whole-word occurrence and strips only when the
+  fetched article proves it; a failed or thin fetch keeps the row.
+- The scan cannot re-add a purged label: `supabase_sync` writes
+  `matched_keywords` straight from the fresh match (no write-once or union for
+  that column). The one-off `dedupe_canonical_urls.py` does union labels across
+  duplicate rows, so run the purge after any dedupe pass, not before.
+
+Adding a keyword: add an entry, tune it against real rows (read-only SQL), and
+extend `tests/test_keyword_sense_exclusions.py` with those rows.

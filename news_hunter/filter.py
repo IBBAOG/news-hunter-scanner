@@ -5,6 +5,8 @@ import re
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
+from .keyword_senses import drop_sense_excluded
+
 
 # Marcadores de blocos de "matérias relacionadas" dentro de summaries RSS.
 # Cortamos tudo apartir deles para evitar que o título de uma recomendação
@@ -121,6 +123,8 @@ def matches_keywords(
     text: str,
     keywords: list[str],
     exact_keywords: set[str] | None = None,
+    *,
+    sense_context: str = "",
 ) -> list[str]:
     """Return list of keywords matching the text (empty if none match).
 
@@ -138,6 +142,13 @@ def matches_keywords(
 
     Compatibility: callers that omit `exact_keywords` get all-substring
     behaviour (same as before the match_type feature shipped).
+
+    Keyword sense exclusion (keyword_senses.py): a hit whose keyword has an
+    entry in KEYWORD_SENSE_EXCLUSIONS is dropped when EVERY occurrence of the
+    keyword is in an off-topic sense ('Jeep Compass', 'Vinci Compass').
+    Other keywords on the same text are unaffected. `sense_context` is extra
+    text from the same article (e.g. the RSS summary next to a title) that the
+    sense judgement reads but that is never matched for hits itself.
     """
     if not text:
         return []
@@ -161,7 +172,8 @@ def matches_keywords(
         if orig not in seen:
             seen.add(orig)
             out.append(orig)
-    return out
+    sense_doc = f"{text} \n {sense_context}" if sense_context else text
+    return drop_sense_excluded(out, sense_doc, exact_keywords)
 
 
 def within_window(published_at: datetime | None, hours: int) -> bool:
