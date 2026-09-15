@@ -239,7 +239,15 @@ EXCLUDED_URL_PATTERNS: dict[str, tuple[str, str | None]] = {
     "apnews-topic-hub": (r"(?:www\.)?apnews\.com", r"/hub/"),
     # Video players: the "body" is a transcript-less player shell. 3 + 1 rows.
     "cbsnews-video": (r"(?:www\.)?cbsnews\.com", r"/video/"),
-    "usatoday-video": (r"(?:www\.)?usatoday\.com", r"/videos/"),
+    # AP's video desk. Its own shape, not a hub: the /hub/ rule was written
+    # against the one row stored at the time and an apnews.com/video/ row landed
+    # at 17:05Z on 2026-09-15, hours after the rule shipped. Counted separately
+    # from the hub so the two never hide behind one number.
+    "apnews-video": (r"(?:www\.)?apnews\.com", r"/video/"),
+    # USA Today serves the same player under BOTH spellings - the stored rows
+    # use the singular, the rule was written from the plural. `videos?` because
+    # this is one surface with two urls, not two phenomena.
+    "usatoday-video": (r"(?:www\.)?usatoday\.com", r"/videos?/"),
     # NPR's embeddable audio player, not the story page. 1 row.
     "npr-player-embed": (r"(?:www\.)?npr\.org", r"/player/"),
     # Sky's video desk — 8 of the 9 stored news.sky.com rows.

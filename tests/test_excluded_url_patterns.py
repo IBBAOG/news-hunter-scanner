@@ -10,6 +10,13 @@ page with no story:
                                                           by Google, 0 <p>)
     apnews.com/hub/<topic>                       1 row   (topic index, no date)
     cbsnews.com/video/ , usatoday.com/videos/    3 + 1   (player shells)
+
+Confirmation round 4 (2026-09-15) found the first pass had two coverage gaps on
+hosts it already knew: an apnews.com/VIDEO/ row landed at 17:05Z (the rule only
+covered /hub/), and USA Today's stored rows use the SINGULAR /video/ while the
+rule was written from the plural (2 rows). Both are pinned below: the lesson is
+that a host-scoped rule written from the rows present at the time is a sample,
+not the shape.
     npr.org/player/embed/...                     1 row   (embeddable player)
     news.sky.com/video/...                       8 rows  (8 of the 9 Sky rows)
     theglobeandmail.com/.../Newswire.ca/<id>/    3 rows  (JS-rendered wire wrapper)
@@ -27,6 +34,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -48,7 +56,12 @@ _EXCLUDED_URLS: tuple[tuple[str, str], ...] = (
     ("thetimes-appointments", "https://appointments.thetimes.com/job/12345/senior-oil-analyst/"),
     ("apnews-topic-hub", "https://apnews.com/hub/oil-and-gas"),
     ("cbsnews-video", "https://www.cbsnews.com/video/oil-prices-surge-after-strikes/"),
+    # Round 4: the shape that slipped past the /hub/-only rule at 17:05Z.
+    ("apnews-video", "https://apnews.com/video/oil-tanker-fire-opec-9c3f1a2b4d5e6f"),
+    ("apnews-video", "https://www.apnews.com/video/opec-meeting-vienna-1a2b3c4d"),
+    # Both spellings of the same USA Today player; the live rows are singular.
     ("usatoday-video", "https://www.usatoday.com/videos/news/2026/09/14/oil-tanker-fire/12345/"),
+    ("usatoday-video", "https://www.usatoday.com/video/news/2026/09/14/oil-tanker-fire/12345/"),
     ("npr-player-embed", "https://www.npr.org/player/embed/1234567/7654321"),
     ("skynews-video", "https://news.sky.com/video/oil-tanker-attack-off-uae-13456789"),
     ("globeandmail-newswire",
@@ -60,6 +73,10 @@ _EXCLUDED_URLS: tuple[tuple[str, str], ...] = (
 _KEPT_URLS: tuple[str, ...] = (
     "https://www.thetimes.com/business-money/energy/article/north-sea-oil-tax-abc123",
     "https://apnews.com/article/opec-oil-output-8f2c1d0e9b",
+    # A story whose SLUG contains the word, on the widened hosts: the rules
+    # match a path SEGMENT, never a substring.
+    "https://apnews.com/article/oil-video-briefing-opec-8f2c1d0e9b",
+    "https://www.usatoday.com/story/money/2026/09/14/oil-video-explainer/98765/",
     "https://www.cbsnews.com/news/oil-prices-gas-pump-2026/",
     "https://www.usatoday.com/story/money/2026/09/14/oil-prices-gas/12345/",
     "https://www.npr.org/2026/09/14/1234567/oil-prices-opec",
@@ -94,6 +111,18 @@ def test_a_rule_cannot_leak_onto_another_host():
     assert excluded_url_reason("https://notnews.sky.com/video/x") is None
     assert excluded_url_reason("https://example.com/hub/oil") is None
     assert excluded_url_reason("https://example.com/video/oil") is None
+    assert excluded_url_reason("https://apnews.com.evil.example/video/oil") is None
+    assert excluded_url_reason("https://usatoday.com.evil.example/video/oil") is None
+
+
+def test_the_widened_video_rules_still_only_match_a_leading_path_segment():
+    """`/videos?/` must not become "any path with video in it"."""
+    assert excluded_url_reason("https://apnews.com/video/opec-meeting-1a2b") == "apnews-video"
+    assert excluded_url_reason("https://www.usatoday.com/video/news/x/1/") == "usatoday-video"
+    assert excluded_url_reason("https://www.usatoday.com/videos/news/x/1/") == "usatoday-video"
+    # Neither the plural-of-the-plural nor a story that merely mentions it.
+    assert excluded_url_reason("https://www.usatoday.com/videoswire/news/x/1/") is None
+    assert excluded_url_reason("https://apnews.com/article/video-of-opec-1a2b") is None
 
 
 def test_unrelated_urls_and_junk_are_ignored():
@@ -199,14 +228,19 @@ def test_a_scan_with_nothing_to_exclude_reports_zero(monkeypatch):
 
 
 def test_every_shape_is_dropped_end_to_end(monkeypatch):
-    """All seven rules, through the whole pipeline, in one scan."""
+    """Every rule, through the whole pipeline, in one scan.
+
+    Counted with a Counter rather than one-per-key: a rule that legitimately
+    covers two url spellings (usatoday /video/ and /videos/) must report BOTH
+    drops under its single name.
+    """
     items = [_rss_item(url, "Oil story") for _key, url in _EXCLUDED_URLS]
     items.append(_rss_item("https://oilprice.com/energy/oil-prices-rise-today", "Oil prices rise"))
     res, urls, _, _ = _drive(monkeypatch, items)
 
     assert urls == ["https://oilprice.com/energy/oil-prices-rise-today"]
     assert res["excluded"] == len(_EXCLUDED_URLS)
-    assert res["excluded_by_rule"] == {key: 1 for key, _ in _EXCLUDED_URLS}
+    assert res["excluded_by_rule"] == dict(Counter(key for key, _ in _EXCLUDED_URLS))
 
 
 def test_the_scan_logs_the_count(monkeypatch, caplog):
