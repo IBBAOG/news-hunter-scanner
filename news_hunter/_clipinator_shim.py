@@ -591,6 +591,17 @@ SOURCE_NAMES: dict[str, str] = {
     # ex-PetrolPlaza, which 301s here
     "mobilityplaza.com": "Mobility Plaza",
     "www.mobilityplaza.com": "Mobility Plaza",
+    # "IEA" and "OPEC" are the only two names in this dict that are also
+    # everyday attribution tokens in a headline. _SITE_SUFFIX_PATTERNS is built
+    # from SOURCE_NAMES.values(), so clean_title would read a genuine
+    # "Demand revised up - IEA" as a site suffix and cut the attribution off.
+    # Inert today, and verified as inert rather than assumed: clean_title has
+    # exactly one caller, `_extract`, and its only consumer in enrich.py
+    # discards that title (`_, paragrafos = _extract(...)`). The title the
+    # dashboard shows comes from the feed / GNews item, or from
+    # _extract_title_from_html, neither of which passes through clean_title. If
+    # it is ever put on that path, these two values need an opt-out from
+    # _SITE_SUFFIX_PATTERNS - not a rewrite of the outlet's name.
     "iea.org": "IEA",
     "www.iea.org": "IEA",
     "opec.org": "OPEC",

@@ -17,7 +17,15 @@ than the prefix — `www.wsj.com` became `sj.com`, `worldoil.com` became
 `orldoil.com`, `www3.nhk.or.jp` became `3.nhk.or.jp` — and every one of those
 misses returned the raw domain, i.e. the same symptom as an unregistered
 outlet. `test_www_is_stripped_as_a_prefix_not_as_a_character_set` below fails on
-the pre-fix function and passes on `removeprefix`.
+the pre-fix function and passes on the prefix walk.
+
+Third defect, same shape: the name lookup only ever considered `www.`, while
+`resolve_extractor_domain` had walked `_HOST_PREFIXES` ("www.", "m.", "amp.",
+"mobile.") since 2026-08-18. A mobile or AMP host therefore got an extractor and
+no name — `m.lngindustry.com` rendered as itself — which is how `m.yicai.com`
+went a whole wave with a body and a bare domain for a byline. Both lookups now
+walk the same tuple, and `test_every_host_prefix_resolves_to_the_outlet` is
+parametrized over that tuple so a fifth prefix is covered the day it is added.
 
 The roster is derived from `sources.py`, never hard-coded here, so the next wave
 that registers a feed and forgets the name turns this file red.
@@ -33,13 +41,14 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import registered_hosts  # noqa: E402
 from news_hunter import enrich  # noqa: E402
-from news_hunter._clipinator_shim import SOURCE_NAMES  # noqa: E402
-from news_hunter.enrich import source_name_for  # noqa: E402
-from news_hunter.sources import (  # noqa: E402
-    ENGLISH_NO_RSS_DOMAINS,
-    INTERNATIONAL_RSS_DOMAINS,
+from news_hunter._clipinator_shim import (  # noqa: E402
+    _HOST_PREFIXES,
+    SOURCE_NAMES,
+    resolve_extractor_domain,
 )
+from news_hunter.enrich import source_name_for  # noqa: E402
 
 # Hosts registered WITHOUT a display name, on purpose or as a stated debt.
 #   cnbc.com: pre-existing gap, not Wave 5. Only "www.cnbc.com" is keyed, in
@@ -52,30 +61,13 @@ from news_hunter.sources import (  # noqa: E402
 _KNOWN_NAME_GAPS = {"cnbc.com"}
 
 
-def _registered_hosts() -> set[str]:
-    """Every host the scanner can attribute an English-language item to.
-
-    RSS entries arrive normalize_url'd (www stripped) and are registered apex +
-    www in `INTERNATIONAL_RSS_DOMAINS`; a Google News entry may be path-scoped
-    (`marketwatch.com/story`, `aa.com.tr/en`, `www3.nhk.or.jp/nhkworld`) and the
-    resolved article netloc is the host part of it, with or without www.
-    """
-    hosts = set(INTERNATIONAL_RSS_DOMAINS)
-    for entry in ENGLISH_NO_RSS_DOMAINS:
-        host = entry.split("/")[0].lower()
-        hosts.add(host)
-        if host.startswith("www."):
-            hosts.add(host.removeprefix("www."))
-    return hosts
-
-
 def test_the_roster_is_not_empty():
     # A derivation that silently collapsed to a handful of hosts would make
     # every assertion below vacuous. Lower bound only: the roster grows.
-    assert len(_registered_hosts()) > 100
+    assert len(registered_hosts()) > 100
 
 
-@pytest.mark.parametrize("host", sorted(_registered_hosts() - _KNOWN_NAME_GAPS))
+@pytest.mark.parametrize("host", sorted(registered_hosts() - _KNOWN_NAME_GAPS))
 def test_every_registered_international_host_has_a_display_name(host):
     name = source_name_for(host)
     assert name != host, (
@@ -89,7 +81,7 @@ def test_every_registered_international_host_has_a_display_name(host):
 
 @pytest.mark.parametrize(
     "bare",
-    sorted({h.removeprefix("www.") for h in _registered_hosts()} - _KNOWN_NAME_GAPS),
+    sorted({h.removeprefix("www.") for h in registered_hosts()} - _KNOWN_NAME_GAPS),
 )
 def test_the_www_form_of_every_registered_host_has_the_same_name(bare):
     """GNews does NOT normalize the netloc, so both forms reach the dashboard."""
@@ -107,6 +99,30 @@ def test_www_is_stripped_as_a_prefix_not_as_a_character_set(monkeypatch):
     assert source_name_for("www.wonky.example") == "Wonky Gazette"
     # ... and the non-www host is untouched by the strip.
     assert source_name_for("wonky.example") == "Wonky Gazette"
+
+
+@pytest.mark.parametrize("prefix", _HOST_PREFIXES)
+def test_every_host_prefix_resolves_to_the_outlet(prefix):
+    """One case per prefix, off the tuple itself, so a fifth one is covered."""
+    host = f"{prefix}lngindustry.com"
+    assert source_name_for(host) == "LNG Industry"
+    # The name lookup and the extractor lookup must agree on what a host
+    # variant means; they disagreed for a whole wave.
+    assert resolve_extractor_domain(host) is not None
+
+
+@pytest.mark.parametrize("prefix", _HOST_PREFIXES)
+def test_no_prefix_invents_a_name_for_an_unregistered_host(prefix):
+    """The negative half: the walk must not answer for everything."""
+    host = f"{prefix}nao-existe-mesmo.example"
+    assert source_name_for(host) == host
+
+
+def test_a_www_only_registration_is_reachable_from_a_mobile_host():
+    # Third step of the walk: strip the prefix, then re-add "www.". cnbc.com is
+    # keyed www.-only (see _KNOWN_NAME_GAPS), which makes it the one live case.
+    assert source_name_for("m.cnbc.com") == "CNBC"
+    assert source_name_for("amp.cnbc.com") == "CNBC"
 
 
 def test_the_charset_bug_was_not_papered_over_with_mangled_keys():

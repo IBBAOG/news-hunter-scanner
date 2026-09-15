@@ -26,15 +26,12 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from conftest import registered_hosts  # noqa: E402
 from news_hunter._clipinator_shim import (  # noqa: E402
     EXTRACTORS,
     SOURCE_NAMES,
     ex_auto,
     resolve_extractor_domain,
-)
-from news_hunter.sources import (  # noqa: E402
-    ENGLISH_NO_RSS_DOMAINS,
-    INTERNATIONAL_RSS_DOMAINS,
 )
 
 # Registered hosts with no extractor, each for a stated reason.
@@ -53,23 +50,13 @@ _EXTRACTORLESS_ON_PURPOSE = {
 }
 
 
-def _registered_hosts() -> set[str]:
-    hosts = set(INTERNATIONAL_RSS_DOMAINS)
-    for entry in ENGLISH_NO_RSS_DOMAINS:
-        host = entry.split("/")[0].lower()
-        hosts.add(host)
-        if host.startswith("www."):
-            hosts.add(host.removeprefix("www."))
-    return hosts
-
-
 def _wave5_named_hosts() -> set[str]:
     """SOURCE_NAMES keys that belong to a host registered in sources.py.
 
     Keeps the assertion on the hosts the scanner can actually produce instead
     of on a hand-copied list that drifts from the registry.
     """
-    registered = _registered_hosts()
+    registered = registered_hosts()
     return {
         host
         for host in SOURCE_NAMES
@@ -78,12 +65,12 @@ def _wave5_named_hosts() -> set[str]:
 
 
 def test_the_roster_is_not_empty():
-    assert len(_registered_hosts()) > 100
+    assert len(registered_hosts()) > 100
     assert len(_wave5_named_hosts()) > 100
 
 
 @pytest.mark.parametrize(
-    "host", sorted(_registered_hosts() - _EXTRACTORLESS_ON_PURPOSE)
+    "host", sorted(registered_hosts() - _EXTRACTORLESS_ON_PURPOSE)
 )
 def test_every_registered_international_host_reaches_an_extractor(host):
     key = resolve_extractor_domain(host)
@@ -92,13 +79,6 @@ def test_every_registered_international_host_reaches_an_extractor(host):
         "body fetch is skipped and the item keeps the meta description"
     )
     assert EXTRACTORS[key] is not None
-
-
-@pytest.mark.parametrize(
-    "host", sorted(_wave5_named_hosts() - _EXTRACTORLESS_ON_PURPOSE)
-)
-def test_every_named_international_host_reaches_an_extractor(host):
-    assert resolve_extractor_domain(host) is not None
 
 
 @pytest.mark.parametrize(
