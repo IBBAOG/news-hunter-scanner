@@ -26,7 +26,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import registered_hosts  # noqa: E402
+from conftest import ARTICLE_HOSTS, registered_hosts  # noqa: E402
 from news_hunter._clipinator_shim import (  # noqa: E402
     EXTRACTORS,
     SOURCE_NAMES,
@@ -116,6 +116,18 @@ def test_wave5_outlets_use_the_generic_extractor():
         "e.vnexpress.net", "lngindustry.com", "www3.nhk.or.jp",
     ):
         assert EXTRACTORS[resolve_extractor_domain(host)] is ex_auto
+
+
+@pytest.mark.parametrize("host", sorted(ARTICLE_HOSTS))
+def test_the_article_host_reaches_an_extractor(host):
+    """The gate resolves the ARTICLE host, not the feed host.
+
+    So an outlet whose feed lives on a different domain
+    (www.pipelineoilandgasnews.com -> energyconnects.com) has its body fetch
+    skipped for every item unless the article host is keyed too.
+    """
+    assert resolve_extractor_domain(host) is not None
+    assert resolve_extractor_domain(f"www.{host}") is not None
 
 
 def test_the_resolver_still_refuses_an_unregistered_host():

@@ -503,6 +503,17 @@ SOURCE_NAMES: dict[str, str] = {
     "www.tradearabia.com": "Trade Arabia",
     "pipelineoilandgasnews.com": "Pipeline Oil & Gas Magazine",
     "www.pipelineoilandgasnews.com": "Pipeline Oil & Gas Magazine",
+    # The feed host is NOT the article host. www.pipelineoilandgasnews.com
+    # links 30/30 of its items to energyconnects.com (measured on the parallel
+    # branch intl-post-sources, item A, which registers the article host in
+    # INTERNATIONAL_RSS_DOMAINS), so the feed keys above never render anything:
+    # `news_articles` holds 16 rows under host energyconnects.com and
+    # source_name "energyconnects.com", and none under the magazine's own host.
+    # "Energy Connects" is the site's own masthead; Pipeline Oil & Gas Magazine
+    # is its sister title, which is why both names live here rather than one
+    # being folded into the other.
+    "energyconnects.com": "Energy Connects",
+    "www.energyconnects.com": "Energy Connects",
     # MEASURED (1 row)
     "asia.nikkei.com": "Nikkei Asia",
     "japantimes.co.jp": "The Japan Times",
@@ -1327,6 +1338,11 @@ EXTRACTORS: dict[str, Extractor] = {
     "www.tradearabia.com": ex_auto,
     "pipelineoilandgasnews.com": ex_auto,
     "www.pipelineoilandgasnews.com": ex_auto,
+    # Article host of the feed above (see the SOURCE_NAMES comment): without
+    # these keys the body fetch is skipped for every item the magazine
+    # publishes, since the gate resolves the ARTICLE host, not the feed host.
+    "energyconnects.com": ex_auto,
+    "www.energyconnects.com": ex_auto,
     "asia.nikkei.com": ex_auto,
     "japantimes.co.jp": ex_auto,
     "www.japantimes.co.jp": ex_auto,

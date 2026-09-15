@@ -41,7 +41,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import registered_hosts  # noqa: E402
+from conftest import ARTICLE_HOSTS, registered_hosts  # noqa: E402
 from news_hunter import enrich  # noqa: E402
 from news_hunter._clipinator_shim import (  # noqa: E402
     _HOST_PREFIXES,
@@ -168,13 +168,9 @@ def test_wave5_display_names(host, expected):
 @pytest.mark.parametrize(
     "host,expected",
     [
-        # Second live host of an outlet whose registered host is a different
-        # one. businessday.co.za and trend.az were MEASURED in `news_articles`
-        # (8 and 2 rows) while the registries carry businesslive.co.za and
-        # en.trend.az; the rest are the outlet's other published host.
-        ("businessday.co.za", "Business Day (South Africa)"),
+        # The outlet's other published host, keyed so the name survives
+        # whichever one Google hands back.
         ("businesslive.co.za", "Business Day (South Africa)"),
-        ("trend.az", "Trend News Agency"),
         ("en.trend.az", "Trend News Agency"),
         ("abcnews.go.com", "ABC News"),
         ("markets.businessinsider.com", "Business Insider"),
@@ -184,6 +180,26 @@ def test_wave5_display_names(host, expected):
 )
 def test_resolved_host_variants_render_the_outlet(host, expected):
     assert source_name_for(host) == expected
+
+
+@pytest.mark.parametrize("host,expected", sorted(ARTICLE_HOSTS.items()))
+def test_the_article_host_renders_the_outlet(host, expected):
+    """A feed host is not always the article host — see conftest.ARTICLE_HOSTS.
+
+    pipeline.py calls source_name_for(resolved_domain), i.e. the host of the
+    article the item actually points at. Registering only the feed host leaves
+    every one of those items showing a bare domain, which is what
+    `news_articles` recorded for all 16 energyconnects.com rows.
+    """
+    assert source_name_for(host) == expected
+    assert source_name_for(f"www.{host}") == expected
+
+
+def test_the_feed_host_of_a_split_outlet_is_still_named():
+    # Both halves stay keyed: the magazine and Energy Connects are sister
+    # titles, so neither name is folded into the other.
+    assert source_name_for("pipelineoilandgasnews.com") == "Pipeline Oil & Gas Magazine"
+    assert source_name_for("energyconnects.com") == "Energy Connects"
 
 
 def test_business_day_south_africa_is_not_confused_with_businessday_nigeria():
