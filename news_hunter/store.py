@@ -244,10 +244,16 @@ EXCLUDED_URL_PATTERNS: dict[str, tuple[str, str | None]] = {
     # at 17:05Z on 2026-09-15, hours after the rule shipped. Counted separately
     # from the hub so the two never hide behind one number.
     "apnews-video": (r"(?:www\.)?apnews\.com", r"/video/"),
-    # USA Today serves the same player under BOTH spellings - the stored rows
-    # use the singular, the rule was written from the plural. `videos?` because
-    # this is one surface with two urls, not two phenomena.
+    # USA Today serves the video desk under both spellings; the stored row uses
+    # the plural, and `videos?` costs nothing against the day the singular
+    # arrives - this is one surface with two urls, not two phenomena.
     "usatoday-video": (r"(?:www\.)?usatoday\.com", r"/videos?/"),
+    # /embed/video/<id>: the EMBEDDABLE player for the same clip, and the only
+    # live usatoday.com row that reads as a singular "/video/". The path rules
+    # are anchored at the start of the path, so neither video rule could ever
+    # have seen it. 1 row. `/embed/` and not `/embed/video/`: nothing a
+    # publisher offers for embedding is the article.
+    "usatoday-embed-player": (r"(?:www\.)?usatoday\.com", r"/embed/"),
     # NPR's embeddable audio player, not the story page. 1 row.
     "npr-player-embed": (r"(?:www\.)?npr\.org", r"/player/"),
     # Sky's video desk — 8 of the 9 stored news.sky.com rows.

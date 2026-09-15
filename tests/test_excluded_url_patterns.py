@@ -10,16 +10,24 @@ page with no story:
                                                           by Google, 0 <p>)
     apnews.com/hub/<topic>                       1 row   (topic index, no date)
     cbsnews.com/video/ , usatoday.com/videos/    3 + 1   (player shells)
-
-Confirmation round 4 (2026-09-15) found the first pass had two coverage gaps on
-hosts it already knew: an apnews.com/VIDEO/ row landed at 17:05Z (the rule only
-covered /hub/), and USA Today's stored rows use the SINGULAR /video/ while the
-rule was written from the plural (2 rows). Both are pinned below: the lesson is
-that a host-scoped rule written from the rows present at the time is a sample,
-not the shape.
     npr.org/player/embed/...                     1 row   (embeddable player)
     news.sky.com/video/...                       8 rows  (8 of the 9 Sky rows)
     theglobeandmail.com/.../Newswire.ca/<id>/    3 rows  (JS-rendered wire wrapper)
+
+Confirmation round 4 (2026-09-15) found two more shapes on hosts the registry
+already knew, both stored AFTER the first pass shipped:
+
+    apnews.com/video/<slug>-<id>                 2 rows  (the second at 17:05Z;
+                                                          the AP rule covered
+                                                          only /hub/)
+    usatoday.com/embed/video/<id>                1 row   (the embeddable player;
+                                                          the path rules anchor
+                                                          at the start of the
+                                                          path, so /videos?/
+                                                          never saw it)
+
+The lesson is pinned below with the rules: a host-scoped rule written from the
+rows present on the day is a SAMPLE of the shapes, not the shape.
 
 `store.EXCLUDED_URL_PATTERNS` is the single host-scoped url filter. The sibling
 `fetcher._NON_ARTICLE_SEGMENTS` does a different job: it prunes listing links
@@ -59,9 +67,11 @@ _EXCLUDED_URLS: tuple[tuple[str, str], ...] = (
     # Round 4: the shape that slipped past the /hub/-only rule at 17:05Z.
     ("apnews-video", "https://apnews.com/video/oil-tanker-fire-opec-9c3f1a2b4d5e6f"),
     ("apnews-video", "https://www.apnews.com/video/opec-meeting-vienna-1a2b3c4d"),
-    # Both spellings of the same USA Today player; the live rows are singular.
+    # Both spellings of the USA Today video desk (the stored row is the plural).
     ("usatoday-video", "https://www.usatoday.com/videos/news/2026/09/14/oil-tanker-fire/12345/"),
     ("usatoday-video", "https://www.usatoday.com/video/news/2026/09/14/oil-tanker-fire/12345/"),
+    # Round 4: the embeddable player, verbatim from `news_articles`.
+    ("usatoday-embed-player", "https://usatoday.com/embed/video/91754740007"),
     ("npr-player-embed", "https://www.npr.org/player/embed/1234567/7654321"),
     ("skynews-video", "https://news.sky.com/video/oil-tanker-attack-off-uae-13456789"),
     ("globeandmail-newswire",
@@ -123,6 +133,15 @@ def test_the_widened_video_rules_still_only_match_a_leading_path_segment():
     # Neither the plural-of-the-plural nor a story that merely mentions it.
     assert excluded_url_reason("https://www.usatoday.com/videoswire/news/x/1/") is None
     assert excluded_url_reason("https://apnews.com/article/video-of-opec-1a2b") is None
+
+
+def test_the_usatoday_embed_player_is_its_own_rule():
+    """The live row is /embed/video/<id>: the anchored video rules cannot reach
+    it, and the count has to say WHICH surface produced the drop."""
+    assert excluded_url_reason("https://usatoday.com/embed/video/91754740007") == "usatoday-embed-player"
+    assert excluded_url_reason("https://www.usatoday.com/embed/audio/123") == "usatoday-embed-player"
+    # An article is not embeddable: /embed/ only fires as a leading segment.
+    assert excluded_url_reason("https://www.usatoday.com/story/money/2026/09/14/embed-oil/1/") is None
 
 
 def test_unrelated_urls_and_junk_are_ignored():
