@@ -150,6 +150,35 @@ def _deamp_path(path: str) -> str:
     return path
 
 
+# Host path rewrites: the collector is handed a url that addresses a NON-ARTICLE
+# surface of an article the same site serves under the SAME SLUG somewhere else.
+# Rewriting here (rather than dropping the item) keeps the article and makes the
+# key the fetchable address.
+#
+# mobilityplaza.com — Google News hands back `/recommend/<slug>`, which is the
+# site's "send this recommendation" share FORM, while the article itself is
+# `/news/<slug>`. Measured from the runner on 2026-09-15:
+#
+#   https://mobilityplaza.com/recommend/argentina-shell-could-sell-its-600-gas-station-network
+#       -> 200, 17 KB, ZERO paragraphs over 40 chars
+#   https://www.mobilityplaza.com/news/argentina-shell-could-sell-its-600-gas-station-network
+#       -> 200, 21 KB, 4 body paragraphs; _extract() reads the title
+#          "Argentina: Shell could sell its 600 gas station network"
+#
+# Six of the seven mobilityplaza rows stored in news_articles were /recommend/
+# (2026-09-15) — i.e. the outlet was landing bodiless almost every time.
+_PATH_REWRITES: tuple[tuple[str, str, str], ...] = (
+    ("mobilityplaza.com", "/recommend/", "/news/"),
+)
+
+
+def _rewrite_path(netloc: str, path: str) -> str:
+    for host, old, new in _PATH_REWRITES:
+        if path.startswith(old) and _host_matches(netloc, host):
+            return new + path[len(old):]
+    return path
+
+
 def _keep_param(netloc: str, key: str, value: str) -> bool:
     k = key.lower()
     if k in TRACKING_PARAMS or k.startswith("utm_"):
@@ -188,15 +217,17 @@ def normalize_url(url: str) -> str:
     Removes in-page fragments, tracking params, AMP mirrors and 'www.' so the
     same article reached through different links is ONE row — and therefore one
     translation, not one per link variant. A hash-route fragment that
-    identifies the page is kept (see _route_fragment), and the five hosts that
-    only answer on www keep (or regain) the prefix (see WWW_ONLY_HOSTS).
+    identifies the page is kept (see _route_fragment), the five hosts that only
+    answer on www keep (or regain) the prefix (see WWW_ONLY_HOSTS), and a
+    non-article surface of an article served under the same slug is rewritten
+    onto the article (see _PATH_REWRITES).
     """
     try:
         p = urlparse(url)
     except ValueError:
         return url
     netloc = _canonical_netloc(p.netloc.lower())
-    path = _deamp_path(p.path)
+    path = _rewrite_path(netloc, _deamp_path(p.path))
     if any(_host_matches(netloc, h) for h in _DROP_QUERY_ON_ARTICLE_PATH) and _ARTICLE_PATH.search(path):
         query: list[tuple[str, str]] = []
     else:
