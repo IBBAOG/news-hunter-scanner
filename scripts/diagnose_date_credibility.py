@@ -37,6 +37,13 @@ persisted, dropped as old and deferred. --cleanup-after treats rows created at
 or after that instant as never stored (what the database will look like once a
 burst of wrongly inserted rows is deleted). --titles runs the title cleaner
 over every stored title containing "|" and prints what would change.
+Feed mode ends with the gate table: every page the sample read whose own
+date is > 24 h older than the feed date, on a feed that is NOT flagged -- the
+items a spot check would re-date and drop. Each row names the url, both dates
+and the page signal the date came from, so a wrong page date (a related card,
+a template constant) can be told from a real re-stamp before a feed such as
+Kpler is re-enabled.
+
 --full-scan runs one complete scan (Google News included) with every write
 closed and prints its wall time, the page fetches and the Stage 4b cost;
 --no-date-credibility is the A side of an A/B: Stage 4b (spot checks, verify
@@ -52,6 +59,7 @@ Columns (feed mode):
     later    page date LATER than feed + tol (R2 ignores it; informational)
     const    largest group of sampled items sharing one page date while their
              feed dates differ by more than the tolerance (template suspicion)
+    cnfl     pages whose publication dates disagree (> 24 h): dateless for R2
     tdate    items whose title prints a date     tOld   ... older than the feed date
     stored   fresh items already in news_articles
     dbEv     stored fresh MATCHED items re-dated (feed > min(pub, created) + tol),
@@ -59,13 +67,16 @@ Columns (feed mode):
     tEv      fresh items whose title date is older, count/largest batch
     FLAG     R3's batch rule holds: date_credibility.is_batch over dbEv, tEv and
              the never-seen items whose sampled page proved them older, together
+             (unless date_credibility.shared_page_date calls those pages a
+             template: then their dates are ignored, as Stage 4b does)
     new      never-seen fresh matched items (all sampled, up to --r3-pages)
     r3v/o/d/a  their fate under Stage 4b's rules: kept (page dated, or a spot
              check of a feed that is not flagged) / dropped as older /
-             deferred (flagged: page read without a date, page unread while
-             another page of the site was read, beyond the sample) / admitted
-             (flagged and the whole site unread, or not flagged and dateless /
-             unread / beyond the sample). The sample is larger than Stage
+             deferred (flagged: page read without a date, page unread unless
+             the site refused it with a 4xx / challenge and no page of it was
+             read, beyond the sample) / admitted (flagged and refused by a site
+             we read nothing of, or not flagged and dateless / unread / beyond
+             the sample). The sample is larger than Stage
              4b's budget (4 spot / 8 verify pages per feed per scan): these
              columns say what the pages show; --dry-run says what one scan
              does.
@@ -150,7 +161,7 @@ def _apply_cleanup(lk: dc.StoredLookup, cutoff: datetime | None) -> dc.StoredLoo
         return lk
     return dc.StoredLookup(
         found={u: s for u, s in lk.found.items() if s.created_at is None or s.created_at < cutoff},
-        failed=set(lk.failed),
+        failed=set(lk.failed), bad=set(lk.bad), unavailable=lk.unavailable, seconds=lk.seconds,
     )
 
 
@@ -159,13 +170,15 @@ def _page_signals(url: str) -> dict:
     from bs4 import BeautifulSoup
 
     from news_hunter._clipinator_shim import fetch_html
+    from news_hunter.enrich import http_status
 
-    out: dict = {"fetched": False, "error": "", "page_date": None, "signals": {}}
+    out: dict = {"fetched": False, "error": "", "status": None, "page_date": None, "signals": []}
     t0 = time.time()
     try:
         html = fetch_html(url, timeout=PAGE_TIMEOUT)
     except Exception as e:  # noqa: BLE001
         out["error"] = f"{type(e).__name__}: {str(e)[:80]}"
+        out["status"] = http_status(e)
         out["secs"] = time.time() - t0
         return out
     out["secs"] = time.time() - t0
@@ -173,14 +186,13 @@ def _page_signals(url: str) -> dict:
     sigs = dc.read_page_signals(soup)
     out["fetched"] = True
     out["page_date"] = sigs.published
+    out["conflict"] = sigs.conflict
     out["challenge"] = out["page_date"] is None and dc.looks_like_challenge(soup)
-    out["signals"] = {
-        name: value for name, value in (
-            ("meta", sigs.meta_published), ("jsonld", sigs.jsonld_article),
-            ("itemprop", sigs.itemprop), ("meta_date", sigs.meta_date),
-            ("jsonld_page", sigs.jsonld_page),
-        ) if value is not None
-    }
+    out["signals"] = (
+        [("jsonld", d) for d in sigs.jsonld_article] + [("itemprop", d) for d in sigs.itemprop]
+        + [(n, d) for n, d in (("meta", sigs.meta_published), ("meta_date", sigs.meta_date)) if d]
+        + [("jsonld_page", d) for d in sigs.jsonld_page]
+    )
     out["headlines"] = sigs.headlines
     return out
 
@@ -302,19 +314,22 @@ def run_feeds(args) -> int:
             try:
                 pages[futs[fut]] = fut.result()
             except Exception as e:  # noqa: BLE001
-                pages[futs[fut]] = {"fetched": False, "error": str(e), "page_date": None, "signals": {}}
+                pages[futs[fut]] = {"fetched": False, "error": str(e), "status": None,
+                                    "page_date": None, "signals": []}
         for fut in not_done:
             fut.cancel()
-            pages[futs[fut]] = {"fetched": False, "error": "deadline", "page_date": None, "signals": {}}
+            pages[futs[fut]] = {"fetched": False, "error": "deadline", "status": None,
+                                "page_date": None, "signals": [], "incomplete": True}
     print(f"pages fetched in {time.time() - t1:.1f}s", flush=True)
 
     hdr = (f"{'feed':34} {'items':>5} {'fresh':>5} {'match':>5} {'smp':>3} {'fail':>4} "
-           f"{'nodt':>4} {'older':>5} {'oldF':>4} {'later':>5} {'const':>5} {'tdate':>5} "
+           f"{'nodt':>4} {'older':>5} {'oldF':>4} {'later':>5} {'const':>5} {'cnfl':>4} {'tdate':>5} "
            f"{'tOld':>4} {'strd':>4} {'dbEv':>5} {'tEv':>5} {'FLAG':>4} {'new':>4} "
            f"{'r3v':>3} {'r3o':>3} {'r3d':>3} {'r3a':>3}")
     print("\n" + hdr)
     totals = Counter()
     notes: list[str] = []
+    gate: list[tuple[str, bool, RawItem, dict]] = []   # (feed, flagged, item, page) page-older samples
     for d, r in sorted(rows.items()):
         fresh_urls = {i.url for i in r["fresh"]}
         smp = r["sample"]
@@ -340,25 +355,33 @@ def run_feeds(args) -> int:
                     older_f += 1
             elif pdt.value > it.published_at + dc.TOLERANCE:
                 later += 1
-            sig = pg.get("signals") or {}
-            vals = [v for v in sig.values() if v is not None]
-            if len(vals) >= 2 and max(v.value for v in vals) - min(v.value for v in vals) > dc.TOLERANCE + dc.DAY_SPAN:
+        for it in smp:
+            if (pages.get(it.url) or {}).get("conflict"):
                 sig_disagree += 1
         const = 0
         for raw, feeds_dates in by_date.items():
             if len(feeds_dates) >= 2 and max(feeds_dates) - min(feeds_dates) > dc.TOLERANCE:
                 const = max(const, len(feeds_dates))
-        # Stage 4b's rules on what the sample shows: page-proven old never-seen
-        # items join the stored re-dates and title contradictions; a batch
-        # flags the feed; an unread page defers only while the site answered.
+        # Stage 4b's rules on what the sample shows: the template guard, then
+        # page-proven old never-seen items join the stored re-dates and title
+        # contradictions; a batch flags the feed; an unread page is admitted
+        # only when the site refused it (4xx / challenge) and none of it was read.
         def _read(pg):
             return bool(pg) and pg.get("fetched") and not pg.get("challenge")
 
-        page_dates = [it.published_at for it in r["new"]
-                      if _read(pages.get(it.url)) and dc.is_older(pages[it.url].get("page_date"), it.published_at)]
+        def _blocked(pg):
+            st = pg.get("status")
+            return bool(pg.get("challenge")) or (isinstance(st, int) and 400 <= st < 500)
+
+        old_new = [(it.url, pages[it.url]["page_date"]) for it in r["new"]
+                   if _read(pages.get(it.url)) and dc.is_older(pages[it.url].get("page_date"), it.published_at)]
+        template = dc.shared_page_date(old_new)
+        page_dates = [] if template else [
+            it.published_at for it in r["new"] if any(u == it.url for u, _d in old_new)]
         evidence = r["db_dates"] + r["tev_dates"] + page_dates
         r["flagged"] = flagged = dc.is_batch(evidence)
         r["page_ev"] = len(page_dates)
+        r["template"] = template
         r["batch"] = dc.largest_batch(evidence)
         site_read = any(_read(pages.get(i.url)) for i in smp)
         r3v = r3o = r3d = r3a = 0
@@ -370,12 +393,12 @@ def run_feeds(args) -> int:
                 else:
                     r3a += 1
                 continue
-            pdt = pg.get("page_date")
+            pdt = None if template else pg.get("page_date")
             if not _read(pg):
-                if flagged and site_read:
-                    r3d += 1
-                else:
+                if not flagged or (_blocked(pg) and not pg.get("incomplete") and not site_read):
                     r3a += 1
+                else:
+                    r3d += 1
             elif dc.is_older(pdt, it.published_at):
                 r3o += 1
             elif pdt is None:
@@ -390,7 +413,7 @@ def run_feeds(args) -> int:
         db_col = f"{len(r['db_ev'])}/{r['db_batch']}"
         tev_col = f"{r['tev']}/{r['tev_batch']}"
         print(f"{d[:34]:34} {len(r['items']):5} {len(r['fresh']):5} {len(r['match']):5} "
-              f"{len(smp):3} {fail:4} {nodate:4} {older:5} {older_f:4} {later:5} {const:5} "
+              f"{len(smp):3} {fail:4} {nodate:4} {older:5} {older_f:4} {later:5} {const:5} {sig_disagree:4} "
               f"{r['tdate']:5} {r['tolder']:4} {len(r['stored']):4} {db_col:>5} "
               f"{tev_col:>5} {'YES' if r['flagged'] else '':>4} {len(r['new']):4} "
               f"{r3v:3} {r3o:3} {r3d:3} {r3a:3}")
@@ -403,7 +426,14 @@ def run_feeds(args) -> int:
         if const >= 3:
             notes.append(f"TEMPLATE? {d}: {const} sampled items share one page date across different feed dates")
         if sig_disagree:
-            notes.append(f"SIGNALS  {d}: {sig_disagree} pages whose date signals disagree by > tol+day")
+            notes.append(f"CONFLICT {d}: {sig_disagree} pages whose publication dates disagree (dateless for R2)")
+        if template:
+            notes.append(f"TEMPLATE {d}: {len([1 for _u, x in old_new if x == template])} never-seen items "
+                         f"share page date {template.raw!r}: ignored, as Stage 4b does")
+        for it in smp:
+            pg = pages.get(it.url) or {}
+            if _read(pg) and dc.is_older(pg.get("page_date"), it.published_at):
+                gate.append((d, flagged, it, pg))
         if r["db_ev"] or r["tev"] or r["page_ev"]:
             notes.append(
                 f"{'FLAGGED ' if r['flagged'] else 'ISOLATED'} {d}: db={len(r['db_ev'])} "
@@ -426,7 +456,7 @@ def run_feeds(args) -> int:
             for it in smp:
                 pg = pages.get(it.url) or {}
                 pdt = pg.get("page_date")
-                sig = ",".join(f"{k}={_fmt_dt(v)}" for k, v in (pg.get("signals") or {}).items())
+                sig = ",".join(f"{k}={_fmt_dt(v)}" for k, v in (pg.get("signals") or []))
                 print(f"    feed={_fmt_dt(it.published_at)} page={_fmt_dt(pdt)} "
                       f"src={(pdt.source if pdt else '-')} [{sig}] "
                       f"{'FAIL ' + pg.get('error', '') if not pg.get('fetched') else ''} {it.url[:90]}")
@@ -435,6 +465,25 @@ def run_feeds(args) -> int:
     print("\n=== notes ===")
     for n in notes:
         print(n)
+    # The gate: on a feed that is NOT flagged, every page-older sample is an
+    # item the spot check would re-date and drop. Real re-stamps or wrong page
+    # dates? Both dates and the signal are printed to decide.
+    unflagged = [g for g in gate if not g[1]]
+    print(f"\n=== page_older on UNFLAGGED feeds: {len(unflagged)} samples on "
+          f"{len({g[0] for g in unflagged})} feeds ===")
+    for d in sorted({g[0] for g in unflagged}):
+        hits = [g for g in unflagged if g[0] == d]
+        print(f"  {d}: {len(hits)}")
+        for _d, _f, it, pg in hits:
+            pdt = pg["page_date"]
+            sig = ",".join(f"{k}={_fmt_dt(v)}" for k, v in pg.get("signals") or [])
+            print(f"      feed={_fmt_dt(it.published_at)} page={_fmt_dt(pdt)} src={pdt.source} "
+                  f"[{sig}] {it.url}")
+    flagged_hits = [g for g in gate if g[1]]
+    print(f"\n=== page_older on FLAGGED feeds: {len(flagged_hits)} samples on "
+          f"{len({g[0] for g in flagged_hits})} feeds ===")
+    for d in sorted({g[0] for g in flagged_hits}):
+        print(f"  {d}: {len([g for g in flagged_hits if g[0] == d])}")
     return 0
 
 
