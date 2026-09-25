@@ -12,6 +12,12 @@ name: Diagnose date credibility
 # SELECTs on news_articles; the script closes every write path before a dry run.
 
 on:
+  # TEMPORARY (measurement of fix/date-credibility): workflow_dispatch only
+  # works once the file is on main, so the branch runs it on push. Removed
+  # before the branch is handed over.
+  push:
+    branches: [fix/date-credibility]
+    paths: [.github/workflows/diagnose_date_credibility.yml]
   workflow_dispatch:
     inputs:
       feeds:
@@ -80,3 +86,13 @@ jobs:
           else
             python -m scripts.diagnose_date_credibility "${args[@]}"
           fi
+
+      # TEMPORARY (push runs only): the live Kpler feed through the real
+      # pipeline, against the table as it is and as it will be after cleanup.
+      - if: github.event_name == 'push'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python -m scripts.diagnose_date_credibility --dry-run https://www.kpler.com/blog/rss.xml
+          python -m scripts.diagnose_date_credibility --dry-run https://www.kpler.com/blog/rss.xml --cleanup-after 2026-09-25T10:10:00Z
