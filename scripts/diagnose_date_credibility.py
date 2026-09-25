@@ -1,0 +1,504 @@
+"""Measure the date-credibility rules on the LIVE feeds, before trusting a threshold.
+
+The rules live in news_hunter/date_credibility.py (R2 page date, R3 verify or
+defer, title dates) and pipeline._run_date_credibility. This script answers the
+two questions that decide whether they are safe to ship:
+
+  R2 -- for how many CURRENT items of each registered feed would the page's own
+        publication date (or the date the feed prints in its title) move the
+        date earlier than the feed says, by more than the tolerance? A domain
+        above 50% is either re-stamping (the bug R2 exists for) or serving a
+        TEMPLATE date -- the same date on every page, which R2 must never be
+        allowed to turn into a silent zero. `const` tells them apart: a template
+        shows as one page date repeated across items with different feed dates.
+  R3 -- which feeds re-date urls news_articles already stores (or print older
+        dates in their own titles), and what would happen to their never-seen
+        fresh items: verified, dropped as older, or deferred?
+
+Read-only: it never writes news_articles. Run it on the scanner's runner
+(.github/workflows/diagnose_date_credibility.yml) so fetches see the same WAFs
+and the lookups see the live table; locally, --stored-json replaces the lookup
+with a snapshot and the keyword set falls back to config.DEFAULT_KEYWORDS
+(labelled).
+
+Usage:
+    python -m scripts.diagnose_date_credibility                      # every registered feed
+    python -m scripts.diagnose_date_credibility --pages 10 --hours 24
+    python -m scripts.diagnose_date_credibility --feeds https://www.kpler.com/blog/rss.xml
+    python -m scripts.diagnose_date_credibility --dry-run https://www.kpler.com/blog/rss.xml \
+        --cleanup-after 2026-09-25T10:40:00Z
+
+--dry-run runs the REAL pipeline (run_search, fast mode, no Google News) over
+one feed with the upsert replaced by a capture, and prints what would be
+persisted, dropped as old and deferred. --cleanup-after treats rows created at
+or after that instant as never stored (what the database will look like once a
+burst of wrongly inserted rows is deleted).
+
+Columns (feed mode):
+    items    entries the fetcher returned        fresh  feed date inside --hours
+    match    fresh entries passing the keyword filter (live keywords)
+    smp      item pages fetched for R2 (fresh first, newest first)
+    fail     page fetch failed                    nodate page without a usable date
+    older    page date older than feed - tol      oldF   ... among fresh sampled items
+    later    page date LATER than feed + tol (R2 ignores it; informational)
+    const    largest group of sampled items sharing one page date while their
+             feed dates differ by more than the tolerance (template suspicion)
+    tdate    items whose title prints a date     tOld   ... older than the feed date
+    stored   fresh items already in news_articles
+    dbEv     stored fresh MATCHED items re-dated (feed > min(pub, created) + tol)
+    tEv      fresh items whose title date is older (the pipeline's extra evidence)
+    new      never-seen fresh matched items      r3 ver/old/def  their fate if FLAGGED
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, wait
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+
+from news_hunter import date_credibility as dc
+from news_hunter.config import DEFAULT_KEYWORDS
+from news_hunter.enrich import source_name_for
+from news_hunter.fetcher import RawItem, _fetch_one, _fetch_standard_sitemap
+from news_hunter.filter import within_window
+from news_hunter.sources import LANGUAGES, all_rss_feeds, all_standard_sitemaps
+
+PAGE_WORKERS = 24
+PAGE_TIMEOUT = 8
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+def _keywords() -> tuple[list[str], set[str], str]:
+    from news_hunter import supabase_sync
+    from news_hunter.store import get_config
+
+    cfg = get_config()
+    keywords: list[str] = cfg["keywords"]
+    exact: set[str] = set(cfg.get("exact_keywords") or set())
+    if supabase_sync.get_sink().client is None:
+        prov = "FALLBACK (no Supabase client)"
+    elif set(keywords) == set(DEFAULT_KEYWORDS) and not exact:
+        prov = "FALLBACK (keyword sources empty)"
+    else:
+        prov = "LIVE (Supabase)"
+    native = [nat for c in LANGUAGES.values() if c.translate for nat, _ in c.keyword_priority]
+    return list(keywords) + native, exact, prov
+
+
+def _matched(it: RawItem, keywords: list[str], exact: set[str], hours: int) -> bool:
+    from news_hunter.pipeline import LEDE_RESCUE_MARKER, _keep_candidate
+
+    verdict = _keep_candidate(it, keywords, hours, exact, allow_lede_rescue=True)
+    return verdict is not None and verdict != [LEDE_RESCUE_MARKER]
+
+
+def _stored_lookup(urls: list[str], snapshot: dict | None):
+    """{url: StoredDates} from the live table, or from a --stored-json snapshot."""
+    if snapshot is not None:
+        return {u: snapshot[u] for u in urls if u in snapshot}
+    from news_hunter import supabase_sync
+
+    return supabase_sync.existing_dates(urls)
+
+
+def _load_snapshot(path: str | None, cleanup_after: datetime | None):
+    snap = None
+    if path:
+        raw = json.load(open(path, encoding="utf-8"))
+        rows = raw if isinstance(raw, list) else [dict(url=k, **v) for k, v in raw.items()]
+        snap = {
+            r["url"]: dc.StoredDates(
+                published_at=dc.parse_stored_timestamp(r.get("published_at")),
+                created_at=dc.parse_stored_timestamp(r.get("created_at")),
+            )
+            for r in rows
+        }
+    return snap
+
+
+def _apply_cleanup(stored: dict | None, cutoff: datetime | None) -> dict | None:
+    if stored is None or cutoff is None:
+        return stored
+    return {
+        u: s for u, s in stored.items()
+        if s.created_at is None or s.created_at < cutoff
+    }
+
+
+def _page_signals(url: str) -> dict:
+    """Fetch one page and read every date signal separately (for the table)."""
+    from bs4 import BeautifulSoup
+
+    from news_hunter._clipinator_shim import fetch_html
+
+    out: dict = {"fetched": False, "error": "", "page_date": None, "signals": {}}
+    t0 = time.time()
+    try:
+        html = fetch_html(url, timeout=PAGE_TIMEOUT)
+    except Exception as e:  # noqa: BLE001
+        out["error"] = f"{type(e).__name__}: {str(e)[:80]}"
+        out["secs"] = time.time() - t0
+        return out
+    out["secs"] = time.time() - t0
+    soup = BeautifulSoup(html, "lxml")
+    out["fetched"] = True
+    out["page_date"] = dc.page_published_date(soup)
+    sig = {}
+    for attrs in dc._PUBLISHED_META:
+        tag = soup.find("meta", attrs=attrs)
+        if tag is not None:
+            p = dc.parse_date_value(tag.get("content"))
+            if p is not None:
+                sig["meta"] = p
+                break
+    arts, pages = dc._jsonld_dates(soup)
+    if arts:
+        sig["jsonld"] = arts[0]
+    if pages:
+        sig["jsonld_page"] = pages[0]
+    ip = dc._itemprop_date(soup)
+    if ip is not None:
+        sig["itemprop"] = ip
+    out["signals"] = sig
+    out["headlines"] = dc.page_headlines(soup)
+    return out
+
+
+def _fmt_dt(d) -> str:
+    if d is None:
+        return "-"
+    if isinstance(d, dc.ParsedDate):
+        return d.value.strftime("%Y-%m-%d") + ("" if d.date_only else d.value.strftime(" %H:%M"))
+    return d.strftime("%Y-%m-%d %H:%M")
+
+
+# ---------------------------------------------------------------------------
+# feed mode
+# ---------------------------------------------------------------------------
+
+def _targets(feeds: list[str], include_sitemaps: bool) -> list[tuple[str, str, bool]]:
+    registry = [(d, u, False) for d, u in all_rss_feeds()]
+    if include_sitemaps:
+        registry += [(d, u, True) for d, u in all_standard_sitemaps()]
+    if not feeds:
+        return registry
+    by_url = {u: (d, u, s) for d, u, s in registry}
+    out = []
+    for u in feeds:
+        out.append(by_url.get(u) or (urlparse(u).netloc.lower(), u, False))
+    return out
+
+
+def run_feeds(args) -> int:
+    keywords, exact, prov = _keywords()
+    print(f"keyword set : {prov} ({len(keywords)} terms)", flush=True)
+    snapshot = _load_snapshot(args.stored_json, None)
+    cutoff = _parse_cutoff(args.cleanup_after)
+    targets = _targets(args.feeds, not args.no_sitemaps)
+    print(f"feeds       : {len(targets)}  window={args.hours}h  pages/feed={args.pages}"
+          f"  tolerance={dc.TOLERANCE}", flush=True)
+
+    t0 = time.time()
+    fetched: dict[tuple[str, str], tuple[list[RawItem], str | None]] = {}
+    with ThreadPoolExecutor(max_workers=32) as ex:
+        futs = {
+            ex.submit(_fetch_standard_sitemap if sm else _fetch_one, u, d): (d, u)
+            for d, u, sm in targets
+        }
+        for fut in futs:
+            d, u = futs[fut]
+            try:
+                fetched[(d, u)] = fut.result(timeout=60)
+            except Exception as e:  # noqa: BLE001
+                fetched[(d, u)] = ([], f"{type(e).__name__}: {e}")
+    print(f"feeds fetched in {time.time() - t0:.1f}s", flush=True)
+
+    # group by feed domain (a domain can register several feeds; dedupe by url)
+    per_dom: dict[str, dict] = {}
+    for (d, u), (items, err) in fetched.items():
+        slot = per_dom.setdefault(d, {"items": {}, "errors": []})
+        if err:
+            slot["errors"].append(f"{u}: {err}")
+        for it in items or []:
+            slot["items"].setdefault(it.url, it)
+
+    now = datetime.now(timezone.utc)
+    jobs: dict[str, str] = {}   # url -> feed domain, for page fetches
+    rows: dict[str, dict] = {}
+    for d, slot in sorted(per_dom.items()):
+        items = list(slot["items"].values())
+        dated = [it for it in items if it.published_at is not None]
+        fresh = [it for it in dated if within_window(it.published_at, args.hours)]
+        match = [it for it in fresh if _matched(it, keywords, exact, args.hours)]
+        fresh_urls = {it.url for it in fresh}
+        tdate = tolder = tev = 0
+        for it in items:
+            if not it.title or "|" not in it.title:
+                continue
+            _, td = dc.split_source_suffix(it.title, source_name_for(it.source_domain))
+            if td is None:
+                continue
+            tdate += 1
+            if dc.is_older(td, it.published_at):
+                tolder += 1
+                if it.url in fresh_urls:
+                    tev += 1
+        stored = _stored_lookup([it.url for it in fresh], snapshot) if fresh else {}
+        lookup_ok = stored is not None
+        stored = _apply_cleanup(stored or {}, cutoff)
+        db_ev = [it.url for it in match if dc.restamps(it.url, it.published_at, stored.get(it.url))]
+        db_ev_all = [it.url for it in fresh if dc.restamps(it.url, it.published_at, stored.get(it.url))]
+        new = [it for it in match if it.url not in stored]
+        flagged = bool(db_ev) or tev > 0
+        sample = sorted(fresh, key=lambda i: i.published_at, reverse=True)
+        rest = sorted([i for i in dated if i.url not in fresh_urls], key=lambda i: i.published_at, reverse=True)
+        sample = (sample + rest)[: args.pages]
+        if flagged:
+            in_sample = {i.url for i in sample}
+            extra = sorted(new, key=lambda i: i.published_at, reverse=True)[: args.r3_pages]
+            sample += [i for i in extra if i.url not in in_sample]
+        for it in sample:
+            jobs[it.url] = d
+        rows[d] = {
+            "items": items, "fresh": fresh, "match": match, "sample": sample,
+            "tdate": tdate, "tolder": tolder, "tev": tev, "stored": stored,
+            "lookup_ok": lookup_ok, "db_ev": db_ev, "db_ev_all": db_ev_all,
+            "new": new, "flagged": flagged, "errors": slot["errors"],
+        }
+
+    print(f"page fetches: {len(jobs)} (workers {PAGE_WORKERS})", flush=True)
+    t1 = time.time()
+    pages: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=PAGE_WORKERS) as ex:
+        futs = {ex.submit(_page_signals, u): u for u in jobs}
+        done, not_done = wait(futs.keys(), timeout=args.page_deadline)
+        for fut in done:
+            try:
+                pages[futs[fut]] = fut.result()
+            except Exception as e:  # noqa: BLE001
+                pages[futs[fut]] = {"fetched": False, "error": str(e), "page_date": None, "signals": {}}
+        for fut in not_done:
+            fut.cancel()
+            pages[futs[fut]] = {"fetched": False, "error": "deadline", "page_date": None, "signals": {}}
+    print(f"pages fetched in {time.time() - t1:.1f}s", flush=True)
+
+    hdr = (f"{'feed':34} {'items':>5} {'fresh':>5} {'match':>5} {'smp':>3} {'fail':>4} "
+           f"{'nodt':>4} {'older':>5} {'oldF':>4} {'later':>5} {'const':>5} {'tdate':>5} "
+           f"{'tOld':>4} {'strd':>4} {'dbEv':>4} {'tEv':>4} {'FLAG':>4} {'new':>4} "
+           f"{'r3v':>3} {'r3o':>3} {'r3d':>3}")
+    print("\n" + hdr)
+    totals = Counter()
+    notes: list[str] = []
+    for d, r in sorted(rows.items()):
+        fresh_urls = {i.url for i in r["fresh"]}
+        smp = r["sample"]
+        fail = nodate = older = older_f = later = 0
+        smp_fresh = 0
+        by_date: dict[str, list] = {}
+        sig_disagree = 0
+        for it in smp:
+            pg = pages.get(it.url) or {}
+            if it.url in fresh_urls:
+                smp_fresh += 1
+            if not pg.get("fetched"):
+                fail += 1
+                continue
+            pdt = pg.get("page_date")
+            if pdt is None:
+                nodate += 1
+                continue
+            by_date.setdefault(pdt.raw, []).append(it.published_at)
+            if dc.is_older(pdt, it.published_at):
+                older += 1
+                if it.url in fresh_urls:
+                    older_f += 1
+            elif pdt.value > it.published_at + dc.TOLERANCE:
+                later += 1
+            sig = pg.get("signals") or {}
+            vals = [v for v in sig.values() if v is not None]
+            if len(vals) >= 2 and max(v.value for v in vals) - min(v.value for v in vals) > dc.TOLERANCE + dc.DAY_SPAN:
+                sig_disagree += 1
+        const = 0
+        for raw, feeds_dates in by_date.items():
+            if len(feeds_dates) >= 2 and max(feeds_dates) - min(feeds_dates) > dc.TOLERANCE:
+                const = max(const, len(feeds_dates))
+        r3v = r3o = r3d = 0
+        if r["flagged"]:
+            for it in r["new"]:
+                pg = pages.get(it.url)
+                if pg is None:
+                    continue
+                pdt = pg.get("page_date") if pg.get("fetched") else None
+                if not pg.get("fetched") or pdt is None:
+                    r3d += 1
+                elif dc.is_older(pdt, it.published_at):
+                    r3o += 1
+                else:
+                    r3v += 1
+        print(f"{d[:34]:34} {len(r['items']):5} {len(r['fresh']):5} {len(r['match']):5} "
+              f"{len(smp):3} {fail:4} {nodate:4} {older:5} {older_f:4} {later:5} {const:5} "
+              f"{r['tdate']:5} {r['tolder']:4} {len(r['stored']):4} {len(r['db_ev']):4} "
+              f"{r['tev']:4} {'YES' if r['flagged'] else '':>4} {len(r['new']):4} "
+              f"{r3v:3} {r3o:3} {r3d:3}")
+        totals.update(feeds=1, items=len(r["items"]), fresh=len(r["fresh"]), match=len(r["match"]),
+                      smp=len(smp), fail=fail, nodate=nodate, older=older, older_f=older_f,
+                      smp_fresh=smp_fresh, later=later, flagged=int(r["flagged"]),
+                      new=len(r["new"]), r3v=r3v, r3o=r3o, r3d=r3d)
+        if smp_fresh and older_f * 2 > smp_fresh:
+            notes.append(f"R2>50%   {d}: {older_f}/{smp_fresh} fresh sampled items have an older page date")
+        if const >= 3:
+            notes.append(f"TEMPLATE? {d}: {const} sampled items share one page date across different feed dates")
+        if sig_disagree:
+            notes.append(f"SIGNALS  {d}: {sig_disagree} pages whose date signals disagree by > tol+day")
+        if r["flagged"]:
+            notes.append(
+                f"FLAGGED  {d}: db_evidence={len(r['db_ev'])} (fresh-all {len(r['db_ev_all'])}) "
+                f"title_evidence={r['tev']} new={len(r['new'])} -> verified {r3v}, older {r3o}, deferred {r3d}"
+            )
+            for u in r["db_ev"][:3]:
+                s = r["stored"].get(u)
+                it = next(i for i in r["match"] if i.url == u)
+                notes.append(
+                    f"           evidence {u}  feed={_fmt_dt(it.published_at)}"
+                    f" stored_pub={_fmt_dt(s.published_at)} created={_fmt_dt(s.created_at)}"
+                )
+        if not r["lookup_ok"]:
+            notes.append(f"LOOKUP   {d}: news_articles lookup FAILED")
+        if r["errors"]:
+            notes.append(f"ERROR    {d}: {'; '.join(r['errors'])[:160]}")
+        if args.verbose:
+            for it in smp:
+                pg = pages.get(it.url) or {}
+                pdt = pg.get("page_date")
+                sig = ",".join(f"{k}={_fmt_dt(v)}" for k, v in (pg.get("signals") or {}).items())
+                print(f"    feed={_fmt_dt(it.published_at)} page={_fmt_dt(pdt)} "
+                      f"src={(pdt.source if pdt else '-')} [{sig}] "
+                      f"{'FAIL ' + pg.get('error', '') if not pg.get('fetched') else ''} {it.url[:90]}")
+    print("\n=== totals ===")
+    print(dict(totals))
+    print("\n=== notes ===")
+    for n in notes:
+        print(n)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# dry-run mode: the real pipeline over one feed, upsert captured
+# ---------------------------------------------------------------------------
+
+def _parse_cutoff(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    return dc.parse_stored_timestamp(raw)
+
+
+def run_dry(args) -> int:
+    from news_hunter import pipeline, supabase_sync
+
+    url = args.dry_run
+    domain = next((d for d, u in all_rss_feeds() if u == url), urlparse(url).netloc.lower())
+    items, err = _fetch_one(url, domain)
+    print(f"feed        : {url} ({domain}) items={len(items)} err={err}", flush=True)
+    snapshot = _load_snapshot(args.stored_json, None)
+    cutoff = _parse_cutoff(args.cleanup_after)
+
+    real_lookup = supabase_sync.existing_dates
+
+    def _lookup(urls):
+        if snapshot is not None:
+            got = {u: snapshot[u] for u in urls if u in snapshot}
+        else:
+            got = real_lookup(urls)
+        return _apply_cleanup(got, cutoff)
+
+    def _no_write(*_a, **_k):
+        raise RuntimeError("diagnose_date_credibility --dry-run must never write")
+
+    supabase_sync.existing_dates = _lookup
+    # Read-only, belt and braces: every write door is closed, not just the one
+    # run_search uses today.
+    supabase_sync.push_new = _no_write
+    supabase_sync._SupabaseSink.push = _no_write
+    from news_hunter import translation_retry
+    translation_retry.fill_missing = _no_write
+    captured: list = []
+    pipeline.iter_collect = lambda *a, **k: iter([(domain, items, err)])
+    pipeline.upsert_articles = lambda arts: captured.extend(arts) or len(arts)
+    pipeline._run_translation_retry = lambda *a, **k: 0
+    holder: dict = {}
+    base = pipeline._DateStats
+
+    class _Tap(base):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            holder["stats"] = self
+
+    pipeline._DateStats = _Tap
+    res = pipeline.run_search(include_google_news=False, fast_mode=True, hours_override=args.hours)
+    stats = holder.get("stats")
+
+    keywords, exact, prov = _keywords()
+    fresh = [it for it in items if it.published_at and within_window(it.published_at, args.hours)]
+    match = [it for it in fresh if _matched(it, keywords, exact, args.hours)]
+    stored = _lookup([it.url for it in fresh]) or {}
+    persisted = {a.url: a for a in captured}
+    trace = dict(stats.trace) if stats else {}
+    print(f"keyword set : {prov}")
+    print(f"items={len(items)} fresh(<{args.hours}h)={len(fresh)} keyword-matched={len(match)} "
+          f"already-stored(fresh)={len(stored)}"
+          + (f" [cleanup: rows created >= {cutoff.isoformat()} treated as never stored]" if cutoff else ""))
+    print(stats.log_line() if stats else "no stats")
+    outcome = Counter()
+    lines = []
+    for it in sorted(match, key=lambda i: i.published_at, reverse=True):
+        t = trace.get(it.url, "")
+        if it.url in persisted:
+            what = "PERSIST-existing" if it.url in stored else ("PERSIST-verified" if t == "verified" else "PERSIST-new")
+        elif t:
+            what = t.upper()
+        else:
+            what = "NOT-PERSISTED(other)"
+        outcome[what] += 1
+        a = persisted.get(it.url)
+        lines.append(f"  {what:24} feed={_fmt_dt(it.published_at)} {it.url.rsplit('/', 1)[-1][:60]:60} "
+                     f"| {(a.title if a else it.title)[:70]}")
+    print("\n=== outcome of the keyword-matched fresh items ===")
+    for k, v in sorted(outcome.items()):
+        print(f"  {k:24} {v}")
+    print("\n".join(lines))
+    print(f"\nrun_search: n_total={res.get('n_total')} date_page_older={res.get('date_page_older')} "
+          f"date_deferred={res.get('date_deferred')} restamp={res.get('date_restamp_domains')}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    import logging
+
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--feeds", nargs="*", default=[], help="only these feed URLs (default: every registered feed)")
+    ap.add_argument("--no-sitemaps", action="store_true", help="skip STANDARD_SITEMAPS")
+    ap.add_argument("--hours", type=int, default=24)
+    ap.add_argument("--pages", type=int, default=8, help="item pages fetched per feed for R2")
+    ap.add_argument("--r3-pages", type=int, default=12, help="extra never-seen pages per FLAGGED feed")
+    ap.add_argument("--page-deadline", type=float, default=240.0)
+    ap.add_argument("--stored-json", help="snapshot {url: {published_at, created_at}} instead of the live lookup")
+    ap.add_argument("--cleanup-after", help="treat rows created at/after this ISO instant as never stored")
+    ap.add_argument("--dry-run", metavar="FEED_URL", help="run the real pipeline over one feed (no writes)")
+    ap.add_argument("-v", "--verbose", action="store_true", help="print every sampled page")
+    args = ap.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s", stream=sys.stdout)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    if args.dry_run:
+        return run_dry(args)
+    return run_feeds(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

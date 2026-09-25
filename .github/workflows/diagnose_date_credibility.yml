@@ -1,0 +1,82 @@
+name: Diagnose date credibility
+
+# Manual-only companion to measure_source.yml. Runs
+# scripts/diagnose_date_credibility.py on the scanner's runner image: for every
+# registered feed it fetches a sample of item pages and reports how many items
+# the date-credibility rules would re-date (R2: the page's own datePublished is
+# earlier than the feed date), which feeds re-date urls news_articles already
+# stores (R3), and what would happen to their never-seen items. With `dry_run`
+# it instead runs the real pipeline over ONE feed with the upsert captured.
+#
+# Read-only: the Supabase secrets are used for the live keyword set and for
+# SELECTs on news_articles; the script closes every write path before a dry run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      feeds:
+        description: Space-separated feed URLs (empty = every registered feed + sitemap)
+        required: false
+        default: ''
+      pages:
+        description: Item pages fetched per feed for R2
+        required: false
+        default: '8'
+      hours:
+        description: Window in hours
+        required: false
+        default: '24'
+      dry_run:
+        description: One feed URL to run the real pipeline over (no writes)
+        required: false
+        default: ''
+      cleanup_after:
+        description: Treat rows created at/after this ISO instant as never stored
+        required: false
+        default: ''
+      verbose:
+        description: Print every sampled page
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `cache: pip`: with --no-cache-dir the post step fails the job on a
+      # missing ~/.cache/pip (same fix as measure_source.yml, 2026-09-14).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      # Inputs travel through the environment, never inlined into the command
+      # (a raw URL's `&` would background the rest of the line -- see
+      # measure_source.yml).
+      - env:
+          FEEDS: ${{ inputs.feeds }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CLEANUP_AFTER: ${{ inputs.cleanup_after }}
+          PAGES: ${{ inputs.pages }}
+          HOURS: ${{ inputs.hours }}
+          VERBOSE: ${{ inputs.verbose && '-v' || '' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
+          BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
+        run: |
+          args=(--hours "$HOURS" --pages "$PAGES")
+          [ -n "$CLEANUP_AFTER" ] && args+=(--cleanup-after "$CLEANUP_AFTER")
+          [ -n "$VERBOSE" ] && args+=("$VERBOSE")
+          if [ -n "$DRY_RUN" ]; then
+            python -m scripts.diagnose_date_credibility --dry-run "$DRY_RUN" "${args[@]}"
+          elif [ -n "$FEEDS" ]; then
+            python -m scripts.diagnose_date_credibility --feeds $FEEDS "${args[@]}"
+          else
+            python -m scripts.diagnose_date_credibility "${args[@]}"
+          fi

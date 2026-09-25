@@ -176,15 +176,24 @@ class _DateStats:
     verified: int = 0
     deferred: dict[str, dict[str, int]] = field(default_factory=dict)  # feed -> reason -> n
     lookup_failed: bool = False
+    # (url, outcome) for every decision this stage took; read by tests and by
+    # scripts/diagnose_date_credibility.py, never logged row by row.
+    trace: list[tuple[str, str]] = field(default_factory=list)
 
-    def older(self, domain: str, *, by_title: bool = False) -> None:
+    def older(self, domain: str, url: str = "", *, by_title: bool = False) -> None:
         self.page_older[domain] = self.page_older.get(domain, 0) + 1
         if by_title:
             self.title_older += 1
+        self.trace.append((url, "older_title" if by_title else "older_page"))
 
-    def defer(self, feed_domain: str, reason: str) -> None:
+    def defer(self, feed_domain: str, reason: str, url: str = "") -> None:
         per = self.deferred.setdefault(feed_domain, {})
         per[reason] = per.get(reason, 0) + 1
+        self.trace.append((url, f"deferred_{reason}"))
+
+    def verify(self, url: str = "") -> None:
+        self.verified += 1
+        self.trace.append((url, "verified"))
 
     @property
     def n_deferred(self) -> int:
@@ -794,7 +803,7 @@ def _run_date_credibility(
     if stored is None:
         stats.lookup_failed = True
         for _a, o in candidates:
-            stats.defer(o.feed_domain, "lookup_failed")
+            stats.defer(o.feed_domain, "lookup_failed", _a.url)
         drop = {a.url for a, _ in candidates}
         return [a for a in articles if a.url not in drop]
 
@@ -855,30 +864,30 @@ def _run_date_credibility(
     for a, o in selected:
         ev = outcome.get(a.url, _DEADLINE)
         if ev is _DEADLINE:
-            stats.defer(o.feed_domain, "deadline")
+            stats.defer(o.feed_domain, "deadline", a.url)
             drop.add(a.url)
             continue
         if ev is _FETCH_FAILED:
-            stats.defer(o.feed_domain, "fetch_failed")
+            stats.defer(o.feed_domain, "fetch_failed", a.url)
             drop.add(a.url)
             continue
         page_date = ev.page_date  # type: ignore[union-attr]
         if page_date is None:
-            stats.defer(o.feed_domain, "no_page_date")
+            stats.defer(o.feed_domain, "no_page_date", a.url)
             drop.add(a.url)
             continue
         if is_older(page_date, o.feed_date):
-            stats.older(a.domain)
+            stats.older(a.domain, a.url)
             a.published_at = page_date.value
             if not within_window(a.published_at, hours):
                 drop.add(a.url)
             continue
-        stats.verified += 1
+        stats.verify(a.url)
         headlines = ev.headlines  # type: ignore[union-attr]
         if headlines:
             a.title = clean_title(a.title, a.source_name, headlines)
     for _a, o in over:
-        stats.defer(o.feed_domain, "over_budget")
+        stats.defer(o.feed_domain, "over_budget", _a.url)
         drop.add(_a.url)
     if not drop:
         return articles
@@ -1240,7 +1249,9 @@ def run_search(
                         published = title_date.value  # type: ignore[union-attr]
                         by_title = True
                 if published < feed_date - DATE_TOLERANCE:
-                    date_stats.older(resolved_domain, by_title=by_title)
+                    date_stats.older(
+                        resolved_domain, normalize_url(resolved_url), by_title=by_title
+                    )
             if not within_window(published, hours):
                 continue
             # Wrapper Google News nao resolvido = link quebrado, descarta.
@@ -1370,7 +1381,7 @@ def run_search(
         if backfill_redated:
             late_drop: set[str] = set()
             for a, page_date in backfill_redated:
-                date_stats.older(a.domain)
+                date_stats.older(a.domain, a.url)
                 a.published_at = page_date
                 if not within_window(page_date, hours):
                     late_drop.add(a.url)
