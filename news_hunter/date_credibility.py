@@ -107,13 +107,20 @@ RESTAMP_BATCH_SPAN = timedelta(minutes=10)
 #: now" in a feed that normally holds weeks. That is the bulk re-stamp
 #: signature, and it catches a re-publish made only of posts we never stored
 #: (no stored date to contradict, no title date, no page date: Kpler had 32 of
-#: them on 2026-09-25). Kpler at 11:52 UTC that day: 81 of 100 items within
-#: 2 h, span 26 days. A high-volume news feed is dense in the last hours too,
-#: but spans a day or two; a quiet feed on a busy day does not reach half.
+#: them on 2026-09-25). A high-volume news feed is dense in the last hours too,
+#: but its items span hours; a quiet feed on a busy day does not reach half.
+#: Measured 2026-09-25:
+#:   * Kpler during its burst: 81/100 within 2 h over 26 days at 11:30 UTC, and
+#:     91/100 over 6.9 days at 11:52 -- the burst re-stamps the OLDEST items
+#:     first, so the span shrinks as it goes. SPIKE_MIN_SPAN is 5 days, not 7,
+#:     so the whole episode trips (7 would have let go of it by 11:52).
+#:   * every registered feed at 19:26 UTC: none trips; the 15 feeds with >= 10
+#:     items and >= 50 % of them within 2 h span 0.4 days at most (g1, veja,
+#:     metropoles, estadao's news sitemap...).
 SPIKE_MIN_ITEMS = 10
 SPIKE_FRESH_SHARE = 0.5
 SPIKE_WINDOW = timedelta(hours=2)
-SPIKE_MIN_SPAN = timedelta(days=7)
+SPIKE_MIN_SPAN = timedelta(days=5)
 
 #: Template guard: when this many never-seen items of one feed carry the SAME
 #: older page date in one scan, the date is a CMS constant, not theirs -- the

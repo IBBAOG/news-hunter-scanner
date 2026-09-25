@@ -669,18 +669,40 @@ def test_a_page_furniture_date_never_dates_a_page_without_article_scopes(furnitu
 def test_fresh_spike_thresholds():
     now = NOW
     fresh = [now - timedelta(minutes=30)] * 5
-    old = [now - timedelta(days=7, hours=1)] + [now - timedelta(days=3)] * 4
-    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 7 d
+    old = [now - timedelta(days=5, hours=1)] + [now - timedelta(days=3)] * 4
+    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 5 d
     assert not dc.fresh_spike(fresh[:4] + old, now).tripped               # 9 items
     assert not dc.fresh_spike(fresh[:4] + old + [now - timedelta(days=2)], now).tripped   # 40 %
-    short = [now - timedelta(days=6, hours=23)] + [now - timedelta(days=3)] * 4   # 6 d 22.5 h
-    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 7 d
+    short = [now - timedelta(days=4, hours=23)] + [now - timedelta(days=3)] * 4   # 4 d 22.5 h
+    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 5 d
     undated = dc.fresh_spike(fresh + [None] * 5 + [now - timedelta(days=8)], now)
     assert undated.total == 11 and not undated.tripped                    # undated items count
     spike = dc.fresh_spike(fresh + old, now)
-    assert (spike.fresh, spike.total, spike.label()) == (5, 10, "5/10,7d")
+    assert (spike.fresh, spike.total, spike.label()) == (5, 10, "5/10,5d")
     assert (dc.SPIKE_MIN_ITEMS, dc.SPIKE_FRESH_SHARE, dc.SPIKE_WINDOW, dc.SPIKE_MIN_SPAN) == (
-        10, 0.5, timedelta(hours=2), timedelta(days=7))
+        10, 0.5, timedelta(hours=2), timedelta(days=5))
+
+
+# Kpler's feed at 11:52 UTC on 2026-09-25, mid-burst (www.kpler.com/blog/rss.xml
+# captured then): the age of each of its 100 items, in minutes.
+KPLER_1152_AGES_MIN = [
+    1, 4, 5, 6, 12, 13, 14, 14, 15, 15, 21, 22, 22, 23, 24, 24, 24, 25, 25, 26, 26, 27, 27, 27, 28,
+    28, 29, 29, 30, 30, 30, 31, 31, 32, 34, 35, 35, 35, 36, 37, 37, 38, 38, 39, 40, 40, 41, 41, 42,
+    42, 44, 45, 45, 47, 47, 47, 48, 48, 49, 53, 53, 55, 57, 57, 58, 60, 61, 61, 62, 62, 64, 64, 64,
+    64, 65, 65, 65, 65, 66, 66, 67, 67, 68, 68, 69, 70, 77, 84, 88, 90, 98, 788, 2795, 2795, 4124,
+    4124, 4124, 4124, 4124, 9973,
+]
+
+
+def test_kpler_mid_burst_trips_the_fresh_spike():
+    at = datetime(2026, 9, 25, 11, 52, tzinfo=UTC)
+    spike = dc.fresh_spike([at - timedelta(minutes=m) for m in KPLER_1152_AGES_MIN], at)
+    assert (spike.fresh, spike.total) == (91, 100)
+    assert timedelta(days=6, hours=22) < spike.span < timedelta(days=7)    # 7 d would miss it
+    assert spike.tripped
+    # Two hours after the burst the feed no longer reads as one (from the same dates).
+    assert not dc.fresh_spike([at - timedelta(minutes=m) for m in KPLER_1152_AGES_MIN],
+                              at + timedelta(hours=2)).tripped
 
 
 def test_shared_page_date_needs_three_distinct_urls_on_one_value():

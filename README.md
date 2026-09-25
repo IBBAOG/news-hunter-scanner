@@ -341,13 +341,16 @@ fetched a page for an item that already had title, date and snippet. The rules
    page proved them older -- so a feed escalates inside the scan that shows the
    burst. A feed is also flagged from its own fetch alone, with no page and no
    database (`feed_fresh_spike`): at least 10 items, at least half of them
-   dated within the last 2 hours, while the feed as a whole spans 7 days or
+   dated within the last 2 hours, while the feed as a whole spans 5 days or
    more -- "everything is new right now" in a feed that normally holds weeks.
    That catches a re-publish made only of posts we never stored, with no title
-   date and no page date (Kpler had 32 such posts on 2026-09-25; at 11:52 UTC
-   its feed read 81 of 100 items within 2 h over a 26-day span). A
-   high-volume news feed is just as dense in the last hours but spans a day or
-   two; a quiet feed on a busy day does not reach half. Measured over 30 days of the clamp backup, only Kpler and
+   date and no page date (Kpler had 32 such posts on 2026-09-25). Kpler's feed
+   read 81/100 within 2 h over 26 days at 11:30 UTC and 91/100 over 6.9 days
+   at 11:52 -- the burst re-stamps the oldest items first, so the span shrinks
+   as it goes, which is why the threshold is 5 days, not 7. At 19:26 UTC no
+   registered feed tripped; the 15 with at least half their items within 2 h
+   are high-volume feeds whose items span 0.4 days at most. A quiet feed on a
+   busy day does not reach half. Measured over 30 days of the clamp backup, only Kpler and
    investing.com's weekly "live levels" batch qualify; "any one re-date" would
    have flagged estadao for 291 h. A flagged feed's never-seen items are
    checked up to 8 pages per scan (half to the newest items, half rotating):
@@ -406,7 +409,7 @@ here a full scan on the runner (2026-09-25, no writes, the Kpler feed still
 registered on the branch):
 
 ```
-date credibility: page_older=14 [kpler.com=14] (title_date=14) template_date=[] restamp_domains=[www.kpler.com(db=3,title=60;batch=50)] isolated=[www.cbsnews.com(db=1;batch=1), www.investing.com(db=1;batch=1)] verified=0 spot=[ok=4] unverified_admitted=0 [] deferred=2 [www.kpler.com: no_page_date=2] pages=6+0reused looked_up=375 lookup=ok error=0 [] in 2.8s
+date credibility: page_older=14 [kpler.com=14] (title_date=14) template_date=[] restamp_domains=[www.kpler.com(db=3,title=60;batch=50)] isolated=[www.cbsnews.com(db=1;batch=1), www.investing.com(db=1;batch=1)] cautious=[] verified=0 spot=[] unverified_admitted=0 [] deferred=2 [www.kpler.com: no_page_date=2] pages=2+0reused looked_up=380 lookup=ok error=0 [] in 1.9s
 ```
 
 `db=3,title=60;batch=50` counts each kind of witness (a kind with none is left
