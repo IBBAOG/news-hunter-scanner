@@ -515,6 +515,12 @@ def get_cached_snippets(urls) -> dict:
     return {}
 
 
+def existing_dates(urls):
+    """Passthrough to supabase_sync.existing_dates: stored published_at +
+    created_at per url, and the urls whose lookup failed (StoredLookup)."""
+    return supabase_sync.existing_dates(list(urls))
+
+
 def urls_with_snippet(urls) -> set:
     """Passthrough para supabase_sync.urls_with_snippet (ver docstring de la).
 

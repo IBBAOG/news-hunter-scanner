@@ -110,13 +110,13 @@ def _matched(it: RawItem, keywords: list[str], exact: set[str], hours: int) -> b
     return verdict is not None and verdict != [LEDE_RESCUE_MARKER]
 
 
-def _stored_lookup(urls: list[str], snapshot: dict | None):
-    """{url: StoredDates} from the live table, or from a --stored-json snapshot."""
+def _stored_lookup(urls: list[str], snapshot: dict | None) -> dc.StoredLookup:
+    """Stored dates from the live table (store.existing_dates), or a snapshot."""
     if snapshot is not None:
-        return {u: snapshot[u] for u in urls if u in snapshot}
-    from news_hunter import supabase_sync
+        return dc.StoredLookup(found={u: snapshot[u] for u in urls if u in snapshot})
+    from news_hunter.store import existing_dates
 
-    return supabase_sync.existing_dates(urls)
+    return existing_dates(urls)
 
 
 def _load_snapshot(path: str | None, cleanup_after: datetime | None):
@@ -134,13 +134,14 @@ def _load_snapshot(path: str | None, cleanup_after: datetime | None):
     return snap
 
 
-def _apply_cleanup(stored: dict | None, cutoff: datetime | None) -> dict | None:
-    if stored is None or cutoff is None:
-        return stored
-    return {
-        u: s for u, s in stored.items()
-        if s.created_at is None or s.created_at < cutoff
-    }
+def _apply_cleanup(lk: dc.StoredLookup, cutoff: datetime | None) -> dc.StoredLookup:
+    """Rows created at/after `cutoff` read as never stored (a simulated cleanup)."""
+    if cutoff is None:
+        return lk
+    return dc.StoredLookup(
+        found={u: s for u, s in lk.found.items() if s.created_at is None or s.created_at < cutoff},
+        failed=set(lk.failed),
+    )
 
 
 def _page_signals(url: str) -> dict:
@@ -159,27 +160,18 @@ def _page_signals(url: str) -> dict:
         return out
     out["secs"] = time.time() - t0
     soup = BeautifulSoup(html, "lxml")
+    sigs = dc.read_page_signals(soup)
     out["fetched"] = True
-    out["page_date"] = dc.page_published_date(soup)
+    out["page_date"] = sigs.published
     out["challenge"] = out["page_date"] is None and dc.looks_like_challenge(soup)
-    sig = {}
-    for attrs in dc._PUBLISHED_META:
-        tag = soup.find("meta", attrs=attrs)
-        if tag is not None:
-            p = dc.parse_date_value(tag.get("content"))
-            if p is not None:
-                sig["meta"] = p
-                break
-    arts, pages = dc._jsonld_dates(soup)
-    if arts:
-        sig["jsonld"] = arts[0]
-    if pages:
-        sig["jsonld_page"] = pages[0]
-    ip = dc._itemprop_date(soup)
-    if ip is not None:
-        sig["itemprop"] = ip
-    out["signals"] = sig
-    out["headlines"] = dc.page_headlines(soup)
+    out["signals"] = {
+        name: value for name, value in (
+            ("meta", sigs.meta_published), ("jsonld", sigs.jsonld_article),
+            ("itemprop", sigs.itemprop), ("meta_date", sigs.meta_date),
+            ("jsonld_page", sigs.jsonld_page),
+        ) if value is not None
+    }
+    out["headlines"] = sigs.headlines
     return out
 
 
@@ -265,9 +257,9 @@ def run_feeds(args) -> int:
         stored = _stored_lookup([it.url for it in fresh], snapshot) if fresh else {}
         lookup_ok = stored is not None
         stored = _apply_cleanup(stored or {}, cutoff)
-        db_ev = [it.url for it in match if dc.restamps(it.url, it.published_at, stored.get(it.url))]
+        db_ev = [it.url for it in match if dc.restamps(it.published_at, stored.get(it.url))]
         db_dates = [it.published_at for it in match if it.url in set(db_ev)]
-        db_ev_all = [it.url for it in fresh if dc.restamps(it.url, it.published_at, stored.get(it.url))]
+        db_ev_all = [it.url for it in fresh if dc.restamps(it.published_at, stored.get(it.url))]
         new = [it for it in match if it.url not in stored]
         # the pipeline's rule: a BATCH of re-dates (date_credibility.is_batch)
         flagged = dc.is_batch(db_dates) or dc.is_batch(tev_dates)
@@ -594,7 +586,7 @@ def run_full_scan(args) -> int:
 
 
 def run_titles(args) -> int:
-    """T regression check: clean_title over every stored title containing "|".
+    """T regression check: clean_display_title over every stored title containing "|".
 
     Two passes per title: as the scanner runs it without a page (suffix strip
     and the "X X" collapse), and a worst case for the h1 rule where the page
@@ -628,11 +620,11 @@ def run_titles(args) -> int:
     changed_h1: dict[str, list[tuple[str, str]]] = {}
     for r in rows:
         title, name, dom = r.get("title") or "", r.get("source_name") or "", r.get("domain") or ""
-        new = dc.clean_title(title, name)
+        new = dc.clean_display_title(title, name)
         if new != title:
             changed.setdefault(dom, []).append((title, new))
         segs = [x.strip() for x in title.split("|") if x.strip()]
-        new_h1 = dc.clean_title(title, name, segs)
+        new_h1 = dc.clean_display_title(title, name, segs)
         if new_h1 != new:
             changed_h1.setdefault(dom, []).append((title, new_h1))
     print(f"titles with '|': {len(rows)} rows, {len({r.get('domain') for r in rows})} domains", flush=True)

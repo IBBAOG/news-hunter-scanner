@@ -214,6 +214,55 @@ def test_record_page_is_fail_soft(monkeypatch):
     assert dc.page_seen("https://example.com/a") is ev
 
 
+def test_meta_name_date_is_read_after_the_specific_signals():
+    html = '<html><head><meta name="date" content="2026-09-21"/></head><body><h1>x y z</h1></body></html>'
+    p = dc.page_published_date(_soup(html))
+    assert p is not None and p.value == datetime(2026, 9, 21, tzinfo=UTC) and p.source == "meta:date"
+    # an article-typed JSON-LD entity is more specific and wins
+    both = ('<html><head><meta name="date" content="2026-09-21"/>'
+            '<script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-09-24T08:00:00Z"}'
+            "</script></head></html>")
+    assert dc.page_published_date(_soup(both)).value == datetime(2026, 9, 24, 8, 0, tzinfo=UTC)
+
+
+def test_a_bare_time_element_never_dates_a_page():
+    # A sidebar card of an older story: must not re-date this article.
+    html = ('<html><body><h1>New article on Hormuz transits</h1>'
+            '<aside><time datetime="2026-03-01T10:00:00Z">Mar 1</time> Older story</aside></body></html>')
+    assert dc.page_published_date(_soup(html)) is None
+
+
+def test_itemprop_date_published_on_any_tag_is_read():
+    html = '<html><body><span itemprop="datePublished" content="2026-09-25T06:00:00Z">Today</span></body></html>'
+    p = dc.page_published_date(_soup(html))
+    assert p is not None and p.value == datetime(2026, 9, 25, 6, 0, tzinfo=UTC)
+
+
+def test_record_page_marks_reads_and_the_site_they_prove_readable():
+    dc.record_page("https://www.kpler.com/blog/a", _soup(_kpler_page("Kpler post one two", "")))
+    assert dc.site_was_read("https://kpler.com/blog/other")          # www-insensitive
+    assert not dc.site_was_read("https://investing.com/news/x")
+    challenge = ('<html><head><title>Just a moment...</title>'
+                 '<script src="/cdn-cgi/challenge-platform/h/g/x"></script></head></html>')
+    ev = dc.record_page("https://investing.com/news/y", _soup(challenge))
+    assert ev.challenge and not ev.read
+    assert not dc.site_was_read("https://investing.com/news/x")        # a challenge is not a read
+
+
+def test_fetch_page_evidence_brings_the_snippet_along(monkeypatch):
+    from news_hunter import enrich
+
+    body = "Tanker rates on the Hormuz route rose again this week as insurers repriced war risk. " * 3
+    html = (f'<html><head><meta property="article:published_time" content="2026-09-25T06:00:00Z"/>'
+            f'</head><body><h1>Tanker rates rise again</h1><p>{body}</p></body></html>')
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=6: html)
+    ev = enrich.fetch_page_evidence("https://example.com/news/tanker-rates", "example.com")
+    assert ev.read and ev.page_date is not None
+    assert ev.snippet.startswith("Tanker rates on the Hormuz route")
+    monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=6: (_ for _ in ()).throw(RuntimeError("403")))
+    assert enrich.fetch_page_evidence("https://example.com/news/other") is None
+
+
 def test_page_headlines_reads_the_h1():
     html = _kpler_page("New pipelines bypassing the Strait of Hormuz could come online in 1-2 years", "Jul 10, 2026")
     assert dc.page_headlines(_soup(html)) == (
@@ -268,20 +317,20 @@ KPLER_TITLES = [
 
 @pytest.mark.parametrize("feed_title,h1,expected", KPLER_TITLES)
 def test_kpler_titles_become_the_page_headline(feed_title, h1, expected):
-    assert dc.clean_title(feed_title, "Kpler", [h1]) == expected
+    assert dc.clean_display_title(feed_title, "Kpler", [h1]) == expected
 
 
 def test_without_the_page_the_suffix_still_goes_and_a_doubled_title_collapses():
-    assert dc.clean_title(
+    assert dc.clean_display_title(
         "The Fed joins the hiking camp The Fed joins the hiking camp | Kpler -", "Kpler"
     ) == "The Fed joins the hiking camp"
-    assert dc.clean_title(
+    assert dc.clean_display_title(
         "Refining margins to remain supported through H2  Refining margins to remain supported through H2 "
         "| Kpler - Jun 25, 2026",
         "Kpler",
     ) == "Refining margins to remain supported through H2"
     # SEO title != headline and no page: only the suffix goes.
-    assert dc.clean_title(KPLER_TITLES[0][0], "Kpler") == (
+    assert dc.clean_display_title(KPLER_TITLES[0][0], "Kpler") == (
         "Gulf States Race to Build Hormuz Bypass Infrastructure New pipelines bypassing the Strait of "
         "Hormuz could come online in 1-2 years"
     )
@@ -345,11 +394,11 @@ UNCHANGED = [
 
 @pytest.mark.parametrize("source,title", UNCHANGED)
 def test_other_sources_titles_with_a_pipe_do_not_change(source, title):
-    assert dc.clean_title(title, source) == title
+    assert dc.clean_display_title(title, source) == title
     # Worst case for the h1 rule: the page <h1> is any " | " segment of the
     # title. A label before the separator must survive.
     segments = [s.strip() for s in title.split("|") if s.strip()]
-    assert dc.clean_title(title, source, segments) == title
+    assert dc.clean_display_title(title, source, segments) == title
 
 
 @pytest.mark.parametrize("source,title,expected", [
@@ -363,14 +412,14 @@ def test_other_sources_titles_with_a_pipe_do_not_change(source, title):
 def test_the_items_own_source_name_suffix_is_removed(source, title, expected):
     # The only stored titles outside kpler.com the rule touches: 176 Jornal do
     # Comercio rows and 1 CBC row, all "<headline> | <own source name>".
-    assert dc.clean_title(title, source) == expected
+    assert dc.clean_display_title(title, source) == expected
 
 
 def test_h1_is_not_used_when_the_title_does_not_end_with_it():
     title = "Oil prices rise as Hormuz transits slow"
-    assert dc.clean_title(title, "Reuters", ["Something else entirely here"]) == title
+    assert dc.clean_display_title(title, "Reuters", ["Something else entirely here"]) == title
     # A two-word h1 is too short to be trusted as a headline.
-    assert dc.clean_title("Weekly outlook Oil prices", "X", ["Oil prices"]) == "Weekly outlook Oil prices"
+    assert dc.clean_display_title("Weekly outlook Oil prices", "X", ["Oil prices"]) == "Weekly outlook Oil prices"
 
 
 # ---------------------------------------------------------------------------
@@ -382,11 +431,11 @@ def test_restamp_uses_min_of_published_and_first_seen():
     # published_at already pushed forward by an earlier re-stamp: created_at
     # still exposes the next one.
     stored = dc.StoredDates(published_at=datetime(2026, 9, 25, 10, 43, 54, tzinfo=UTC), created_at=first_seen)
-    assert dc.restamps("u", datetime(2026, 9, 25, 10, 43, 54, tzinfo=UTC), stored)
+    assert dc.restamps(datetime(2026, 9, 25, 10, 43, 54, tzinfo=UTC), stored)
     # A feed date within the tolerance of the first sighting is not evidence.
     fresh = dc.StoredDates(published_at=first_seen, created_at=first_seen + timedelta(minutes=3))
-    assert not dc.restamps("u", first_seen + timedelta(hours=20), fresh)
-    assert not dc.restamps("u", datetime(2026, 9, 25, tzinfo=UTC), None)
+    assert not dc.restamps(first_seen + timedelta(hours=20), fresh)
+    assert not dc.restamps(datetime(2026, 9, 25, tzinfo=UTC), None)
 
 
 def _epochs(*secs: int) -> list[datetime]:
@@ -472,10 +521,10 @@ def test_keep_candidate_ignores_kpler_on_kpler_com():
         summary="This guide explains how ship tracking works and how to choose the right solution.",
         published_at=now - timedelta(hours=1), source_domain="kpler.com", feed_domain="www.kpler.com",
     )
-    drops: dict[str, int] = {}
+    own_only: set[str] = set()
     assert _keep_candidate(marketing, kws, 24, set(), allow_lede_rescue=True,
-                           own_name_drops=drops) == [LEDE_RESCUE_MARKER]
-    assert drops == {"kpler.com": 1}
+                           own_name_only=own_only) == [LEDE_RESCUE_MARKER]
+    assert own_only == {marketing.url}      # remembered; the caller counts it later
     lng = RawItem(
         url="https://kpler.com/blog/hormuz-risk-and-winter-restocking-keep-lng-bid",
         title="Hormuz risk and winter restocking keep LNG bid Hormuz risk and winter restocking keep "
@@ -483,8 +532,8 @@ def test_keep_candidate_ignores_kpler_on_kpler_com():
         summary="", published_at=now - timedelta(hours=1), source_domain="kpler.com",
         feed_domain="www.kpler.com",
     )
-    assert _keep_candidate(lng, kws, 24, set(), own_name_drops=drops) == ["Hormuz", "LNG"]
-    assert drops == {"kpler.com": 1}
+    assert _keep_candidate(lng, kws, 24, set(), own_name_only=own_only) == ["Hormuz", "LNG"]
+    assert own_only == {marketing.url}
 
 
 def test_rotate_budget_gives_the_head_its_half_and_rotates_the_rest():
@@ -509,54 +558,98 @@ def test_stored_timestamps_parse_postgrest_iso_strings():
     assert dc.parse_stored_timestamp("not a date") is None
 
 
-def test_sink_lookup_returns_both_dates_and_none_on_failure():
+class _Q:
+    """A PostgREST select stub: `fail(urls)` decides whether a query fails."""
+
+    def __init__(self, rows, fail, calls):
+        self.rows, self.fail, self.calls = rows, fail, calls
+
+    def select(self, cols):
+        assert cols == "url, published_at, created_at"
+        return self
+
+    def in_(self, _col, urls):
+        self.urls = list(urls)
+        return self
+
+    def execute(self):
+        self.calls.append(len(self.urls))
+        if self.fail(self.urls):
+            raise RuntimeError("400 Bad Request (cloudflare)")
+        return type("R", (), {"data": [r for r in self.rows if r["url"] in self.urls]})
+
+
+def _sink(rows, fail=lambda urls: False):
     from news_hunter import supabase_sync
 
-    class _Q:
-        def __init__(self, rows, fail):
-            self.rows, self.fail = rows, fail
+    calls: list[int] = []
+    s = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
+    s.client = type("C", (), {"table": lambda _self, _n: _Q(rows, fail, calls)})()
+    s.table = "news_articles"
+    return s, calls
 
-        def select(self, cols):
-            assert cols == "url, published_at, created_at"
-            return self
 
-        def in_(self, _col, urls):
-            self.urls = set(urls)
-            return self
+ROW = {"url": "https://kpler.com/blog/x", "published_at": "2026-09-25T10:43:54+00:00",
+       "created_at": "2026-09-14T20:36:12.446198+00:00"}
 
-        def execute(self):
-            if self.fail:
-                raise RuntimeError("PostgREST down")
-            return type("R", (), {"data": [r for r in self.rows if r["url"] in self.urls]})
 
-    def _sink(rows, fail=False):
-        s = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
-        s.client = type("C", (), {"table": lambda _self, _n: _Q(rows, fail)})()
-        s.table = "news_articles"
-        return s
+def test_sink_lookup_returns_both_dates_per_url():
+    s, _calls = _sink([ROW])
+    got = s._existing_dates(["https://kpler.com/blog/x", "https://kpler.com/blog/y"])
+    assert set(got.found) == {"https://kpler.com/blog/x"} and got.failed == set()
+    assert got.found["https://kpler.com/blog/x"].reference == datetime(
+        2026, 9, 14, 20, 36, 12, 446198, tzinfo=UTC)
 
-    row = {"url": "https://kpler.com/blog/x", "published_at": "2026-09-25T10:43:54+00:00",
-           "created_at": "2026-09-14T20:36:12.446198+00:00"}
-    got = _sink([row])._existing_dates(["https://kpler.com/blog/x", "https://kpler.com/blog/y"])
-    assert set(got) == {"https://kpler.com/blog/x"}
-    assert got["https://kpler.com/blog/x"].reference == datetime(2026, 9, 14, 20, 36, 12, 446198, tzinfo=UTC)
-    assert _sink([row], fail=True)._existing_dates(["https://kpler.com/blog/x"]) is None
 
-    # One transient failure (the runner saw `ConnectionTerminated`) is retried.
-    calls = {"n": 0}
+def test_sink_lookup_retries_one_transient_failure():
+    state = {"n": 0}
 
-    class _Flaky(_Q):
-        def execute(self):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise RuntimeError("ConnectionTerminated")
-            return super().execute()
+    def once(_urls):
+        state["n"] += 1
+        return state["n"] == 1        # the runner saw `ConnectionTerminated` once
 
-    flaky = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
-    flaky.client = type("C", (), {"table": lambda _self, _n: _Flaky([row], False)})()
-    flaky.table = "news_articles"
-    assert set(flaky._existing_dates(["https://kpler.com/blog/x"])) == {"https://kpler.com/blog/x"}
-    assert calls["n"] == 2
+    s, calls = _sink([ROW], once)
+    got = s._existing_dates(["https://kpler.com/blog/x"])
+    assert set(got.found) == {"https://kpler.com/blog/x"} and got.failed == set()
+    assert len(calls) == 2
+
+
+def test_one_bad_url_is_bisected_out_and_fails_alone():
+    bad = "https://example.com/bad"
+    urls = [f"https://example.com/a{n}" for n in range(90)] + [bad]
+    rows = [{"url": u, "published_at": ROW["published_at"], "created_at": ROW["created_at"]}
+            for u in urls if u != bad]
+    s, calls = _sink(rows, lambda q: bad in q)       # e.g. a Cloudflare 400 on its query
+    got = s._existing_dates(urls)
+    assert got.failed == {bad}
+    assert len(got.found) == 90                       # every other url answered
+    assert len(calls) < 30
+
+
+def test_a_dead_database_costs_a_bounded_number_of_requests():
+    from news_hunter import supabase_sync
+
+    urls = [f"https://example.com/a{n}" for n in range(450)]
+    s, calls = _sink([], lambda q: True)
+    got = s._existing_dates(urls)
+    assert got.failed == set(urls) and not got.found
+    assert len(calls) <= supabase_sync.LOOKUP_FAILURE_BUDGET
+
+
+def test_module_lookup_never_raises():
+    from news_hunter import supabase_sync
+
+    class _Boom:
+        def _existing_dates(self, urls):
+            raise RuntimeError("client exploded")
+
+    orig = supabase_sync.get_sink
+    supabase_sync.get_sink = lambda: _Boom()
+    try:
+        got = supabase_sync.existing_dates(["https://a/1", "https://a/2"])
+    finally:
+        supabase_sync.get_sink = orig
+    assert got.failed == {"https://a/1", "https://a/2"} and not got.found
 
 
 # ---------------------------------------------------------------------------

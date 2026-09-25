@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 if TYPE_CHECKING:
-    from .date_credibility import StoredDates
+    from .date_credibility import StoredLookup
     from .store import Article
 
 log = logging.getLogger(__name__)
@@ -51,6 +51,11 @@ _tried_init = False
 # caber base + demais parametros + headers e sobrar folga se o gateway apertar.
 _MAX_QUERY_URL_CHARS = 12000
 _MAX_QUERY_URLS = 100
+
+# Failed requests one date lookup may spend (_SupabaseSink._existing_dates):
+# enough to bisect a 100-url chunk down to one bad url twice over (~9 failures
+# each), small enough that a dead database costs seconds, not minutes.
+LOOKUP_FAILURE_BUDGET = 20
 
 
 def _chunk_urls_for_query(urls: list[str]) -> list[list[str]]:
@@ -122,31 +127,44 @@ class _SupabaseSink:
                     out[url] = pub
         return out
 
-    def _existing_dates(self, urls: list[str]) -> dict[str, "StoredDates"] | None:
-        """published_at + created_at of the rows that already exist. None on failure.
+    def _existing_dates(self, urls: list[str]) -> "StoredLookup":
+        """published_at + created_at of the rows that already exist, per url.
 
         The date-credibility phase (pipeline._run_date_credibility) needs both:
         a feed that dates a stored url later than min(published_at, created_at)
         + tolerance is re-stamping. created_at is write-once (column DEFAULT
         now(), never in an upsert payload), so it still holds the first-seen
         time of a row whose published_at an earlier re-stamp already pushed
-        forward. {} when the client is not configured (local runs).
-        """
-        from .date_credibility import StoredDates, parse_stored_timestamp
+        forward. Empty when the client is not configured (local runs).
 
+        Failure is per url, never per lookup (StoredLookup.failed): a chunk that
+        fails twice is bisected, so one url whose query keeps failing (a
+        Cloudflare 400, an over-long query) ends up failing alone instead of
+        taking every RSS insert of the scan with it. LOOKUP_FAILURE_BUDGET caps
+        the failed requests of one lookup: when the database is really down the
+        rest is marked failed without asking again.
+
+        Sequential, on purpose. Measured on the runner 2026-09-25: the same
+        chunks sent from 4 threads over the client's shared HTTP/2 connection
+        failed with `ConnectionTerminated` and Cloudflare "400 Bad Request".
+        """
+        from collections import deque
+
+        from .date_credibility import StoredDates, StoredLookup, parse_stored_timestamp
+
+        out = StoredLookup()
         if self.client is None or not urls:
-            return {}
-        # Sequential, on purpose. Measured on the runner 2026-09-25: the same
-        # chunks sent from 4 threads over the client's shared HTTP/2 connection
-        # failed with `ConnectionTerminated` and Cloudflare "400 Bad Request"
-        # pages, and every candidate of the scan was deferred. One retry per
-        # chunk absorbs a transient failure; any chunk failing twice fails the
-        # whole lookup -- a partial answer would read "not stored" as "never
-        # seen".
-        out: dict[str, StoredDates] = {}
-        for chunk in _chunk_urls_for_query(urls):
+            return out
+        budget = LOOKUP_FAILURE_BUDGET
+        # (chunk, retry?): a whole chunk gets one retry for a transient error;
+        # the halves of a bisected chunk do not, so a bad url is found fast.
+        queue = deque((chunk, True) for chunk in _chunk_urls_for_query(urls))
+        while queue:
+            chunk, retry = queue.popleft()
             res = None
-            for attempt in (1, 2):
+            for attempt in range(2 if retry else 1):
+                if budget <= 0:
+                    break
                 try:
                     res = (
                         self.client.table(self.table)
@@ -156,19 +174,31 @@ class _SupabaseSink:
                     )
                     break
                 except Exception as e:  # noqa: BLE001
+                    budget -= 1
                     log.warning(
                         "lookup de datas gravadas falhou (%d urls, tentativa %d): %s",
-                        len(chunk), attempt, e,
+                        len(chunk), attempt + 1, e,
                     )
             if res is None:
-                return None
+                if len(chunk) == 1 or budget <= 0:
+                    out.failed.update(chunk)
+                else:
+                    mid = len(chunk) // 2
+                    queue.appendleft((chunk[mid:], False))
+                    queue.appendleft((chunk[:mid], False))
+                continue
             for r in res.data or []:
                 url = r.get("url")
                 if url:
-                    out[url] = StoredDates(
+                    out.found[url] = StoredDates(
                         published_at=parse_stored_timestamp(r.get("published_at")),
                         created_at=parse_stored_timestamp(r.get("created_at")),
                     )
+        if out.failed:
+            log.warning(
+                "lookup de datas gravadas: %d de %d urls sem resposta",
+                len(out.failed), len(urls),
+            )
         return out
 
     def _freeze_approx_dates(
@@ -484,20 +514,21 @@ def _article_to_row(
     }
 
 
-def existing_dates(urls: list[str]) -> dict[str, "StoredDates"] | None:
+def existing_dates(urls: list[str]) -> "StoredLookup":
     """Module-level door to _SupabaseSink._existing_dates (see there).
 
-    {} when Supabase is not configured or `urls` is empty; None when the lookup
-    fails -- the caller then defers the rows it cannot judge, the same rule
-    _freeze_approx_dates follows.
+    Never raises and never answers "all or nothing": urls whose query failed
+    come back in `.failed` and the caller decides for those rows alone.
     """
+    from .date_credibility import StoredLookup
+
     if not urls:
-        return {}
+        return StoredLookup()
     try:
         return get_sink()._existing_dates(urls)
     except Exception as e:  # noqa: BLE001
         log.warning("existing_dates falhou: %s", e)
-        return None
+        return StoredLookup(failed=set(urls))
 
 
 def urls_with_snippet(urls: list[str]) -> set[str] | None:

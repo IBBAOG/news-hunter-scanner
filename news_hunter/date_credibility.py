@@ -53,6 +53,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
+from urllib.parse import urlparse
 
 from dateutil import parser as date_parser
 
@@ -189,11 +190,6 @@ def credible_published(feed_date: datetime | None, candidate: ParsedDate | None,
 # The page's own publication date
 # =============================================================================
 
-_PUBLISHED_META = (
-    {"property": "article:published_time"},
-    {"name": "article:published_time"},
-)
-
 # JSON-LD entities whose datePublished is the ARTICLE's. schema.org has ~20
 # article subtypes (NewsArticle, BlogPosting, ReportageNewsArticle, ...); they
 # all end in "Article" or "Posting", plus Report.
@@ -239,12 +235,11 @@ def _jsonld_entities(data) -> list[dict]:
     return out
 
 
-def _jsonld_dates(soup) -> tuple[list[ParsedDate], list[ParsedDate]]:
-    """(article-typed dates, page-typed dates) from every ld+json block."""
+def _jsonld_dates(texts: Iterable[str]) -> tuple[list[ParsedDate], list[ParsedDate]]:
+    """(article-typed dates, page-typed dates) from the page's ld+json blocks."""
     articles: list[ParsedDate] = []
     pages: list[ParsedDate] = []
-    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
-        text = script.string if script.string is not None else script.get_text()
+    for text in texts:
         if not text or "datePublished" not in text:
             continue
         try:
@@ -272,44 +267,6 @@ def _jsonld_dates(soup) -> tuple[list[ParsedDate], list[ParsedDate]]:
     return articles, pages
 
 
-def _itemprop_date(soup) -> ParsedDate | None:
-    for tag in soup.find_all(attrs={"itemprop": "datePublished"}, limit=5):
-        for attr in ("content", "datetime"):
-            parsed = parse_date_value(tag.get(attr), source=f"itemprop:{tag.name}")
-            if parsed is not None:
-                return parsed
-    return None
-
-
-def page_published_date(soup) -> ParsedDate | None:
-    """The page's own publication date, or None. Never dateModified.
-
-    Order: <meta article:published_time>, an article-typed JSON-LD entity, the
-    first itemprop="datePublished", a WebPage-typed JSON-LD entity. Empty and
-    unparseable values are skipped (Kpler serves `"datePublished": ""` on some
-    posts), so a page without a usable date returns None -- it never borrows
-    the feed's.
-    """
-    if soup is None:
-        return None
-    for attrs in _PUBLISHED_META:
-        tag = soup.find("meta", attrs=attrs)
-        if tag is not None:
-            key = attrs.get("property") or attrs.get("name")
-            parsed = parse_date_value(tag.get("content"), source=f"meta:{key}")
-            if parsed is not None:
-                return parsed
-    articles, pages = _jsonld_dates(soup)
-    if articles:
-        return articles[0]
-    parsed = _itemprop_date(soup)
-    if parsed is not None:
-        return parsed
-    if pages:
-        return pages[0]
-    return None
-
-
 _WS_RE = re.compile(r"\s+")
 
 
@@ -317,18 +274,104 @@ def _norm(text: str) -> str:
     return _WS_RE.sub(" ", text or "").strip()
 
 
-def page_headlines(soup, limit: int = 3) -> tuple[str, ...]:
-    """Text of the page's first <h1> elements (whitespace-normalised)."""
+@dataclass
+class PageSignals:
+    """Every publication-date signal of one page, read in ONE tree traversal.
+
+    Not read, on purpose: a bare `<time datetime>`. Sidebars, related-article
+    cards and "updated" stamps all carry one, and taking the first would
+    re-date a new article to a neighbour's older date; it is only trusted with
+    itemprop="datePublished" on it.
+    """
+
+    meta_published: ParsedDate | None = None   # <meta property|name="article:published_time">
+    jsonld_article: ParsedDate | None = None   # first article-typed JSON-LD entity
+    itemprop: ParsedDate | None = None         # first itemprop="datePublished" (content / datetime)
+    meta_date: ParsedDate | None = None        # <meta name="date">
+    jsonld_page: ParsedDate | None = None      # first WebPage-typed JSON-LD entity
+    headlines: tuple[str, ...] = ()            # first <h1> texts
+    title: str = ""                            # <title>
+    # src / action / href / content of script, iframe, form, link and meta
+    # tags plus the head of inline scripts: what a bot-wall interstitial loads
+    # (looks_like_challenge reads it; kept so no second traversal is needed).
+    resources: list[str] = field(default_factory=list)
+
+    @property
+    def published(self) -> ParsedDate | None:
+        """The page's own publication date, most specific signal first."""
+        return (self.meta_published or self.jsonld_article or self.itemprop
+                or self.meta_date or self.jsonld_page)
+
+
+_SCAN_NAMES = frozenset({"title", "meta", "script", "h1", "time", "iframe", "form", "link"})
+_INLINE_SCRIPT_HEAD = 2000   # challenge markers sit at the top of an inline script
+
+
+def _scan_filter(tag) -> bool:
+    return tag.name in _SCAN_NAMES or tag.attrs.get("itemprop") == "datePublished"
+
+
+def read_page_signals(soup) -> PageSignals:
+    """One pass over the tree (the old reader walked it up to five times:
+    9-26 ms per page on 210 KB Kpler pages, on top of the parse itself)."""
+    sig = PageSignals()
     if soup is None:
-        return ()
-    out: list[str] = []
-    for h in soup.find_all("h1", limit=limit * 2):
-        text = _norm(h.get_text(" ", strip=True))
-        if text and len(text) <= 300:
-            out.append(text)
-        if len(out) >= limit:
-            break
-    return tuple(out)
+        return sig
+    ld_texts: list[str] = []
+    h1s: list[str] = []
+    for tag in soup.find_all(_scan_filter):
+        name = tag.name
+        if name == "meta":
+            prop = (tag.get("property") or "").strip().lower()
+            meta_name = (tag.get("name") or "").strip().lower()
+            if sig.meta_published is None and "article:published_time" in (prop, meta_name):
+                sig.meta_published = parse_date_value(
+                    tag.get("content"), source="meta:article:published_time")
+            if sig.meta_date is None and meta_name == "date":
+                sig.meta_date = parse_date_value(tag.get("content"), source="meta:date")
+        elif name == "script":
+            if (tag.get("type") or "").strip().lower() == "application/ld+json":
+                text = tag.string if tag.string is not None else tag.get_text()
+                if text:
+                    ld_texts.append(text)
+            elif tag.string:
+                sig.resources.append(tag.string[:_INLINE_SCRIPT_HEAD])
+        elif name == "h1":
+            if len(h1s) < 3:
+                text = _norm(tag.get_text(" ", strip=True))
+                if text and len(text) <= 300:
+                    h1s.append(text)
+        elif name == "title" and not sig.title:
+            sig.title = tag.get_text(" ", strip=True)
+        for attr in ("src", "action", "href", "content"):
+            value = tag.attrs.get(attr)
+            if value and name in ("script", "iframe", "form", "link", "meta"):
+                sig.resources.append(value if isinstance(value, str) else " ".join(value))
+        if sig.itemprop is None and tag.attrs.get("itemprop") == "datePublished":
+            sig.itemprop = (parse_date_value(tag.get("content"), source=f"itemprop:{name}")
+                            or parse_date_value(tag.get("datetime"), source=f"itemprop:{name}"))
+    articles, pages = _jsonld_dates(ld_texts)
+    sig.jsonld_article = articles[0] if articles else None
+    sig.jsonld_page = pages[0] if pages else None
+    sig.headlines = tuple(h1s)
+    return sig
+
+
+def page_published_date(soup) -> ParsedDate | None:
+    """The page's own publication date, or None. Never dateModified.
+
+    Order: <meta article:published_time>, an article-typed JSON-LD entity, the
+    first itemprop="datePublished", <meta name="date">, a WebPage-typed JSON-LD
+    entity. Empty and unparseable values are skipped (Kpler serves
+    `"datePublished": ""` on some posts), so a page without a usable date
+    returns None -- it never borrows the feed's.
+    """
+    return read_page_signals(soup).published
+
+
+def page_headlines(soup) -> tuple[str, ...]:
+    """Text of the page's first <h1> elements (whitespace-normalised)."""
+    return read_page_signals(soup).headlines
 
 
 # =============================================================================
@@ -375,8 +418,12 @@ _LABEL_SEPARATORS = "|:-–—·•»/"
 _MIN_HEADLINE_WORDS = 3
 
 
-def clean_title(title: str, source_name: str, headlines: Iterable[str] = ()) -> str:
+def clean_display_title(title: str, source_name: str, headlines: Iterable[str] = ()) -> str:
     """Display title: suffix stripped, then the h1 if the title ends with it.
+
+    Not _clipinator_shim.clean_title, which strips ANY registered outlet name
+    after "|", "-" or an en dash (and would cut a "- IEA" attribution): this one
+    touches only the item's own source after the last "|".
 
     The h1 replaces the title only when (a) the title ends with it, joined by
     plain whitespace -- a prefix ending in a label separator ("Opinion | ",
@@ -430,6 +477,15 @@ class StoredDates:
         return min(vals) if vals else None
 
 
+@dataclass
+class StoredLookup:
+    """What a news_articles lookup answered: the stored dates found, and the
+    urls that could not be asked (their query failed even after bisection)."""
+
+    found: dict[str, StoredDates] = field(default_factory=dict)
+    failed: set[str] = field(default_factory=set)
+
+
 def parse_stored_timestamp(raw) -> datetime | None:
     if raw is None:
         return None
@@ -443,7 +499,7 @@ def parse_stored_timestamp(raw) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def restamps(url: str, feed_date: datetime | None, stored: StoredDates | None,
+def restamps(feed_date: datetime | None, stored: StoredDates | None,
              *, tolerance: timedelta = TOLERANCE) -> bool:
     """True when the feed dates a url we already store later than we first had it."""
     if feed_date is None or stored is None:
@@ -501,14 +557,19 @@ def rotate_budget(items: list, cap: int, *, bucket: int) -> tuple[list, list]:
 class PageEvidence:
     """What one fetched article page said about itself.
 
-    `challenge`: the answer was a bot-wall interstitial, not the article (only
-    judged when the page carries no publication date). R3 treats it like a
-    failed fetch -- the source did not hide its date, we never saw the page.
+    `read`: the page was parsed and is not a bot-wall interstitial. A challenge
+    page (`challenge`, judged only when there is no publication date) or a page
+    whose markup could not be read counts as NOT read -- R3 treats it like a
+    failed fetch: the source did not hide its date, we never saw the page.
+    `snippet`: filled by the date check's own fetch (enrich.fetch_page_evidence)
+    so the snippet backfill never fetches the same page twice in a scan.
     """
 
     page_date: ParsedDate | None = None
     headlines: tuple[str, ...] = field(default_factory=tuple)
     challenge: bool = False
+    read: bool = False
+    snippet: str = ""
 
 
 # A WAF / bot-wall interstitial answered with HTTP 200. Titles of the common
@@ -539,56 +600,69 @@ _CHALLENGE_MARKERS = (
 )
 
 
-def looks_like_challenge(soup) -> bool:
-    """True when the fetched page is a bot-wall interstitial, not an article."""
-    if soup is None:
-        return False
-    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+def _challenge_from(sig: PageSignals) -> bool:
+    title = sig.title
     if title and len(title) <= _CHALLENGE_TITLE_MAX and (
         _CHALLENGE_TITLE_RE.search(title) or _CHALLENGE_TITLE_ANYWHERE_RE.search(title)
     ):
         return True
-    for tag in soup.find_all(["script", "iframe", "form", "link", "meta"], limit=300):
-        blob = " ".join(
-            str(v) for v in (tag.get("src"), tag.get("action"), tag.get("href"),
-                             tag.get("content"), tag.string) if v
-        ).lower()
-        if blob and any(m in blob for m in _CHALLENGE_MARKERS):
-            return True
-    return False
+    return any(m in r.lower() for r in sig.resources for m in _CHALLENGE_MARKERS)
+
+
+def looks_like_challenge(soup) -> bool:
+    """True when the fetched page is a bot-wall interstitial, not an article."""
+    if soup is None:
+        return False
+    return _challenge_from(read_page_signals(soup))
 
 
 _lock = threading.Lock()
 _pages: dict[str, PageEvidence] = {}
+# Hosts (without "www.") of which at least one page was READ this scan: the R3
+# test for "is this site blocking us, or only this page failing?".
+_read_hosts: set[str] = set()
+
+
+def _host(url: str) -> str:
+    host = (urlparse(url).netloc or "").lower().split(":")[0]
+    return host[4:] if host.startswith("www.") else host
 
 
 def reset_scan() -> None:
     """Forget every page seen so far. The pipeline calls it at the start of a scan."""
     with _lock:
         _pages.clear()
+        _read_hosts.clear()
 
 
 def record_page(url: str, soup) -> PageEvidence:
     """Read and remember what a fetched page says about itself (thread-safe).
 
-    Fail-soft: a page whose markup trips the readers yields empty evidence (no
-    date, no h1) rather than an exception inside the enrich path.
+    Fail-soft: a page whose markup trips the reader yields evidence with
+    `read=False` rather than an exception inside the enrich path.
     """
     try:
-        page_date = page_published_date(soup)
-        ev = PageEvidence(
-            page_date=page_date,
-            headlines=page_headlines(soup),
-            challenge=page_date is None and looks_like_challenge(soup),
-        )
+        sig = read_page_signals(soup)
+        page_date = sig.published
+        challenge = page_date is None and _challenge_from(sig)
+        ev = PageEvidence(page_date=page_date, headlines=sig.headlines,
+                          challenge=challenge, read=not challenge)
     except Exception:  # noqa: BLE001
         ev = PageEvidence()
     if url:
         with _lock:
             _pages[url] = ev
+            if ev.read:
+                _read_hosts.add(_host(url))
     return ev
 
 
 def page_seen(url: str) -> PageEvidence | None:
     with _lock:
         return _pages.get(url)
+
+
+def site_was_read(url: str) -> bool:
+    """Was any page of `url`'s site read successfully this scan?"""
+    with _lock:
+        return _host(url) in _read_hosts

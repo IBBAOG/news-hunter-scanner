@@ -100,6 +100,19 @@ def _isolate_page_evidence():
 
 
 @pytest.fixture(autouse=True)
+def _no_network_page_fetches(monkeypatch):
+    """Stage 4b checks the page of every never-seen feed item, so any test that
+    runs the pipeline would otherwise reach the network. Page fetches fail
+    here unless a test installs its own `news_hunter.enrich.fetch_html`."""
+    from news_hunter import enrich
+
+    def _offline(url, timeout=6):  # noqa: ARG001
+        raise RuntimeError("network access disabled in tests")
+
+    monkeypatch.setattr(enrich, "fetch_html", _offline)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_translate_backends(monkeypatch):
     _translate.reset_breakers()
     monkeypatch.setattr(_translate, "_clients5_call", lambda payload, code: None)
