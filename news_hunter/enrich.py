@@ -242,7 +242,8 @@ def _resolve_google_news_url(url: str) -> tuple[str, str]:
 
 
 def _time_datetime(soup) -> datetime | None:
-    """First <time datetime> of the page -- ONLY for an item with no feed date.
+    """First <time datetime> of the page -- ONLY for an item with no feed date
+    whose page states no publication date at all.
 
     Kept from the old reader for the listing scrapers (Brasil Energia prints
     the date this way and nowhere else). Never used to re-date an item that has
@@ -384,9 +385,14 @@ def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippe
 
     if published is None:
         # No feed date: the page's own, read strictly (a WebSite / Organization
-        # JSON-LD datePublished is the site's, never the article's), then the
-        # first <time datetime> the listing scrapers rely on.
-        published = page.page_date.value if page.page_date else _time_datetime(soup)
+        # JSON-LD datePublished is the site's, never the article's), then --
+        # only when the page states NO date at all -- the first <time datetime>
+        # the listing scrapers rely on. A page whose dates disagree stays
+        # dateless: a bare <time> is weaker evidence than either of them.
+        if page.page_date is not None:
+            published = page.page_date.value
+        elif not page.conflict:
+            published = _time_datetime(soup)
     # A feed date stays as it came. R2 (the page's own, earlier date) is the
     # pipeline's call, made once for the scan: pipeline._run_date_credibility.
 

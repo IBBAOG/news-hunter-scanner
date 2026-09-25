@@ -249,6 +249,21 @@ def test_meta_name_date_is_read_after_the_specific_signals():
     assert dc.page_published_date(_soup(apart)) is None
 
 
+def test_a_live_page_has_no_date_for_r2():
+    # g1 "ao vivo", 2026-09-25: coverage began the day before; the feed carries
+    # today's update. Its datePublished must not drop it as old.
+    html = ('<html><head><script type="application/ld+json">'
+            '{"@context":"https://schema.org","@type":"LiveBlogPosting","headline":"Trump e Xi se reunem",'
+            '"datePublished":"2026-09-24T13:02:00-03:00","coverageStartTime":"2026-09-24T13:02:00-03:00"}'
+            '</script><meta property="article:published_time" content="2026-09-24T13:02:00-03:00"/>'
+            "</head><body><h1>Trump e Xi se reunem</h1></body></html>")
+    sig = dc.read_page_signals(_soup(html))
+    assert sig.live and sig.published is None
+    micro = ('<html><body><div itemscope itemtype="https://schema.org/LiveBlogPosting"><h1>Live</h1>'
+             '<meta itemprop="datePublished" content="2026-09-24T13:02:00Z"/></div></body></html>')
+    assert dc.page_published_date(_soup(micro)) is None
+
+
 def test_a_bare_time_element_never_dates_a_page():
     # A sidebar card of an older story: must not re-date this article.
     html = ('<html><body><h1>New article on Hormuz transits</h1>'
@@ -902,6 +917,24 @@ def test_an_item_without_a_feed_date_prefers_the_pages_own_date_to_a_time_elemen
                    feed_domain="brasilenergia.com.br")
     _snippet, published, *_ = enrich.enrich_item(item, need_snippet=True)
     assert published == datetime(2026, 9, 23, 10, 0, tzinfo=UTC)
+
+
+def test_a_time_element_is_not_used_when_the_page_dates_disagree(monkeypatch):
+    """The page states dates, they conflict: dateless -- a bare <time> is weaker
+    evidence than either of them."""
+    from news_hunter import enrich
+    from news_hunter.fetcher import RawItem
+
+    html = ('<html><head><meta property="article:published_time" content="2026-09-24T10:00:00Z"/>'
+            '<script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-01-02"}'
+            '</script></head><body><h1>Petrobras amplia producao no pre-sal</h1>'
+            '<time datetime="2026-09-20T10:00:00Z">20/09</time></body></html>')
+    monkeypatch.setattr(enrich, "fetch_html", lambda u, timeout=6: html)
+    item = RawItem(url="https://brasilenergia.com.br/petroleoegas/y", title="t", summary="",
+                   published_at=None, source_domain="brasilenergia.com.br",
+                   feed_domain="brasilenergia.com.br")
+    _snippet, published, *_ = enrich.enrich_item(item, need_snippet=True)
+    assert published is None
 
 
 def test_fetch_page_evidence_reports_how_a_fetch_failed(monkeypatch):

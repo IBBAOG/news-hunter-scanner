@@ -44,6 +44,11 @@ and the page signal the date came from, so a wrong page date (a related card,
 a template constant) can be told from a real re-stamp before a feed such as
 Kpler is re-enabled.
 
+Feed mode also reads every fetched feed the way the pipeline's
+feed_fresh_spike does (date_credibility.fresh_spike): items, how many are dated
+within the last 2 h, the span from oldest to newest item -- every feed that
+trips it, and the freshest others, so a threshold is moved on evidence.
+
 --full-scan runs one complete scan (Google News included) with every write
 closed and prints its wall time, the page fetches and the Stage 4b cost;
 --no-date-credibility is the A side of an A/B: Stage 4b (spot checks, verify
@@ -89,13 +94,13 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from news_hunter import date_credibility as dc
 from news_hunter.config import DEFAULT_KEYWORDS
 from news_hunter.enrich import source_name_for
-from news_hunter.fetcher import RawItem, _fetch_one, _fetch_standard_sitemap
+from news_hunter.fetcher import RawItem, _fetch_one, _fetch_standard_sitemap, feed_label
 from news_hunter.filter import within_window
 from news_hunter.sources import LANGUAGES, all_rss_feeds, all_standard_sitemaps
 
@@ -245,6 +250,9 @@ def run_feeds(args) -> int:
             except Exception as e:  # noqa: BLE001
                 fetched[(d, u)] = ([], f"{type(e).__name__}: {e}")
     print(f"feeds fetched in {time.time() - t0:.1f}s", flush=True)
+    t_now = datetime.now(timezone.utc)
+    spikes = {(d, u): dc.fresh_spike([it.published_at for it in (items or [])], t_now)
+              for (d, u), (items, _err) in fetched.items()}
 
     # group by feed domain (a domain can register several feeds; dedupe by url)
     per_dom: dict[str, dict] = {}
@@ -379,7 +387,8 @@ def run_feeds(args) -> int:
         page_dates = [] if template else [
             it.published_at for it in r["new"] if any(u == it.url for u, _d in old_new)]
         evidence = r["db_dates"] + r["tev_dates"] + page_dates
-        r["flagged"] = flagged = dc.is_batch(evidence)
+        r["spike"] = any(sp.tripped for (dd, _u), sp in spikes.items() if dd == d)
+        r["flagged"] = flagged = dc.is_batch(evidence) or r["spike"]
         r["page_ev"] = len(page_dates)
         r["template"] = template
         r["batch"] = dc.largest_batch(evidence)
@@ -484,7 +493,29 @@ def run_feeds(args) -> int:
           f"{len({g[0] for g in flagged_hits})} feeds ===")
     for d in sorted({g[0] for g in flagged_hits}):
         print(f"  {d}: {len([g for g in flagged_hits if g[0] == d])}")
+    _print_spikes(spikes, t_now)
     return 0
+
+
+def _print_spikes(spikes: dict, now: datetime, top: int = 25) -> None:
+    """The feed_fresh_spike reading of every fetched feed."""
+    rows = [(d, u, sp) for (d, u), sp in spikes.items() if sp.total]
+    tripped = [r for r in rows if r[2].tripped]
+    print(f"\n=== feed_fresh_spike at {now:%Y-%m-%d %H:%M} UTC: {len(tripped)} of {len(rows)} feeds trip "
+          f"(>= {dc.SPIKE_MIN_ITEMS} items, >= {dc.SPIKE_FRESH_SHARE:.0%} dated within "
+          f"{dc.SPIKE_WINDOW}, span >= {dc.SPIKE_MIN_SPAN.days} d) ===")
+    print(f"  {'feed':50} {'items':>5} {'fresh':>5} {'share':>6} {'span_d':>7} TRIP")
+    ranked = sorted(rows, key=lambda r: (r[2].fresh / r[2].total, r[2].span), reverse=True)
+    shown = [r for r in ranked if r[2].tripped] + [r for r in ranked if not r[2].tripped][:top]
+    for d, u, sp in shown:
+        print(f"  {feed_label(d, u)[:50]:50} {sp.total:5} {sp.fresh:5} {sp.fresh / sp.total:6.0%} "
+              f"{sp.span.total_seconds() / 86400:7.1f} {'YES' if sp.tripped else ''}")
+    # The band a threshold change would move: at least half fresh, any span.
+    band = [r for r in ranked if r[2].total >= dc.SPIKE_MIN_ITEMS
+            and r[2].fresh >= dc.SPIKE_FRESH_SHARE * r[2].total]
+    print(f"  feeds with >= {dc.SPIKE_MIN_ITEMS} items and >= {dc.SPIKE_FRESH_SHARE:.0%} fresh, any span: "
+          + (", ".join(f"{feed_label(d, u)}({sp.span.total_seconds() / 86400:.1f}d)" for d, u, sp in band)
+             or "none"))
 
 
 # ---------------------------------------------------------------------------

@@ -216,6 +216,10 @@ _ARTICLE_TYPE_RE = re.compile(r"(?:Article|Posting)$|^Report$")
 # CollectionPage: their datePublished is the site's or the section's, and
 # trusting it would re-date every article of that site to its launch day.
 _PAGE_TYPES = frozenset({"WebPage", "ItemPage"})
+# A live page's dates say when the coverage BEGAN, not when what the reader sees
+# was written: the feed re-dates it with every update, and R2 would drop live
+# coverage of today's events as old (g1's "ao vivo" pages, measured 2026-09-25).
+_LIVE_TYPES = frozenset({"LiveBlogPosting"})
 # JSON-LD keys that lead to the page's main entity. The walk never descends into
 # anything else (itemListElement, hasPart, author, ...), where OTHER articles'
 # dates live.
@@ -253,10 +257,11 @@ def _jsonld_entities(data) -> list[dict]:
     return out
 
 
-def _jsonld_dates(texts: Iterable[str]) -> tuple[list[ParsedDate], list[ParsedDate]]:
-    """(article-typed dates, page-typed dates) from the page's ld+json blocks."""
+def _jsonld_dates(texts: Iterable[str]) -> tuple[list[ParsedDate], list[ParsedDate], bool]:
+    """(article-typed dates, page-typed dates, live page?) from the page's ld+json blocks."""
     articles: list[ParsedDate] = []
     pages: list[ParsedDate] = []
+    live = False
     for text in texts:
         if not text or "datePublished" not in text:
             continue
@@ -273,6 +278,9 @@ def _jsonld_dates(texts: Iterable[str]) -> tuple[list[ParsedDate], list[ParsedDa
             continue
         for node in _jsonld_entities(data):
             types = _types(node)
+            if _LIVE_TYPES.intersection(types):
+                live = True
+                continue
             is_article = any(_ARTICLE_TYPE_RE.search(t) for t in types)
             is_page = any(t in _PAGE_TYPES for t in types)
             if not (is_article or is_page):
@@ -282,7 +290,7 @@ def _jsonld_dates(texts: Iterable[str]) -> tuple[list[ParsedDate], list[ParsedDa
             if parsed is None:
                 continue
             (articles if is_article else pages).append(parsed)
-    return articles, pages
+    return articles, pages, live
 
 
 _WS_RE = re.compile(r"\s+")
@@ -314,6 +322,7 @@ class PageSignals:
     # tags plus the head of inline scripts: what a bot-wall interstitial loads
     # (looks_like_challenge reads it; kept so no second traversal is needed).
     resources: list[str] = field(default_factory=list)
+    live: bool = False                         # a LiveBlogPosting page (_LIVE_TYPES)
 
     def candidates(self) -> list[ParsedDate]:
         """Every publication date the page states, the article's own first."""
@@ -334,10 +343,11 @@ class PageSignals:
         then the main article's itemprop, then <meta article:published_time>,
         <meta name="date"> and a WebPage entity. When two of them disagree by
         more than TOLERANCE the page trusts NONE of them: one is wrong, and a
-        wrong older date would drop a genuinely new article.
+        wrong older date would drop a genuinely new article. A live page
+        (LiveBlogPosting) has no date either: its dates are when coverage began.
         """
         cands = self.candidates()
-        if not cands or dates_disagree(cands):
+        if self.live or not cands or dates_disagree(cands):
             return None
         return cands[0]
 
@@ -495,7 +505,8 @@ def read_page_signals(soup) -> PageSignals:
             scopes.append(tag)
         if "datePublished" in _itemprops(tag):
             itemprop_tags.append(tag)
-    sig.jsonld_article, sig.jsonld_page = _jsonld_dates(ld_texts)
+    sig.jsonld_article, sig.jsonld_page, sig.live = _jsonld_dates(ld_texts)
+    sig.live = sig.live or any(_item_type(t) in _LIVE_TYPES for t in scopes)
     if itemprop_tags:
         sig.itemprop = _main_article_dates(itemprop_tags, h1_tags, scopes)
     sig.headlines = tuple(h1s)

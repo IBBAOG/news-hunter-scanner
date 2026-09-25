@@ -818,6 +818,105 @@ def test_a_quiet_feed_on_a_busy_day_is_not_a_spike(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Paths QA round 3 found untested
+# ---------------------------------------------------------------------------
+
+def test_round_two_turning_a_feed_into_a_template_drops_its_page_evidence(monkeypatch):
+    """Round 1 reads four old posts with four different dates: a batch, the feed
+    is flagged. Round 2 reads four more that all carry ONE date -- a template.
+    The page evidence goes, the flag with it, and no page date is trusted."""
+    monkeypatch.setattr(pipeline, "rotate_budget",
+                        lambda items, cap, bucket: (list(items[:cap]), list(items[cap:])))
+    host, feed = "tpl2.example.com", "www.tpl2.example.com"
+    items, pages = [], {}
+    dates = ["Mar 01, 2026", "Mar 05, 2026", "Mar 09, 2026", "Mar 13, 2026"] + ["Jan 01, 2026"] * 4
+    for n, d in enumerate(dates):
+        url = f"https://{host}/news/crude-story-{n}"
+        items.append(_item(f"crude-story-{n}", f"Crude story number {n}", url=url, source=host,
+                           feed=feed, age_h=0.1 + n / 100))        # newest first: distinct dates
+        pages[url] = _page(f"Crude story number {n}", d)
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.fetched == 8                                  # both rounds ran
+    assert run.stats.template == {feed: "Jan 01, 2026"}
+    assert "page" not in _kinds(run, feed) and run.stats.flagged() == []
+    assert run.stats.n_page_older == 0 and len(run.persisted) == 8
+
+
+def test_every_scan_starts_with_no_page_read(monkeypatch):
+    """reset_page_evidence(): a page read by one scan is not "already read" in
+    the next -- the date check fetches it again."""
+    first = _drive(monkeypatch, [NEW])
+    assert first.stats.fetched == 1
+    second = _drive(monkeypatch, [NEW])
+    assert second.stats.fetched == 1 and second.stats.reused == 0
+
+
+def test_a_title_date_never_replaces_an_earlier_date(monkeypatch):
+    """The earliest credible date wins: a date the item already carries that is
+    older than its printed title date stays (the stage-4 `< published` guard)."""
+    from news_hunter.store import normalize_url
+
+    titled = _item("cached-hormuz-note", "Cached Hormuz crude note | Kpler - Jun 30, 2026", age_h=0.5)
+    key = normalize_url(titled.url)
+    cached_pub = datetime(2026, 1, 1, tzinfo=UTC)
+    monkeypatch.setattr(pipeline, "get_cached_snippets",
+                        lambda keys: {key: ("Cached body about Hormuz crude tankers.", cached_pub,
+                                            "kpler.com", "")} if key in keys else {})
+    run = _drive(monkeypatch, [titled])
+    assert run.stats.title_older == 0 and run.stats.page_older == {}
+    assert BLOG + "cached-hormuz-note" not in _by_url(run)
+
+
+def _backfill_case(specs):
+    """[(url, domain, feed_domain, page date)] -> articles, origins, redated."""
+    from news_hunter.date_credibility import parse_date_value
+    from news_hunter.store import Article
+
+    arts, origins, redated = [], {}, []
+    for url, domain, feed_domain, raw in specs:
+        a = Article(url=url, domain=domain, source_name=domain, title="t", snippet="",
+                    published_at=NOW - timedelta(hours=1), found_at=NOW)
+        arts.append(a)
+        origins[url] = pipeline._Origin(feed_domain=feed_domain, feed_date=a.published_at, fetch_url=url)
+        redated.append((a, parse_date_value(raw)))
+    return arts, origins, redated
+
+
+def test_backfill_r2_drops_old_pages_and_spots_a_template():
+    arts, origins, redated = _backfill_case(
+        [(f"https://one.example.com/n{n}", "one.example.com", "www.one.example.com", "Mar 03, 2026")
+         for n in range(3)]
+        + [("https://two.example.com/a", "two.example.com", "www.two.example.com", "Mar 03, 2026")])
+    stats = pipeline._DateStats()
+    kept = pipeline._apply_backfill_r2(arts, redated, origins, stats, 24)
+    assert stats.template == {"www.one.example.com": "Mar 03, 2026"}
+    assert [a.url for a in kept] == [f"https://one.example.com/n{n}" for n in range(3)]
+    assert stats.page_older == {"two.example.com": 1}
+
+
+def test_backfill_r2_skips_a_feed_stage_4b_found_templated():
+    arts, origins, redated = _backfill_case(
+        [("https://one.example.com/n0", "one.example.com", "www.one.example.com", "Mar 03, 2026")])
+    stats = pipeline._DateStats()
+    stats.template["www.one.example.com"] = "Mar 03, 2026"
+    kept = pipeline._apply_backfill_r2(arts, redated, origins, stats, 24)
+    assert kept == arts and stats.page_older == {}
+    assert arts[0].published_at > NOW - timedelta(hours=2)
+
+
+def test_backfill_r2_groups_google_news_items_by_outlet():
+    """Three unrelated outlets behind Google News that happen to share a date
+    are no template: each is its own site."""
+    arts, origins, redated = _backfill_case(
+        [(f"https://{h}/x", h, "news.google.com", "Mar 03, 2026")
+         for h in ("reuters.com", "ft.com", "wsj.com")])
+    stats = pipeline._DateStats()
+    kept = pipeline._apply_backfill_r2(arts, redated, origins, stats, 24)
+    assert stats.template == {} and kept == []
+    assert stats.page_older == {"reuters.com": 1, "ft.com": 1, "wsj.com": 1}
+
+
+# ---------------------------------------------------------------------------
 # Budgets, caps and page reuse
 # ---------------------------------------------------------------------------
 

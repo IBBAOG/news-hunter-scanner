@@ -1319,11 +1319,13 @@ def _apply_backfill_r2(articles: list[Article], redated: list[tuple[Article, Par
     """R2 on the snippet backfill's own page fetches: an article whose page proves
     it older takes the page date, and the window decides. A feed Stage 4b found
     serving a template date -- or whose backfilled pages share one -- keeps its
-    feed dates."""
+    feed dates. Google News items are grouped by their outlet, not under one
+    "feed": three unrelated sites sharing a date are no template."""
     by_feed: dict[str, list[tuple[Article, ParsedDate]]] = {}
     for a, d in redated:
         o = origins.get(a.url)
-        by_feed.setdefault(o.feed_domain if o else a.domain, []).append((a, d))
+        own_feed = o is not None and o.feed_domain not in DATE_CHECK_EXEMPT_FEEDS
+        by_feed.setdefault(o.feed_domain if own_feed else a.domain, []).append((a, d))  # type: ignore[union-attr]
     drop: set[str] = set()
     for fd, pairs in sorted(by_feed.items()):
         if fd in stats.template:

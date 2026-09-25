@@ -315,10 +315,13 @@ fetched a page for an item that already had title, date and snippet. The rules
 2. **Template guard.** When 3 never-seen items of one feed carry the SAME
    older page date in one scan, that date is a CMS constant, not theirs: the
    feed's page dates are ignored for the scan (its pages count as dateless) and
-   the log names it (`template_date=[...]`). The flip side, accepted: a burst
+   the log names it (`template_date=[...]`). Two residuals, accepted: a burst
    of re-published old posts that all share one page date reads as a template
-   too (pinned by a test); a real burst carries its posts' own dates (Kpler's:
-   Mar 31 to Sep 10).
+   too (pinned by a test; a real burst carries its posts' own dates -- Kpler's:
+   Mar 31 to Sep 10); and on a low-volume feed the guard never fires -- two new
+   items sharing a template date in one scan are both re-dated and dropped,
+   since it takes three. The all-feeds measurement below is the check for that
+   case (no feed showed a template date on 2026-09-25).
 3. **Every never-seen item gets a spot check.** Production runs in fast mode,
    where no page is read for a well-formed feed item -- which is how a small
    re-publish in a feed with no stored history, or a brand-new source, got in
@@ -336,7 +339,15 @@ fetched a page for an item that already had title, date and snippet. The rules
    the feed re-dates (feed date > `min(published_at, created_at) + 24h`),
    fresh items whose printed title date is older, and never-seen items whose
    page proved them older -- so a feed escalates inside the scan that shows the
-   burst. Measured over 30 days of the clamp backup, only Kpler and
+   burst. A feed is also flagged from its own fetch alone, with no page and no
+   database (`feed_fresh_spike`): at least 10 items, at least half of them
+   dated within the last 2 hours, while the feed as a whole spans 7 days or
+   more -- "everything is new right now" in a feed that normally holds weeks.
+   That catches a re-publish made only of posts we never stored, with no title
+   date and no page date (Kpler had 32 such posts on 2026-09-25; at 11:52 UTC
+   its feed read 81 of 100 items within 2 h over a 26-day span). A
+   high-volume news feed is just as dense in the last hours but spans a day or
+   two; a quiet feed on a busy day does not reach half. Measured over 30 days of the clamp backup, only Kpler and
    investing.com's weekly "live levels" batch qualify; "any one re-date" would
    have flagged estadao for 291 h. A flagged feed's never-seen items are
    checked up to 8 pages per scan (half to the newest items, half rotating):
@@ -366,11 +377,21 @@ fetched a page for an item that already had title, date and snippet. The rules
    suffix, and a title ending with the page's `<h1>` after plain whitespace
    (Kpler's `"<SEO title> <headline>"`) becomes the `<h1>`.
 
+**While the stored-date lookup is down** nothing can tell a burst of
+re-stamped stored posts from new ones, so a feed that left ANY re-stamp
+evidence in the scan (below the batch) holds back what its spot check could not
+confirm -- dateless, unread, incomplete, unchecked -- instead of admitting it
+(`cautious=[...]` in the line). A feed with no evidence at all admits as usual.
+
 The guard never stops a scan. Each feed is judged apart: an exception while
 judging one feed defers only that feed's never-seen items (logged at ERROR
 with the traceback); an exception anywhere else in the stage is logged at
 ERROR too and the scan persists exactly as it would have without it -- every
-source, Google News included. Either way the line says `error=N [where]`.
+source, Google News included. One malformed item (a title date with an
+impossible offset, say) only loses the step that failed: logged, counted, the
+item goes on. The line says `error=N [where]` (`stage`, a feed, `item=n`). The
+fetcher reads a date with an impossible UTC offset ("+9999") as no date at
+all: dateutil builds it without complaint and it raises only when first used.
 
 Stored rows are not this rule's concern: the database keeps
 `news_articles.published_at` monotone. The stored-date lookup never blocks an
@@ -390,6 +411,7 @@ date credibility: page_older=14 [kpler.com=14] (title_date=14) template_date=[] 
 
 `db=3,title=60;batch=50` counts each kind of witness (a kind with none is left
 out; `page=` is the third) and the largest 10-minute batch across all of them;
+`feed_fresh_spike=81/100,26d` joins them when the feed's own fetch trips it;
 `isolated` lists feeds with evidence below the batch threshold; `spot` sums the
 checks of feeds that are not flagged; `pages=fetched+reused` are the pages the
 stage downloaded itself and those enrich had already read.
@@ -398,7 +420,8 @@ Measure before touching a threshold: `diagnose_date_credibility.yml` samples
 every registered feed's pages from the runner (R2 re-dates, template dates,
 conflicting page dates, R3 flags; `mode=feeds`, ending with the table of every
 page-older sample on a feed that is not flagged -- the gate before re-enabling
-a feed such as Kpler), checks the title cleaner against every stored title
+a feed such as Kpler -- and the `feed_fresh_spike` reading of every feed),
+checks the title cleaner against every stored title
 (`mode=titles`), times the whole date-credibility cost off/on in a full scan
 without writes -- Stage 4b, the spot checks and the page-evidence parsing
 (`mode=full-scan`) -- and `-f dry_run=<feed url>` runs the real pipeline over
