@@ -441,6 +441,14 @@ def run_dry(args) -> int:
             holder["stats"] = self
 
     pipeline._DateStats = _Tap
+    enriched_urls: set[str] = set()
+    real_enrich = pipeline.enrich_item
+
+    def _enrich_tap(it, **kw):
+        enriched_urls.add(it.url)
+        return real_enrich(it, **kw)
+
+    pipeline.enrich_item = _enrich_tap
     res = pipeline.run_search(include_google_news=False, fast_mode=True, hours_override=args.hours)
     stats = holder.get("stats")
 
@@ -463,6 +471,9 @@ def run_dry(args) -> int:
             what = "PERSIST-existing" if it.url in stored else ("PERSIST-verified" if t == "verified" else "PERSIST-new")
         elif t:
             what = t.upper()
+        elif it.url not in enriched_urls:
+            # _ENRICH_CAP: at most 20 items of one domain reach stage 4 per scan
+            what = "NOT-ENRICHED(cap 20)"
         else:
             what = "NOT-PERSISTED(other)"
         outcome[what] += 1
@@ -475,6 +486,97 @@ def run_dry(args) -> int:
     print("\n".join(lines))
     print(f"\nrun_search: n_total={res.get('n_total')} date_page_older={res.get('date_page_older')} "
           f"date_deferred={res.get('date_deferred')} restamp={res.get('date_restamp_domains')}")
+    return 0
+
+
+def run_full_scan(args) -> int:
+    """One complete scan (Google News included), every write door closed.
+
+    Prints the scan's wall time and the date-credibility line, i.e. what Stage
+    4b costs on top of a production-shaped scan. Compare `dt` with the "scan
+    done ... dt=" lines of the News Hunter scan workflow at the same hour (they
+    also pay ~3 s of upsert POSTs, which this run skips).
+    """
+    from news_hunter import pipeline, supabase_sync, translation_retry
+
+    def _no_write(*_a, **_k):
+        raise RuntimeError("diagnose_date_credibility --full-scan must never write")
+
+    supabase_sync.push_new = _no_write
+    supabase_sync._SupabaseSink.push = _no_write
+    translation_retry.fill_missing = _no_write
+    captured: list = []
+    pipeline.upsert_articles = lambda arts: captured.extend(arts) or len(arts)
+    pipeline._run_translation_retry = lambda *a, **k: 0
+    holder: dict = {}
+    base = pipeline._DateStats
+
+    class _Tap(base):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            holder["stats"] = self
+
+    pipeline._DateStats = _Tap
+    t0 = time.time()
+    res = pipeline.run_search(include_google_news=True, fast_mode=True, hours_override=args.hours)
+    dt = time.time() - t0
+    stats = holder.get("stats")
+    print(f"\nfull scan (no writes): dt={dt:.1f}s would_upsert={len(captured)} "
+          f"stage4b={stats.seconds if stats else -1:.2f}s errors={len(res.get('errors', []))}")
+    print(stats.log_line() if stats else "no stats")
+    return 0
+
+
+def run_titles(args) -> int:
+    """T regression check: clean_title over every stored title containing "|".
+
+    Two passes per title: as the scanner runs it without a page (suffix strip
+    and the "X X" collapse), and a worst case for the h1 rule where the page
+    <h1> is assumed to be each " | "-separated segment of the title itself. A
+    title that changes is printed with its domain; the counts are the evidence
+    that nothing regresses outside the suffix the rule is meant to remove.
+    """
+    from news_hunter import supabase_sync
+
+    sink = supabase_sync.get_sink()
+    if sink.client is None:
+        print("titles: no Supabase client", flush=True)
+        return 2
+    rows: list[dict] = []
+    start = 0
+    while True:
+        res = (
+            sink.client.table(sink.table)
+            .select("domain, source_name, title")
+            .like("title", "%|%")
+            .order("url")
+            .range(start, start + 999)
+            .execute()
+        )
+        batch = res.data or []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        start += 1000
+    changed: dict[str, list[tuple[str, str]]] = {}
+    changed_h1: dict[str, list[tuple[str, str]]] = {}
+    for r in rows:
+        title, name, dom = r.get("title") or "", r.get("source_name") or "", r.get("domain") or ""
+        new = dc.clean_title(title, name)
+        if new != title:
+            changed.setdefault(dom, []).append((title, new))
+        segs = [x.strip() for x in title.split("|") if x.strip()]
+        new_h1 = dc.clean_title(title, name, segs)
+        if new_h1 != new:
+            changed_h1.setdefault(dom, []).append((title, new_h1))
+    print(f"titles with '|': {len(rows)} rows, {len({r.get('domain') for r in rows})} domains", flush=True)
+    for label, bucket in (("no page (suffix / X X)", changed), ("worst-case h1 = a segment", changed_h1)):
+        n = sum(len(v) for v in bucket.values())
+        print(f"\n=== changed, {label}: {n} rows ===")
+        for dom, pairs in sorted(bucket.items(), key=lambda kv: -len(kv[1])):
+            print(f"  {dom}: {len(pairs)}")
+            for old, new in pairs[:3]:
+                print(f"      {old[:110]!r}\n   -> {new[:110]!r}")
     return 0
 
 
@@ -491,10 +593,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--stored-json", help="snapshot {url: {published_at, created_at}} instead of the live lookup")
     ap.add_argument("--cleanup-after", help="treat rows created at/after this ISO instant as never stored")
     ap.add_argument("--dry-run", metavar="FEED_URL", help="run the real pipeline over one feed (no writes)")
+    ap.add_argument("--titles", action="store_true", help="T regression check over every stored title with '|'")
+    ap.add_argument("--full-scan", action="store_true", help="one complete scan, no writes: dt + Stage 4b cost")
     ap.add_argument("-v", "--verbose", action="store_true", help="print every sampled page")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s", stream=sys.stdout)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    if args.titles:
+        return run_titles(args)
+    if args.full_scan:
+        return run_full_scan(args)
     if args.dry_run:
         return run_dry(args)
     return run_feeds(args)

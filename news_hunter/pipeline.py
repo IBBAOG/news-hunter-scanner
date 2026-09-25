@@ -176,6 +176,9 @@ class _DateStats:
     verified: int = 0
     deferred: dict[str, dict[str, int]] = field(default_factory=dict)  # feed -> reason -> n
     lookup_failed: bool = False
+    checked: int = 0          # candidates looked up in news_articles (Stage 4b)
+    fetched: int = 0          # pages Stage 4b fetched itself
+    seconds: float = 0.0      # wall time of Stage 4b (lookup + fetches)
     # (url, outcome) for every decision this stage took; read by tests and by
     # scripts/diagnose_date_credibility.py, never logged row by row.
     trace: list[tuple[str, str]] = field(default_factory=list)
@@ -227,6 +230,7 @@ class _DateStats:
             f" (title_date={self.title_older})"
             f" restamp_domains=[{', '.join(flagged)}]"
             f" verified={self.verified} deferred={self.n_deferred} [{deferred}]"
+            f" checked={self.checked} fetched={self.fetched} in {self.seconds:.1f}s"
             + (" lookup=FAILED" if self.lookup_failed else "")
         )
 
@@ -780,6 +784,25 @@ def _run_date_credibility(
 
     Returns the articles to persist.
     """
+    t0 = time.time()
+    try:
+        return _verify_or_defer(
+            articles, origins, stats, hours=hours, now=now, errors=errors
+        )
+    finally:
+        stats.seconds = time.time() - t0
+
+
+def _verify_or_defer(
+    articles: list[Article],
+    origins: dict[str, _Origin],
+    stats: _DateStats,
+    *,
+    hours: int,
+    now: datetime,
+    errors: list[str],
+) -> list[Article]:
+    """The body of _run_date_credibility (split out so the wall time is always set)."""
     from . import supabase_sync
 
     candidates: list[tuple[Article, _Origin]] = []
@@ -799,6 +822,7 @@ def _run_date_credibility(
     if not candidates:
         return articles
 
+    stats.checked = len(candidates)
     stored = supabase_sync.existing_dates([a.url for a, _ in candidates])
     if stored is None:
         stats.lookup_failed = True
@@ -842,6 +866,7 @@ def _run_date_credibility(
         else:
             to_fetch.append((a, o))
     if to_fetch:
+        stats.fetched = len(to_fetch)
         ex = ThreadPoolExecutor(max_workers=DATE_VERIFY_WORKERS)
         try:
             futs = {ex.submit(fetch_page_evidence, o.fetch_url): (a, o) for a, o in to_fetch}
