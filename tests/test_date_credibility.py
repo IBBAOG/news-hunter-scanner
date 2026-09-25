@@ -104,20 +104,19 @@ def test_older_page_date_replaces_the_feed_date():
     feed = datetime(2026, 9, 25, 10, 58, 42, tzinfo=UTC)   # the re-publish stamp
     page = dc.parse_date_value("Apr 01, 2026", now=NOW)
     assert dc.is_older(page, feed)
-    assert dc.credible_published(feed, page) == datetime(2026, 4, 1, tzinfo=UTC)
+    assert page.value == datetime(2026, 4, 1, tzinfo=UTC)
 
 
 def test_page_date_within_tolerance_keeps_the_feed_date():
     feed = datetime(2026, 9, 25, 10, 0, tzinfo=UTC)
     page = dc.parse_date_value("2026-09-24T14:00:00Z", now=NOW)   # 20 h earlier
     assert not dc.is_older(page, feed)
-    assert dc.credible_published(feed, page) == feed
 
 
 def test_a_later_page_date_never_pushes_an_item_forward():
     feed = datetime(2026, 9, 20, 10, 0, tzinfo=UTC)
     page = dc.parse_date_value("2026-09-25T09:00:00Z", now=NOW)
-    assert dc.credible_published(feed, page) == feed
+    assert not dc.is_older(page, feed)
 
 
 def test_date_only_value_is_compared_by_the_end_of_its_day():
@@ -130,10 +129,10 @@ def test_date_only_value_is_compared_by_the_end_of_its_day():
     assert dc.is_older(dc.parse_date_value("Sep 22, 2026", now=NOW), feed)
 
 
-def test_no_page_date_keeps_the_feed_date_and_no_feed_date_is_left_to_the_caller():
+def test_no_page_date_or_no_feed_date_proves_nothing():
     feed = datetime(2026, 9, 25, 10, 0, tzinfo=UTC)
-    assert dc.credible_published(feed, None) == feed
-    assert dc.credible_published(None, dc.parse_date_value("Apr 01, 2026", now=NOW)) is None
+    assert not dc.is_older(None, feed)
+    assert not dc.is_older(dc.parse_date_value("Apr 01, 2026", now=NOW), None)
 
 
 # ---------------------------------------------------------------------------

@@ -385,7 +385,7 @@ here a full scan on the runner (2026-09-25, no writes, the Kpler feed still
 registered on the branch):
 
 ```
-date credibility: page_older=14 [kpler.com=14] (title_date=14) restamp_domains=[www.kpler.com(db=3,title=60;batch=50)] isolated=[www.cbsnews.com(db=1;batch=1), www.investing.com(db=1;batch=1)] verified=0 spot=[ok=1] unverified_admitted=0 [] deferred=2 [www.kpler.com: no_page_date=2] pages=3+0reused looked_up=378 lookup=ok in 2.7s
+date credibility: page_older=14 [kpler.com=14] (title_date=14) template_date=[] restamp_domains=[www.kpler.com(db=3,title=60;batch=50)] isolated=[www.cbsnews.com(db=1;batch=1), www.investing.com(db=1;batch=1)] verified=0 spot=[ok=4] unverified_admitted=0 [] deferred=2 [www.kpler.com: no_page_date=2] pages=6+0reused looked_up=375 lookup=ok error=0 [] in 2.8s
 ```
 
 `db=3,title=60;batch=50` counts each kind of witness (a kind with none is left

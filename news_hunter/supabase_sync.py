@@ -63,14 +63,14 @@ _MAX_QUERY_URLS = 100
 # would only multiply the load on a database that is already struggling.
 LOOKUP_FAILURE_BUDGET = 20
 # One request of a lookup, on a client of its own (the shared client waits up
-# to supabase-py's default 120 s). A healthy ~100-url chunk answers in well
-# under a second from the runner.
+# to supabase-py's default 120 s). Measured on the runner 2026-09-25: the two
+# lookups of a full scan (~375 urls, 4-5 chunks) took 1.6-1.9 s in all, so a
+# healthy chunk answers in well under a second.
 LOOKUP_REQUEST_TIMEOUT = 4.0
-# Wall clock of one lookup. Past it, the urls not asked yet count as
-# unanswered -- the pipeline then checks their pages as never seen. The scan
-# makes two lookups (candidates, evidence-only), so a sick database adds at
-# most ~2 x (8 + 4) s to a scan of ~36-51 s, far from the 5 minutes after
-# which the next dispatch cancels it; a healthy one costs ~1 s in all.
+# Wall clock of one lookup, ~8x a healthy one. Past it, the urls not asked yet
+# count as unanswered -- the pipeline then checks their pages as never seen.
+# Two lookups per scan: a sick database adds at most ~2 x (8 + 4) s to a scan
+# of ~30-51 s, far from the 5 minutes after which the next dispatch cancels it.
 LOOKUP_DEADLINE = 8.0
 # 4xx answers that are not about the query: bisecting them only spends requests.
 _NOT_QUERY_4XX = frozenset({401, 407, 408, 429})

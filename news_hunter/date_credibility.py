@@ -190,21 +190,6 @@ def is_older(candidate: ParsedDate | None, feed_date: datetime | None,
     return candidate.latest < feed_date - tolerance
 
 
-def credible_published(feed_date: datetime | None, candidate: ParsedDate | None,
-                       *, tolerance: timedelta = TOLERANCE) -> datetime | None:
-    """R2: the earliest credible date wins.
-
-    The candidate replaces the feed date only when it is earlier by more than
-    `tolerance` (a later page date never pushes an item forward). With no feed
-    date at all the caller's own fallback applies, so this returns None.
-    """
-    if feed_date is None:
-        return None
-    if is_older(candidate, feed_date, tolerance=tolerance):
-        return candidate.value  # type: ignore[union-attr]
-    return feed_date
-
-
 # =============================================================================
 # The page's own publication date
 # =============================================================================
