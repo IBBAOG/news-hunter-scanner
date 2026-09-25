@@ -150,14 +150,14 @@ DATE_VERIFY_DEADLINE = 10.0   # teto da fase (fetch_html = 6s/item)
 DATE_VERIFY_CAP = 32          # max page fetches per scan (global)
 DATE_VERIFY_CAP_DOMAIN = 8    # max page fetches per flagged feed per scan
 DATE_VERIFY_BUCKET_SECONDS = 300
-# Google News is not a domain's own feed: its dates are Google's, and the
-# GNews-only outlets are exactly the ones that refuse page fetches from the
+# Google News is not a domain's own feed: its dates are Google's, not the
+# outlet's, and its outlets are the ones that refuse page fetches from the
 # runner (reuters 401, bloomberg / asharq / arabnews 403 -- README "Why an
-# article can reach the feed with no body"). "Verify or defer" there would be
-# "defer": a silent zero. Measured 2026-09-25 against news_articles, Google
-# re-dates stored urls of wsj / asharqbusiness / moneycontrol / reuters in
-# 10-30% of any 30-day window. R2 still applies to those items whenever their
-# page IS fetched (snippet backfill).
+# article can reach the feed with no body"). Google re-dates stored urls of
+# wsj / asharqbusiness / moneycontrol / reuters constantly (updates); replayed
+# over 30 days of the clamp backup, even the batch rule would have flagged one
+# of them (yicai, once). R2 still applies to those items whenever their page IS
+# fetched (snippet backfill).
 DATE_CHECK_EXEMPT_FEEDS: frozenset[str] = frozenset({"news.google.com"})
 
 
