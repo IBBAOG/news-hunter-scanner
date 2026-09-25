@@ -256,6 +256,46 @@ KEYWORD_SENSE_EXCLUSIONS: dict[str, SenseExclusion] = {
 
 
 # ---------------------------------------------------------------------------
+# A source's own name on its own domain (added 2026-09-25)
+# ---------------------------------------------------------------------------
+# Not a sense rule -- the text is not ambiguous, the SOURCE is: every kpler.com
+# item says "Kpler" (the " | Kpler - <date>" title suffix, the body, the
+# byline), so the `Kpler` keyword, meant to follow what OTHER outlets write
+# about the company, matched Kpler's whole blog. Measured 2026-09-25: 38 of 103
+# kpler.com rows matched ONLY `Kpler` -- marketing posts such as "How to choose
+# ship tracking software for your business".
+#
+# Explicit per domain, never derived from the outlet's display name: the
+# `Petrobras` keyword on agencia.petrobras.com.br is exactly what we want there
+# (every Petrobras item is relevant), so a generic "own name" rule would be
+# wrong. Keys are hosts without "www."; values are lowercased keywords.
+SOURCE_OWN_NAME_KEYWORDS: dict[str, frozenset[str]] = {
+    "kpler.com": frozenset({"kpler"}),
+}
+
+
+def own_name_keywords(domain: str) -> frozenset[str]:
+    """Keywords that do not count on `domain` because they are its own name."""
+    host = (domain or "").strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return SOURCE_OWN_NAME_KEYWORDS.get(host, frozenset())
+
+
+def drop_own_name(labels: Iterable[str], domain: str) -> list[str]:
+    """`labels` without the keywords that are `domain`'s own name.
+
+    An item left with no label has no keyword of ours at all: the caller does
+    not persist it (and counts it).
+    """
+    labels = list(labels)
+    own = own_name_keywords(domain)
+    if not own or not labels:
+        return labels
+    return [k for k in labels if (k or "").lower() not in own]
+
+
+# ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
 

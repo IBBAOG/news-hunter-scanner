@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
+import time
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 if TYPE_CHECKING:
+    from .date_credibility import StoredLookup
     from .store import Article
 
 log = logging.getLogger(__name__)
@@ -51,6 +54,60 @@ _tried_init = False
 _MAX_QUERY_URL_CHARS = 12000
 _MAX_QUERY_URLS = 100
 
+# The stored-date lookups of the date-credibility phase
+# (_SupabaseSink._existing_dates). A 4xx is about THIS query (a Cloudflare 400,
+# an over-long query string) and is bisected; LOOKUP_FAILURE_BUDGET caps the
+# failed requests one lookup may spend doing that: enough to isolate one bad
+# url in a 100-url chunk twice over (~9 failures each). A timeout, a 5xx or a
+# transport error is about the DATABASE: the lookup stops at once, and bisecting
+# would only multiply the load on a database that is already struggling.
+LOOKUP_FAILURE_BUDGET = 20
+# One request of a lookup, on a client of its own (the shared client waits up
+# to supabase-py's default 120 s). Measured on the runner 2026-09-25: the two
+# lookups of a full scan (~375 urls, 4-5 chunks) took 1.6-1.9 s in all, so a
+# healthy chunk answers in well under a second.
+LOOKUP_REQUEST_TIMEOUT = 4.0
+# Wall clock of one lookup, ~8x a healthy one. Past it, the urls not asked yet
+# count as unanswered -- the pipeline then checks their pages as never seen.
+# Two lookups per scan: a sick database adds at most ~2 x (8 + 4) s to a scan
+# of ~30-51 s, far from the 5 minutes after which the next dispatch cancels it.
+LOOKUP_DEADLINE = 8.0
+# 4xx answers that are not about the query: bisecting them only spends requests.
+_NOT_QUERY_4XX = frozenset({401, 407, 408, 429})
+_STATUS_RE = re.compile(r"^\s*(?:HTTP Error )?([1-5]\d\d)\b")
+
+
+def _lookup_failure_kind(exc: BaseException) -> str:
+    """"query" when the request itself was refused (a 4xx), else "database".
+
+    postgrest raises APIError with `code` = the HTTP status when the error body
+    is not JSON (a Cloudflare page), or PostgREST's own code (PGRST1xx/2xx are
+    request errors, PGRST0xx connection errors) or a Postgres SQLSTATE (class
+    22 / 42: this query's data or syntax; 57014 statement timeout, 53xxx out
+    of resources, 08xxx connection: the database). httpx timeouts and
+    transport errors carry no status at all.
+    """
+    code = getattr(exc, "code", None)
+    status: int | None = None
+    if isinstance(code, int):
+        status = code
+    elif isinstance(code, str) and code.strip():
+        c = code.strip().upper()
+        if c.isdigit() and len(c) == 3:
+            status = int(c)
+        elif c.startswith("PGRST"):
+            return "query" if c[5:6] in ("1", "2") else "database"
+        else:
+            return "query" if c[:2] in ("22", "42") else "database"
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if not isinstance(status, int):
+        m = _STATUS_RE.match(str(exc))
+        status = int(m.group(1)) if m else None
+    if isinstance(status, int) and 400 <= status < 500 and status not in _NOT_QUERY_4XX:
+        return "query"
+    return "database"
+
 
 def _chunk_urls_for_query(urls: list[str]) -> list[list[str]]:
     """Divide urls em lotes que cabem numa query string do PostgREST.
@@ -81,8 +138,10 @@ class _SupabaseSink:
     def __init__(self) -> None:
         self.client = None
         self.table = "news_articles"
+        self.lookup_client = None
         url = os.environ.get("SUPABASE_URL", "").strip()
         key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+        self._url, self._key = url, key
         if not url or not key:
             log.info("Supabase desabilitado (SUPABASE_URL/SUPABASE_SERVICE_KEY ausentes)")
             return
@@ -121,6 +180,121 @@ class _SupabaseSink:
                     out[url] = pub
         return out
 
+    def _lookup_client(self):
+        """The client the date lookups use: its own, with LOOKUP_REQUEST_TIMEOUT.
+
+        A separate connection, too: a lookup abandoned on its timeout never
+        shares a stream with the upsert that follows. Falls back to the shared
+        client when a second one cannot be built (and in tests).
+        """
+        lc = getattr(self, "lookup_client", None)
+        if lc is not None:
+            return lc
+        url, key = getattr(self, "_url", ""), getattr(self, "_key", "")
+        if url and key and self.client is not None:
+            try:
+                from supabase import ClientOptions, create_client  # type: ignore[import-untyped]
+
+                lc = create_client(url, key, options=ClientOptions(
+                    postgrest_client_timeout=LOOKUP_REQUEST_TIMEOUT))
+            except Exception as e:  # noqa: BLE001
+                log.warning("cliente de lookup (timeout curto) falhou, uso o compartilhado: %s", e)
+        self.lookup_client = lc or self.client
+        return self.lookup_client
+
+    def _existing_dates(self, urls: list[str]) -> "StoredLookup":
+        """published_at + created_at of the rows that already exist, per url.
+
+        The date-credibility phase (pipeline._run_date_credibility) needs both:
+        a feed that dates a stored url later than min(published_at, created_at)
+        + tolerance is re-stamping. created_at is write-once (column DEFAULT
+        now(), never in an upsert payload), so it still holds the first-seen
+        time of a row whose published_at an earlier re-stamp already pushed
+        forward. Empty when the client is not configured (local runs).
+
+        Failure is per url, never "all or nothing" (StoredLookup.failed; the
+        caller treats those urls as never seen and checks their pages):
+          * a 4xx is about the query -- the chunk is bisected (no retry: a 4xx
+            repeats), so one url whose query keeps failing (a Cloudflare 400,
+            an over-long query) ends up alone in StoredLookup.bad; once
+            LOOKUP_FAILURE_BUDGET refused requests are spent, the rest is
+            failed without asking;
+          * a timeout, a 5xx or a transport error is about the database -- the
+            lookup stops at once and every url not answered yet is failed
+            (StoredLookup.unavailable says why);
+          * past LOOKUP_DEADLINE of wall clock the lookup stops the same way.
+
+        Sequential, on purpose. Measured on the runner 2026-09-25: the same
+        chunks sent from 4 threads over the client's shared HTTP/2 connection
+        failed with `ConnectionTerminated` and Cloudflare "400 Bad Request".
+        """
+        from collections import deque
+
+        from .date_credibility import StoredDates, StoredLookup, parse_stored_timestamp
+
+        out = StoredLookup()
+        client = self._lookup_client() if self.client is not None else None
+        if client is None or not urls:
+            return out
+        t0 = time.monotonic()
+        budget = LOOKUP_FAILURE_BUDGET
+        queue = deque(_chunk_urls_for_query(urls))
+
+        def _give_up(reason: str, chunk: list[str]) -> None:
+            out.unavailable = reason
+            out.failed.update(chunk)
+            while queue:
+                out.failed.update(queue.popleft())
+
+        while queue:
+            chunk = queue.popleft()
+            if time.monotonic() - t0 > LOOKUP_DEADLINE:
+                _give_up(f"deadline {LOOKUP_DEADLINE:.0f}s", chunk)
+                break
+            try:
+                res = (
+                    client.table(self.table)
+                    .select("url, published_at, created_at")
+                    .in_("url", chunk)
+                    .execute()
+                )
+            except Exception as e:  # noqa: BLE001
+                if _lookup_failure_kind(e) == "database":
+                    _give_up(f"{type(e).__name__}: {e!s}"[:160], chunk)
+                    break
+                budget -= 1
+                if len(chunk) == 1:
+                    out.failed.update(chunk)
+                    out.bad.update(chunk)
+                    log.warning("lookup de datas gravadas: url recusada pela consulta (%s): %s",
+                                chunk[0][:120], e)
+                    if budget <= 0:
+                        _give_up(f"budget of {LOOKUP_FAILURE_BUDGET} refused queries spent", [])
+                        break
+                elif budget <= 0:
+                    _give_up(f"budget of {LOOKUP_FAILURE_BUDGET} refused queries spent", chunk)
+                    break
+                else:
+                    mid = len(chunk) // 2
+                    queue.appendleft(chunk[mid:])
+                    queue.appendleft(chunk[:mid])
+                continue
+            for r in res.data or []:
+                url = r.get("url")
+                if url:
+                    out.found[url] = StoredDates(
+                        published_at=parse_stored_timestamp(r.get("published_at")),
+                        created_at=parse_stored_timestamp(r.get("created_at")),
+                    )
+        out.seconds = time.monotonic() - t0
+        if out.failed:
+            log.warning(
+                "lookup de datas gravadas: %d de %d urls sem resposta em %.1fs (%s)",
+                len(out.failed), len(urls), out.seconds,
+                out.unavailable or f"{len(out.bad)} url(s) recusada(s)",
+            )
+        return out
+
     def _freeze_approx_dates(
         self, articles: list["Article"]
     ) -> tuple[list["Article"], dict[str, str]]:
@@ -134,8 +308,16 @@ class _SupabaseSink:
         apareceram no topo do feed em 04/08 como "13m ago".
 
         Regra: se a linha ja existe com uma data, ela vence. Se e nova, o
-        carimbo aproximado entra (uma unica vez). Uma data REAL obtida num scan
-        futuro sobrescreve normalmente — o item continua curavel.
+        carimbo aproximado entra (uma unica vez).
+
+        A REAL date found by a later scan only lands when it is EARLIER than the
+        stored one. Since migration 20272100000000 (trigger
+        trg_news_articles_published_at_monotone, BEFORE UPDATE OF published_at,
+        live in production) an UPDATE can only move published_at backwards: a
+        later value is silently replaced by the stored one in the database,
+        unless the session sets news_hunter.allow_published_at_forward. A row
+        stamped too late stays curable (the earlier real date lands); a row
+        stamped too early is no longer "corrected forward" by a scan.
 
         Se o lookup falhar, os aproximados sao deixados de fora deste push (o
         proximo scan tenta de novo em ~5 min): perder uma insercao e reversivel,
@@ -424,6 +606,23 @@ def _article_to_row(
         "title_en": tx.get("title_en", a.title_en),
         "snippet_en": tx.get("snippet_en", a.snippet_en),
     }
+
+
+def existing_dates(urls: list[str]) -> "StoredLookup":
+    """Module-level door to _SupabaseSink._existing_dates (see there).
+
+    Never raises and never answers "all or nothing": urls whose query failed
+    come back in `.failed` and the caller decides for those rows alone.
+    """
+    from .date_credibility import StoredLookup
+
+    if not urls:
+        return StoredLookup()
+    try:
+        return get_sink()._existing_dates(urls)
+    except Exception as e:  # noqa: BLE001
+        log.warning("existing_dates falhou: %s", e)
+        return StoredLookup(failed=set(urls), unavailable=f"{type(e).__name__}: {e!s}"[:160])
 
 
 def urls_with_snippet(urls: list[str]) -> set[str] | None:

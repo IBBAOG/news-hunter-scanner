@@ -282,10 +282,156 @@ the feed on 04/08 labelled "13m ago" (481 rows had been poisoned this way since
    listing and the next scan (~5 min) retries it.
 3. **A fabricated date is write-once** (`Article.published_is_approx`).
    `supabase_sync` looks up the existing row and keeps its stored date, so the
-   stamp only ever lands on first discovery. A *real* date found later still
-   overwrites it, so a row is always curable.
+   stamp only ever lands on first discovery. A *real* date found later
+   overwrites it only when it is EARLIER: since migration 20272100000000 the
+   trigger `trg_news_articles_published_at_monotone` lets an UPDATE move
+   `published_at` backwards only.
 
 Regression tests: `tests/test_stale_listing_items.py`.
+
+### A feed date can be a modification time (2026-09-25)
+
+Kpler's Webflow feed sets `<pubDate>` to the item's last **re-publish**. When
+Kpler re-published its back catalogue, 81 of 100 items were dated "today" while
+each page kept its own `datePublished` (Mar 31 to Sep 10); 75 old posts landed
+as new, because enrich read the page date only when the feed had none and never
+fetched a page for an item that already had title, date and snippet. The rules
+(`news_hunter/date_credibility.py`, Stage 4b in `pipeline.py`):
+
+1. **The earliest credible date wins (R2).** Whenever the page is fetched, its
+   own date is read -- the article's own first (an article-typed JSON-LD
+   entity, then an `itemprop="datePublished"` of the main article: the
+   `<article>` / article-typed item that holds the page's `<h1>`), then
+   `article:published_time`, `<meta name="date">`, a WebPage entity. Never
+   `dateModified`, never a bare `<time datetime>`, never the itemprop of a
+   related card, a comment or a sidebar -- they carry older neighbours' dates.
+   **When two of the page's dates disagree by more than 24 h, it trusts none**
+   (the page counts as dateless). A page date earlier than the feed date by
+   more than 24 h replaces it and the window drops the item. A date-only value
+   ("Apr 01, 2026") counts as the end of its day. A date the feed prints at the
+   end of its own title (`"… | Kpler - Jun 30, 2026"`) is read the same way,
+   with no fetch. R2 is decided once per scan (Stage 4b, and the snippet
+   backfill for its own fetches); enrich only records what each page says.
+2. **Template guard.** When 3 never-seen items of one feed carry the SAME
+   older page date in one scan, that date is a CMS constant, not theirs: the
+   feed's page dates are ignored for the scan (its pages count as dateless) and
+   the log names it (`template_date=[...]`). Two residuals, accepted: a burst
+   of re-published old posts that all share one page date reads as a template
+   too (pinned by a test; a real burst carries its posts' own dates -- Kpler's:
+   Mar 31 to Sep 10); and on a low-volume feed the guard never fires -- two new
+   items sharing a template date in one scan are both re-dated and dropped,
+   since it takes three. The all-feeds measurement below is the check for that
+   case (no feed showed a template date on 2026-09-25).
+3. **Every never-seen item gets a spot check.** Production runs in fast mode,
+   where no page is read for a well-formed feed item -- which is how a small
+   re-publish in a feed with no stored history, or a brand-new source, got in
+   unchecked. A page this scan already read (enrich, the lede rescue) is judged
+   for free; Stage 4b fetches up to 4 more pages per feed per scan of the items
+   `news_articles` does not hold yet (32 per scan in all: flagged feeds first,
+   the others round-robin from a start that rotates with the 5-minute bucket).
+   A page that proves the item older drops it and counts as re-stamp evidence;
+   a dateless or unreadable page, or no answer in time, admits it with the
+   feed date. A spot check never defers.
+4. **Batch re-stamp evidence means verify or defer (R3).** News feeds re-date
+   stored articles all the time (updates); a re-publication shows as a
+   **batch**: at least 3 witnesses within 10 minutes of one another
+   (`RESTAMP_BATCH_MIN` / `RESTAMP_BATCH_SPAN`), counting together stored urls
+   the feed re-dates (feed date > `min(published_at, created_at) + 24h`),
+   fresh items whose printed title date is older, and never-seen items whose
+   page proved them older -- so a feed escalates inside the scan that shows the
+   burst. A feed is also flagged from its own fetch alone, with no page and no
+   database (`feed_fresh_spike`): at least 10 items, at least half of them
+   dated within the last 2 hours, while the feed as a whole spans 5 days or
+   more -- "everything is new right now" in a feed that normally holds weeks.
+   That catches a re-publish made only of posts we never stored, with no title
+   date and no page date (Kpler had 32 such posts on 2026-09-25). Kpler's feed
+   read 81/100 within 2 h over 26 days at 11:30 UTC and 91/100 over 6.9 days
+   at 11:52 -- the burst re-stamps the oldest items first, so the span shrinks
+   as it goes, which is why the threshold is 5 days, not 7. At 19:26 UTC no
+   registered feed tripped; the 15 with at least half their items within 2 h
+   are high-volume feeds whose items span 0.4 days at most. A quiet feed on a
+   busy day does not reach half. Measured over 30 days of the clamp backup, only Kpler and
+   investing.com's weekly "live levels" batch qualify; "any one re-date" would
+   have flagged estadao for 291 h. A flagged feed's never-seen items are
+   checked up to 8 pages per scan (half to the newest items, half rotating):
+   - page read and dated: verified, or dropped as older;
+   - page read and **dateless**: **deferred** (Kpler's empty `datePublished`);
+   - over the budget: **deferred**, next scan;
+   - check that **did not complete** (our round deadline, cancelled, never
+     started): no answer at all -- **deferred**, never admitted;
+   - page **not read**: **deferred**, unless the site answered it with a
+     **4xx or a WAF challenge** and no other page of the site was read this
+     scan -- a site that blocks us (investing.com: 403 on every page from the
+     runner) admits its items with the feed date, counted as
+     `unverified_admitted`, so our own block does not become a zero. A
+     timeout, a 5xx or a lost connection is no refusal and defers. Accepted
+     residual: a single completed 403 on the only page tried, with no other
+     page of the site read this scan, is admitted as `site_blocked`.
+
+   **Accepted cost (no age-out).** A dateless page stays deferred for as long
+   as its feed is flagged, i.e. until the burst's evidence leaves the 24 h
+   window. A genuinely new post that carries no date and appears during a
+   re-stamp episode can therefore be lost; it is counted in the log. Admitting
+   dateless items after N hours was rejected: it would let a burst's undated
+   old posts (Kpler had 32) land together N hours later. Kpler publishes about
+   one post a day. The daily-ops burst probe (P13) is the backstop for
+   re-stamps on sites that block the runner.
+5. **Clean titles.** `"<headline> | <own source name>( - <date>)"` loses the
+   suffix, and a title ending with the page's `<h1>` after plain whitespace
+   (Kpler's `"<SEO title> <headline>"`) becomes the `<h1>`.
+
+**While the stored-date lookup is down** nothing can tell a burst of
+re-stamped stored posts from new ones, so a feed that left ANY re-stamp
+evidence in the scan (below the batch) holds back what its spot check could not
+confirm -- dateless, unread, incomplete, unchecked -- instead of admitting it
+(`cautious=[...]` in the line). A feed with no evidence at all admits as usual.
+
+The guard never stops a scan. Each feed is judged apart: an exception while
+judging one feed defers only that feed's never-seen items (logged at ERROR
+with the traceback); an exception anywhere else in the stage is logged at
+ERROR too and the scan persists exactly as it would have without it -- every
+source, Google News included. One malformed item (a title date with an
+impossible offset, say) only loses the step that failed: logged, counted, the
+item goes on. The line says `error=N [where]` (`stage`, a feed, `item=n`). The
+fetcher reads a date with an impossible UTC offset ("+9999") as no date at
+all: dateutil builds it without complaint and it raises only when first used.
+
+Stored rows are not this rule's concern: the database keeps
+`news_articles.published_at` monotone. The stored-date lookup never blocks an
+insert: a 4xx is about the query and is bisected, so a url whose query keeps
+failing (a Cloudflare 400, an over-long query) fails alone; a timeout, a 5xx
+or a transport error is about the database and stops the lookup at once
+(bisecting would only add load); each lookup has its own client with a 4 s
+request timeout and an 8 s wall-clock cap. A url the lookup could not answer
+counts as never seen and gets its page check (`lookup=PARTIAL(...)` /
+`FAILED(...)` with the reason). Every scan logs one line, zero included --
+here a full scan on the runner (2026-09-25, no writes, the Kpler feed still
+registered on the branch):
+
+```
+date credibility: page_older=14 [kpler.com=14] (title_date=14) template_date=[] restamp_domains=[www.kpler.com(db=3,title=60;batch=50)] isolated=[www.cbsnews.com(db=1;batch=1), www.investing.com(db=1;batch=1)] cautious=[] verified=0 spot=[] unverified_admitted=0 [] deferred=2 [www.kpler.com: no_page_date=2] pages=2+0reused looked_up=380 lookup=ok error=0 [] in 1.9s
+```
+
+`db=3,title=60;batch=50` counts each kind of witness (a kind with none is left
+out; `page=` is the third) and the largest 10-minute batch across all of them;
+`feed_fresh_spike=81/100,26d` joins them when the feed's own fetch trips it;
+`isolated` lists feeds with evidence below the batch threshold; `spot` sums the
+checks of feeds that are not flagged; `pages=fetched+reused` are the pages the
+stage downloaded itself and those enrich had already read.
+
+Measure before touching a threshold: `diagnose_date_credibility.yml` samples
+every registered feed's pages from the runner (R2 re-dates, template dates,
+conflicting page dates, R3 flags; `mode=feeds`, ending with the table of every
+page-older sample on a feed that is not flagged -- the gate before re-enabling
+a feed such as Kpler -- and the `feed_fresh_spike` reading of every feed),
+checks the title cleaner against every stored title
+(`mode=titles`), times the whole date-credibility cost off/on in a full scan
+without writes -- Stage 4b, the spot checks and the page-evidence parsing
+(`mode=full-scan`) -- and `-f dry_run=<feed url>` runs the real pipeline over
+one feed without writing. The stored-date lookup stays sequential: the same
+chunks sent from four threads over the client's shared HTTP/2 connection failed
+on the runner (`ConnectionTerminated`, Cloudflare 400). Regression tests:
+`tests/test_date_credibility*.py`.
 
 ## Translation: a 200-shaped success carrying an error page
 
@@ -938,3 +1084,18 @@ another company from the Cosan business.
 
 Adding a keyword: add an entry, tune it against real rows (read-only SQL), and
 extend `tests/test_keyword_sense_exclusions.py` with those rows.
+
+### A source's own name (2026-09-25)
+
+A different problem sits next to it: the text is not ambiguous, the source is.
+Every kpler.com item says "Kpler" (the `| Kpler - <date>` title suffix, the
+body, the byline), so the `Kpler` keyword -- meant for what OTHER outlets write
+about the company -- matched Kpler's whole blog: 38 of 103 kpler.com rows on
+2026-09-25 matched only `Kpler` (marketing posts such as "How to choose ship
+tracking software for your business"). `SOURCE_OWN_NAME_KEYWORDS` in
+`keyword_senses.py` lists, per domain, keywords that do not count there; every
+stage (title, summary, slug, lede rescue, Stage 4 and its fast-mode fallback)
+drops them, and an item left with no keyword is not persisted, counted in the
+`own-name keywords:` line each scan logs. The only entry is `kpler.com ->
+{kpler}`. It is explicit on purpose, never derived from the display name:
+`Petrobras` on agencia.petrobras.com.br is exactly what we want.

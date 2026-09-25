@@ -9,6 +9,14 @@ Ordem:
 
 Tambem preenche published_at quando o RSS nao trouxe, lendo meta
 article:published_time ou JSON-LD datePublished.
+
+Date credibility (R2, 2026-09-25): whenever the page HTML is at hand, the
+page's OWN publication date is read too and recorded for the rest of the scan
+(date_credibility.record_page). An item WITH a feed date keeps it here: the
+pipeline decides R2 for the whole scan at once (pipeline._run_date_credibility
+and the snippet backfill), where a date several new items share -- a template
+constant -- can be told from a real one. The recorded page also spares the
+verification phase a second fetch.
 """
 from __future__ import annotations
 
@@ -24,6 +32,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
+from .date_credibility import PageEvidence, parse_date_value, record_page
 from .fetcher import RSS_THIN_SUMMARY_CHARS, RawItem
 from .filter import strip_wp_footer
 
@@ -232,6 +241,101 @@ def _resolve_google_news_url(url: str) -> tuple[str, str]:
     return url, urlparse(url).netloc.lower()
 
 
+def _time_datetime(soup) -> datetime | None:
+    """First <time datetime> of the page -- ONLY for an item with no feed date
+    whose page states no publication date at all.
+
+    Kept from the old reader for the listing scrapers (Brasil Energia prints
+    the date this way and nowhere else). Never used to re-date an item that has
+    a feed date: a sidebar or related-article <time> would re-date a new
+    article to an older neighbour's date (date_credibility.PageSignals).
+    """
+    for t in soup.find_all("time", attrs={"datetime": True}, limit=5):
+        parsed = parse_date_value(t.get("datetime"), source="time")
+        if parsed is not None:
+            return parsed.value
+    return None
+
+
+def _page_snippet(html: str, soup, resolved_domain: str, resolved_url: str) -> str:
+    """Snippet of a fetched article page: extractor, meta description, first <p>."""
+    # Tenta extractor do clipinator baseado no dominio resolvido.
+    #
+    # The gate resolves the host instead of testing it literally: EXTRACTORS is
+    # keyed per exact host, so `m.yicai.com` was rejected here even when
+    # `yicai.com` was registered, and the item fell through to the meta
+    # description with nothing logged. `resolve_extractor_domain` applies the
+    # same www./m./amp. normalisation `_extract` now uses, so the gate and the
+    # extractor agree on what "registered" means.
+    if (
+        _extract is not None
+        and clean_paragraphs is not None
+        and resolve_extractor_domain(resolved_domain) is not None
+    ):
+        try:
+            _, paragrafos = _extract(html, resolved_domain)
+            joined = " ".join(paragrafos[:3]).strip()
+            cleaned = _clean_snippet_candidate(joined)
+            if cleaned:
+                return cleaned
+        except Exception as e:  # noqa: BLE001
+            log.debug("extractor falhou em %s: %s", resolved_url, e)
+
+    # Fallback: meta description
+    desc, _ = _extract_from_meta(soup)
+    cleaned = _clean_snippet_candidate(desc)
+    if cleaned:
+        return cleaned
+
+    # Ultimo recurso: primeiros <p> da pagina
+    ps = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
+    ps = [p for p in ps if len(p) > 40][:3]
+    return _clean_snippet_candidate(" ".join(ps).strip())
+
+
+_HTTP_STATUS_RE = re.compile(r"^\s*(?:HTTP Error )?([1-5]\d\d)\b")
+
+
+def http_status(exc: BaseException) -> int | None:
+    """The HTTP status a failed fetch got back, or None (transport error, timeout).
+
+    requests and curl_cffi both hang the response on the exception; the
+    message ("403 Client Error: ...", "HTTP Error 403: ...") is the fallback.
+    """
+    code = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(code, int):
+        return code
+    m = _HTTP_STATUS_RE.match(str(exc))
+    return int(m.group(1)) if m else None
+
+
+def fetch_page_evidence(url: str, domain: str = "", *, timeout: int = 6) -> PageEvidence:
+    """Fetch one article page for the date-credibility check.
+
+    The same fetch_html the enrich path uses (browser impersonation on a 403,
+    the Brasil Energia session), so "verified" means "the page the reader would
+    open says so". A page that came back is recorded for the scan like any
+    enrich fetch, with its snippet: the snippet backfill must not fetch it
+    again. A fetch that failed comes back unread, with the HTTP status when the
+    site answered (a 4xx is a site refusing us; a timeout or a 5xx is not).
+    """
+    if fetch_html is None or not url or url.startswith("https://news.google.com/"):
+        return PageEvidence(error="no fetch path for this url")
+    try:
+        html = fetch_html(url, timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        log.debug("fetch_html (date check) falhou em %s: %s", url, e)
+        return PageEvidence(status=http_status(e), error=f"{type(e).__name__}: {e!s}"[:200])
+    soup = BeautifulSoup(html, "lxml")
+    ev = record_page(url, soup)
+    if ev.read:
+        try:
+            ev.snippet = _page_snippet(html, soup, domain or urlparse(url).netloc.lower(), url)
+        except Exception as e:  # noqa: BLE001
+            log.debug("snippet (date check) falhou em %s: %s", url, e)
+    return ev
+
+
 def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippet: bool = True) -> tuple[str, datetime | None, str, str, str]:
     """Retorna (snippet, published_at, url_resolvida, dominio_resolvido, titulo).
 
@@ -270,50 +374,29 @@ def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippe
         return snippet, published, resolved_url, resolved_domain, extracted_title
 
     soup = BeautifulSoup(html, "lxml")
+    # What the page says about itself (publication date, <h1>), remembered for
+    # the rest of the scan: the date-credibility phase and the title cleaner
+    # read it back instead of fetching the page again.
+    page = record_page(resolved_url, soup)
 
     # Extrai titulo da pagina se o feed nao trouxe
     if not item.title:
         extracted_title = _extract_title_from_html(soup)
 
-    # Preenche data faltante
     if published is None:
-        _, meta_pub = _extract_from_meta(soup)
-        if meta_pub:
-            published = meta_pub
+        # No feed date: the page's own, read strictly (a WebSite / Organization
+        # JSON-LD datePublished is the site's, never the article's), then --
+        # only when the page states NO date at all -- the first <time datetime>
+        # the listing scrapers rely on. A page whose dates disagree stays
+        # dateless: a bare <time> is weaker evidence than either of them.
+        if page.page_date is not None:
+            published = page.page_date.value
+        elif not page.conflict:
+            published = _time_datetime(soup)
+    # A feed date stays as it came. R2 (the page's own, earlier date) is the
+    # pipeline's call, made once for the scan: pipeline._run_date_credibility.
 
     if snippet:
         return snippet, published, resolved_url, resolved_domain, extracted_title
-
-    # Tenta extractor do clipinator baseado no dominio resolvido.
-    #
-    # The gate resolves the host instead of testing it literally: EXTRACTORS is
-    # keyed per exact host, so `m.yicai.com` was rejected here even when
-    # `yicai.com` was registered, and the item fell through to the meta
-    # description with nothing logged. `resolve_extractor_domain` applies the
-    # same www./m./amp. normalisation `_extract` now uses, so the gate and the
-    # extractor agree on what "registered" means.
-    if (
-        _extract is not None
-        and clean_paragraphs is not None
-        and resolve_extractor_domain(resolved_domain) is not None
-    ):
-        try:
-            _, paragrafos = _extract(html, resolved_domain)
-            joined = " ".join(paragrafos[:3]).strip()
-            cleaned = _clean_snippet_candidate(joined)
-            if cleaned:
-                return cleaned, published, resolved_url, resolved_domain, extracted_title
-        except Exception as e:  # noqa: BLE001
-            log.debug("extractor falhou em %s: %s", resolved_url, e)
-
-    # Fallback: meta description
-    desc, _ = _extract_from_meta(soup)
-    cleaned = _clean_snippet_candidate(desc)
-    if cleaned:
-        return cleaned, published, resolved_url, resolved_domain, extracted_title
-
-    # Ultimo recurso: primeiros <p> da pagina
-    ps = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
-    ps = [p for p in ps if len(p) > 40][:3]
-    joined = " ".join(ps).strip()
-    return _clean_snippet_candidate(joined), published, resolved_url, resolved_domain, extracted_title
+    return (_page_snippet(html, soup, resolved_domain, resolved_url), published,
+            resolved_url, resolved_domain, extracted_title)

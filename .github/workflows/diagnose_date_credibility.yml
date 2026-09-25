@@ -1,0 +1,104 @@
+name: Diagnose date credibility
+
+# Manual-only companion to measure_source.yml. Runs
+# scripts/diagnose_date_credibility.py on the scanner's runner image, so page
+# fetches meet the same WAFs and lookups read the live news_articles table:
+#
+#   mode=feeds      every registered feed (or `feeds`): a sample of item pages
+#                   per feed -> how many items R2 would re-date (the page's own
+#                   datePublished is earlier than the feed date), template-date
+#                   suspicion, which feeds R3 would flag (they re-date urls we
+#                   already store) and the fate of their never-seen items
+#   mode=titles     the title cleaner over every stored title containing "|"
+#   mode=full-scan  one complete scan with every write door closed, twice:
+#                   Stage 4b off, then on -- the A/B of its cost
+#   dry_run=<url>   the real pipeline over ONE feed, upsert captured: what would
+#                   be persisted, dropped as old and deferred
+#
+# Read-only: the Supabase secrets are used for the live keyword set and for
+# SELECTs; the script closes every write path before a scan runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to measure
+        type: choice
+        options: [feeds, titles, full-scan]
+        default: feeds
+      feeds:
+        description: mode=feeds only -- space-separated feed URLs (empty = every registered feed + sitemap)
+        required: false
+        default: ''
+      pages:
+        description: mode=feeds only -- item pages fetched per feed
+        required: false
+        default: '8'
+      hours:
+        description: Window in hours
+        required: false
+        default: '24'
+      dry_run:
+        description: One feed URL to run the real pipeline over (overrides mode)
+        required: false
+        default: ''
+      cleanup_after:
+        description: Treat rows created at/after this ISO instant as never stored
+        required: false
+        default: ''
+      verbose:
+        description: mode=feeds only -- print every sampled page
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `cache: pip`: with --no-cache-dir the post step fails the job on a
+      # missing ~/.cache/pip (same fix as measure_source.yml, 2026-09-14).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --no-cache-dir -r requirements.txt
+
+      # Inputs travel through the environment, never inlined into the command
+      # (a raw URL's `&` would background the rest of the line -- see
+      # measure_source.yml).
+      - env:
+          MODE: ${{ inputs.mode }}
+          FEEDS: ${{ inputs.feeds }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CLEANUP_AFTER: ${{ inputs.cleanup_after }}
+          PAGES: ${{ inputs.pages }}
+          HOURS: ${{ inputs.hours }}
+          VERBOSE: ${{ inputs.verbose && '-v' || '' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
+          BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
+        run: |
+          args=(--hours "$HOURS")
+          [ -n "$CLEANUP_AFTER" ] && args+=(--cleanup-after "$CLEANUP_AFTER")
+          if [ -n "$DRY_RUN" ]; then
+            python -m scripts.diagnose_date_credibility --dry-run "$DRY_RUN" "${args[@]}"
+          elif [ "$MODE" = "titles" ]; then
+            python -m scripts.diagnose_date_credibility --titles
+          elif [ "$MODE" = "full-scan" ]; then
+            python -m scripts.diagnose_date_credibility --full-scan --no-date-credibility "${args[@]}"
+            python -m scripts.diagnose_date_credibility --full-scan "${args[@]}"
+          else
+            args+=(--pages "$PAGES")
+            [ -n "$VERBOSE" ] && args+=("$VERBOSE")
+            if [ -n "$FEEDS" ]; then
+              python -m scripts.diagnose_date_credibility --feeds $FEEDS "${args[@]}"
+            else
+              python -m scripts.diagnose_date_credibility "${args[@]}"
+            fi
+          fi
+
