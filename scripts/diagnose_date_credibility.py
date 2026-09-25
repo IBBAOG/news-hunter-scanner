@@ -555,6 +555,8 @@ def run_dry(args) -> int:
           f"already-stored(fresh)={len(stored)}"
           + (f" [cleanup: rows created >= {cutoff.isoformat()} treated as never stored]" if cutoff else ""))
     print(stats.log_line() if stats else "no stats")
+    if stats:
+        print(f"stored-date lookups: {stats.looked_up} urls in {stats.lookup_seconds:.2f}s")
     outcome = Counter()
     lines = []
     for it in sorted(match, key=lambda i: i.published_at, reverse=True):
@@ -673,7 +675,8 @@ def run_full_scan(args) -> int:
     print(f"\nfull scan (no writes, {label}): dt={dt:.1f}s would_upsert={len(captured)} "
           f"page_fetches={fetches['pages']} "
           f"date_check_fetches={stats.fetched if stats else 0} reused={stats.reused if stats else 0} "
-          f"stage4b={stats.seconds if stats else -1:.2f}s errors={len(res.get('errors', []))}")
+          f"stage4b={stats.seconds if stats else -1:.2f}s "
+          f"lookups={stats.lookup_seconds if stats else -1:.2f}s errors={len(res.get('errors', []))}")
     print(stats.log_line() if stats else "no stats")
     return 0
 

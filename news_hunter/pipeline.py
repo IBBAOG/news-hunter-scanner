@@ -215,6 +215,7 @@ class _DateStats:
     lookup_failed_candidates: int = 0
     lookup_failed_evidence: int = 0
     lookup_notes: set[str] = field(default_factory=set)         # why urls went unanswered
+    lookup_seconds: float = 0.0    # wall time of the stored-date lookups
     fetched: int = 0               # pages this stage fetched itself
     reused: int = 0                # pages enrich had already read this scan
     errors: dict[str, str] = field(default_factory=dict)        # feed / phase -> exception
@@ -260,6 +261,7 @@ class _DateStats:
 
     def note_lookup(self, lk, *, evidence: bool) -> None:
         """Count a lookup's unanswered urls and remember why."""
+        self.lookup_seconds += lk.seconds
         if evidence:
             self.lookup_failed_evidence += len(lk.failed)
         else:
