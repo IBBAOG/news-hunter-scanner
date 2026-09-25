@@ -19,6 +19,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from news_hunter import date_credibility as _date_credibility  # noqa: E402
 from news_hunter import translate as _translate  # noqa: E402
 
 
@@ -86,6 +87,16 @@ def registered_hosts() -> set[str]:
         if host.startswith("www."):
             hosts.add(host.removeprefix("www."))
     return hosts
+
+
+@pytest.fixture(autouse=True)
+def _isolate_page_evidence():
+    """The date-credibility page registry is process-global (one scan per
+    process in production); a page one test records must not verify another
+    test's item."""
+    _date_credibility.reset_scan()
+    yield
+    _date_credibility.reset_scan()
 
 
 @pytest.fixture(autouse=True)

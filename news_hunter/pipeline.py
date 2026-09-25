@@ -761,6 +761,7 @@ def _run_date_credibility(
     hours: int,
     now: datetime,
     errors: list[str],
+    evidence_pool: list[tuple[str, str, datetime]] | None = None,
 ) -> list[Article]:
     """Stage 4b (R3): verify or defer the never-seen items of re-stamping feeds.
 
@@ -782,12 +783,17 @@ def _run_date_credibility(
     _freeze_approx_dates follows (losing an insert for 5 minutes is
     reversible; showing a months-old post as new is not).
 
+    `evidence_pool` holds (url, feed domain, feed date) for every keyword-matched
+    item of a domain's own feed, including the ones the per-domain enrich cap
+    kept out of stage 4: re-stamp evidence is read on all of them.
+
     Returns the articles to persist.
     """
     t0 = time.time()
     try:
         return _verify_or_defer(
-            articles, origins, stats, hours=hours, now=now, errors=errors
+            articles, origins, stats, hours=hours, now=now, errors=errors,
+            evidence_pool=evidence_pool or [],
         )
     finally:
         stats.seconds = time.time() - t0
@@ -801,6 +807,7 @@ def _verify_or_defer(
     hours: int,
     now: datetime,
     errors: list[str],
+    evidence_pool: list[tuple[str, str, datetime]],
 ) -> list[Article]:
     """The body of _run_date_credibility (split out so the wall time is always set)."""
     from . import supabase_sync
@@ -822,8 +829,15 @@ def _verify_or_defer(
     if not candidates:
         return articles
 
-    stats.checked = len(candidates)
-    stored = supabase_sync.existing_dates([a.url for a, _ in candidates])
+    # url -> (feed domain, feed date) for everything whose stored date can
+    # testify: the stage-4 candidates plus the evidence pool.
+    witnesses: dict[str, tuple[str, datetime]] = {}
+    for a, o in candidates:
+        witnesses.setdefault(a.url, (o.feed_domain, o.feed_date))  # type: ignore[arg-type]
+    for url, feed_domain, feed_date in evidence_pool:
+        witnesses.setdefault(url, (feed_domain, feed_date))
+    stats.checked = len(witnesses)
+    stored = supabase_sync.existing_dates(list(witnesses))
     if stored is None:
         stats.lookup_failed = True
         for _a, o in candidates:
@@ -831,9 +845,9 @@ def _verify_or_defer(
         drop = {a.url for a, _ in candidates}
         return [a for a in articles if a.url not in drop]
 
-    for a, o in candidates:
-        if restamps(a.url, o.feed_date, stored.get(a.url)):
-            stats.restamp_db.setdefault(o.feed_domain, []).append(a.url)
+    for url, (feed_domain, feed_date) in witnesses.items():
+        if restamps(url, feed_date, stored.get(url)):
+            stats.restamp_db.setdefault(feed_domain, []).append(url)
     flagged = set(stats.flagged())
     if not flagged:
         return articles
@@ -991,6 +1005,9 @@ def run_search(
     # the one INFO line every scan logs (zero included).
     reset_page_evidence()
     date_stats = _DateStats()
+    # (url key, feed domain, feed date) of every keyword-matched item of a
+    # domain's own feed -- the R3 re-stamp evidence pool.
+    evidence_pool: list[tuple[str, str, datetime]] = []
     # Non-article urls dropped before persistence, per EXCLUDED_URL_PATTERNS key
     # (store.py). Counted at the three points an item's real url becomes known —
     # collect, GNews resolve, stage 4 — and each drop removes the item from the
@@ -1087,6 +1104,15 @@ def run_search(
                     n_cand += 1
                     batch_keys.append(key)
                     batch.append((it, matched, key))
+                    # R3 evidence is looked up on EVERY matched item of a feed,
+                    # not only on the <= _ENRICH_CAP that reach stage 4: in the
+                    # Kpler burst the stored posts re-dated first sank below
+                    # the first 20 as the burst went on.
+                    if (
+                        it.published_at is not None
+                        and it.feed_domain not in DATE_CHECK_EXEMPT_FEEDS
+                    ):
+                        evidence_pool.append((key, it.feed_domain, it.published_at))
 
                 if not batch_keys:
                     continue
@@ -1374,6 +1400,7 @@ def run_search(
         # against their page or deferred. See _run_date_credibility.
         to_persist = _run_date_credibility(
             to_persist, origins, date_stats, hours=hours, now=now, errors=errors,
+            evidence_pool=evidence_pool,
         )
 
         # Always logged, zero included: a filter nobody can see the size of is
