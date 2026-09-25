@@ -669,18 +669,46 @@ def test_a_page_furniture_date_never_dates_a_page_without_article_scopes(furnitu
 def test_fresh_spike_thresholds():
     now = NOW
     fresh = [now - timedelta(minutes=30)] * 5
-    old = [now - timedelta(days=5, hours=1)] + [now - timedelta(days=3)] * 4
-    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 5 d
+    old = [now - timedelta(days=3)] * 2 + [now - timedelta(days=1)] * 3
+    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 2 old
     assert not dc.fresh_spike(fresh[:4] + old, now).tripped               # 9 items
-    assert not dc.fresh_spike(fresh[:4] + old + [now - timedelta(days=2)], now).tripped   # 40 %
-    short = [now - timedelta(days=4, hours=23)] + [now - timedelta(days=3)] * 4   # 4 d 22.5 h
-    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 5 d
-    undated = dc.fresh_spike(fresh + [None] * 5 + [now - timedelta(days=8)], now)
-    assert undated.total == 11 and not undated.tripped                    # undated items count
+    assert not dc.fresh_spike(fresh[:4] + old + [now - timedelta(hours=5)], now).tripped   # 40 %
+    one_old = [now - timedelta(days=3)] + [now - timedelta(days=1)] * 4
+    assert not dc.fresh_spike(fresh + one_old, now).tripped               # one old item: no span
+    short = [now - timedelta(days=1, hours=23)] * 2 + [now - timedelta(days=1)] * 3
+    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 2 d
+    undated = dc.fresh_spike(fresh + [None] * 5 + [now - timedelta(days=8)] * 2, now)
+    assert undated.total == 12 and not undated.tripped                    # undated items count
     spike = dc.fresh_spike(fresh + old, now)
-    assert (spike.fresh, spike.total, spike.label()) == (5, 10, "5/10,5d")
-    assert (dc.SPIKE_MIN_ITEMS, dc.SPIKE_FRESH_SHARE, dc.SPIKE_WINDOW, dc.SPIKE_MIN_SPAN) == (
-        10, 0.5, timedelta(hours=2), timedelta(days=5))
+    assert (spike.fresh, spike.total, spike.old, spike.label()) == (5, 10, 2, "5/10,3d")
+    assert (dc.SPIKE_MIN_ITEMS, dc.SPIKE_FRESH_SHARE, dc.SPIKE_WINDOW, dc.SPIKE_MIN_SPAN,
+            dc.SPIKE_MIN_OLD_ITEMS) == (10, 0.5, timedelta(hours=2), timedelta(days=2), 2)
+
+
+def test_one_stale_item_does_not_make_a_busy_feed_a_spike():
+    """QA F1: 11 new items and one post 6 days old -- one item is no span."""
+    now = NOW
+    dates = [now - timedelta(minutes=5 * n) for n in range(11)] + [now - timedelta(days=6)]
+    spike = dc.fresh_spike(dates, now)
+    assert spike.fresh == 11 and spike.span >= timedelta(days=6) and spike.old == 1
+    assert not spike.tripped
+
+
+@pytest.mark.parametrize("placeholder", [
+    datetime(1970, 1, 1, tzinfo=UTC), datetime(1994, 12, 31, tzinfo=UTC), datetime(2099, 1, 1, tzinfo=UTC)])
+def test_placeholder_dates_never_count_for_the_spike(placeholder):
+    now = NOW
+    dates = [now - timedelta(minutes=5 * n) for n in range(11)] + [placeholder] * 3
+    spike = dc.fresh_spike(dates, now)
+    assert spike.old == 0 and spike.span < timedelta(hours=1) and not spike.tripped
+    assert spike.fresh == 11 and spike.total == 14      # counted as items, never as dates
+
+
+def test_a_naive_item_date_is_read_as_utc():
+    now = NOW
+    naive = [(now - timedelta(minutes=5 * n)).replace(tzinfo=None) for n in range(8)]
+    olds = [(now - timedelta(days=3)).replace(tzinfo=None)] * 2
+    assert dc.fresh_spike(naive + olds, now).tripped
 
 
 # Kpler's feed at 11:52 UTC on 2026-09-25, mid-burst (www.kpler.com/blog/rss.xml
@@ -698,7 +726,10 @@ def test_kpler_mid_burst_trips_the_fresh_spike():
     at = datetime(2026, 9, 25, 11, 52, tzinfo=UTC)
     spike = dc.fresh_spike([at - timedelta(minutes=m) for m in KPLER_1152_AGES_MIN], at)
     assert (spike.fresh, spike.total) == (91, 100)
-    assert timedelta(days=6, hours=22) < spike.span < timedelta(days=7)    # 7 d would miss it
+    assert timedelta(days=6, hours=22) < spike.span < timedelta(days=7)
+    # 6 items 2.9 days or more older than the newest; only 1 older than 5 days,
+    # so two corroborating items need SPIKE_MIN_SPAN below 2.9 days.
+    assert spike.old == 6
     assert spike.tripped
     # Two hours after the burst the feed no longer reads as one (from the same dates).
     assert not dc.fresh_spike([at - timedelta(minutes=m) for m in KPLER_1152_AGES_MIN],

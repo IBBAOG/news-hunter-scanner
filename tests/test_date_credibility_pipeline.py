@@ -799,6 +799,24 @@ def test_a_bulk_restamp_of_never_stored_posts_flags_the_feed(monkeypatch, caplog
     assert f"{feed}(feed_fresh_spike=81/100,26d;batch=0)" in _line(caplog, "date credibility:")
 
 
+def test_one_stale_item_in_a_busy_feed_holds_nothing_back(monkeypatch):
+    """QA F1: 11 new items with dateless pages and one post 6 days old. One old
+    item is no span: no spike, and the 11 new items are saved."""
+    feed, items, pages = _spike_feed(11, 12, fresh_within_h=1.0, span_days=6)
+    items[-1].published_at = NOW - timedelta(days=6)
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.spike == {} and run.stats.flagged() == []
+    assert len(run.persisted) == 11 and run.stats.n_deferred == 0
+
+
+def test_a_placeholder_date_holds_nothing_back(monkeypatch):
+    feed, items, pages = _spike_feed(11, 13, fresh_within_h=1.0, span_days=6)
+    for it in items[-2:]:
+        it.published_at = datetime(1970, 1, 1, tzinfo=UTC)          # the epoch placeholder
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.spike == {} and len(run.persisted) == 11
+
+
 def test_a_high_volume_feed_is_not_a_spike(monkeypatch):
     """50 items in the last 3 hours, spanning one day: dense, but not a re-stamp."""
     feed, items, pages = _spike_feed(35, 50, fresh_within_h=2.0, span_days=1, dated_pages=True)

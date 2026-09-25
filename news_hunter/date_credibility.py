@@ -109,18 +109,25 @@ RESTAMP_BATCH_SPAN = timedelta(minutes=10)
 #: (no stored date to contradict, no title date, no page date: Kpler had 32 of
 #: them on 2026-09-25). A high-volume news feed is dense in the last hours too,
 #: but its items span hours; a quiet feed on a busy day does not reach half.
+#: The span must be CORROBORATED: at least SPIKE_MIN_OLD_ITEMS plausible items
+#: (1995 .. now + 2 days, as for page dates) SPIKE_MIN_SPAN or more older than
+#: the newest. One stale item -- a forgotten post, a 1970 placeholder -- in a
+#: busy feed must not hold its new items back (QA F1: 11 new items + 1 item
+#: 6 days old tripped it, 0 of 11 saved while it lasted).
 #: Measured 2026-09-25:
 #:   * Kpler during its burst: 81/100 within 2 h over 26 days at 11:30 UTC, and
-#:     91/100 over 6.9 days at 11:52 -- the burst re-stamps the OLDEST items
-#:     first, so the span shrinks as it goes. SPIKE_MIN_SPAN is 5 days, not 7,
-#:     so the whole episode trips (7 would have let go of it by 11:52).
+#:     91/100 at 11:52, when the burst -- re-stamping the OLDEST items first --
+#:     had left only 9 old items: 6 of them 2.9 days or more older than the
+#:     newest, 1 older than 5 days. Two corroborating items therefore need a
+#:     span below 2.9 days: SPIKE_MIN_SPAN is 2 days.
 #:   * every registered feed at 19:26 UTC: none trips; the 15 feeds with >= 10
 #:     items and >= 50 % of them within 2 h span 0.4 days at most (g1, veja,
 #:     metropoles, estadao's news sitemap...).
 SPIKE_MIN_ITEMS = 10
 SPIKE_FRESH_SHARE = 0.5
 SPIKE_WINDOW = timedelta(hours=2)
-SPIKE_MIN_SPAN = timedelta(days=5)
+SPIKE_MIN_SPAN = timedelta(days=2)
+SPIKE_MIN_OLD_ITEMS = 2
 
 #: Template guard: when this many never-seen items of one feed carry the SAME
 #: older page date in one scan, the date is a CMS constant, not theirs -- the
@@ -699,27 +706,47 @@ def is_batch(dates: Iterable[datetime], *, minimum: int = RESTAMP_BATCH_MIN,
 class FreshSpike:
     """How fresh one fetched feed looks as a whole (see SPIKE_* above)."""
 
-    fresh: int            # items dated within SPIKE_WINDOW of `now` (or later)
+    fresh: int            # plausible items dated within SPIKE_WINDOW of `now`
     total: int            # every item of the fetch, dated or not
-    span: timedelta       # newest minus oldest item date
+    span: timedelta       # newest minus oldest PLAUSIBLE item date
+    old: int = 0          # plausible items SPIKE_MIN_SPAN or more older than the newest
 
     @property
     def tripped(self) -> bool:
         return (self.total >= SPIKE_MIN_ITEMS
                 and self.fresh >= SPIKE_FRESH_SHARE * self.total
-                and self.span >= SPIKE_MIN_SPAN)
+                and self.span >= SPIKE_MIN_SPAN
+                and self.old >= SPIKE_MIN_OLD_ITEMS)
 
     def label(self) -> str:
         return f"{self.fresh}/{self.total},{self.span.total_seconds() / 86400:.0f}d"
 
 
+def _plausible_item_date(d: datetime | None, now: datetime) -> datetime | None:
+    """An item date the spike may use: aware, 1995 .. now + 2 days, else None."""
+    if d is None:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    if d.year < _MIN_YEAR or d > now + _MAX_FUTURE:
+        return None
+    return d
+
+
 def fresh_spike(dates: Iterable[datetime | None], now: datetime) -> FreshSpike:
-    """The feed-fresh-spike reading of one fetched feed's item dates."""
+    """The feed-fresh-spike reading of one fetched feed's item dates.
+
+    Only plausible dates count, for freshness and span alike: an epoch or
+    year-2099 placeholder says nothing about when the feed's items appeared.
+    """
     ds = list(dates)
-    dated = [d for d in ds if d is not None]
+    dated = [p for p in (_plausible_item_date(d, now) for d in ds) if p is not None]
     fresh = sum(1 for d in dated if d >= now - SPIKE_WINDOW)
-    span = (max(dated) - min(dated)) if dated else timedelta(0)
-    return FreshSpike(fresh=fresh, total=len(ds), span=span)
+    if not dated:
+        return FreshSpike(fresh=0, total=len(ds), span=timedelta(0))
+    newest = max(dated)
+    old = sum(1 for d in dated if newest - d >= SPIKE_MIN_SPAN)
+    return FreshSpike(fresh=fresh, total=len(ds), span=newest - min(dated), old=old)
 
 
 def shared_page_date(dated: Iterable[tuple[str, ParsedDate]], *,

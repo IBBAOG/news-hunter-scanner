@@ -341,16 +341,19 @@ fetched a page for an item that already had title, date and snippet. The rules
    page proved them older -- so a feed escalates inside the scan that shows the
    burst. A feed is also flagged from its own fetch alone, with no page and no
    database (`feed_fresh_spike`): at least 10 items, at least half of them
-   dated within the last 2 hours, while the feed as a whole spans 5 days or
-   more -- "everything is new right now" in a feed that normally holds weeks.
-   That catches a re-publish made only of posts we never stored, with no title
-   date and no page date (Kpler had 32 such posts on 2026-09-25). Kpler's feed
-   read 81/100 within 2 h over 26 days at 11:30 UTC and 91/100 over 6.9 days
-   at 11:52 -- the burst re-stamps the oldest items first, so the span shrinks
-   as it goes, which is why the threshold is 5 days, not 7. At 19:26 UTC no
-   registered feed tripped; the 15 with at least half their items within 2 h
-   are high-volume feeds whose items span 0.4 days at most. A quiet feed on a
-   busy day does not reach half. Measured over 30 days of the clamp backup, only Kpler and
+   dated within the last 2 hours, while at least TWO items are 2 days or more
+   older than the newest -- "everything is new right now" in a feed that
+   normally holds days or weeks. Only plausible dates count (1995 to now + 2
+   days): one stale post or a 1970 placeholder in a busy feed is no span. That
+   catches a re-publish made only of posts we never stored, with no title date
+   and no page date (Kpler had 32 such posts on 2026-09-25). Kpler's feed read
+   81/100 within 2 h over 26 days at 11:30 UTC; by 11:52 the burst -- which
+   re-stamps the oldest items first -- had left 9 old items, 6 of them 2.9
+   days or more older than the newest but only 1 older than 5 days, which is
+   why the threshold is 2 days. At 19:26 UTC no registered feed tripped; the
+   15 with at least half their items within 2 h are high-volume feeds whose
+   items span 0.4 days at most. A quiet feed on a busy day does not reach
+   half. Measured over 30 days of the clamp backup, only Kpler and
    investing.com's weekly "live levels" batch qualify; "any one re-date" would
    have flagged estadao for 291 h. A flagged feed's never-seen items are
    checked up to 8 pages per scan (half to the newest items, half rotating):
