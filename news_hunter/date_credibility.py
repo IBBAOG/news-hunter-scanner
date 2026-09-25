@@ -11,15 +11,21 @@ snippet. 75 old posts landed at the top of /news-hunter as new.
 Three rules, all generic (no source is special-cased here):
 
 R2  The earliest credible date wins. Whenever the article HTML is at hand, the
-    page's own publication date is read -- `article:published_time`, JSON-LD
-    `datePublished`, `itemprop="datePublished"`, `<meta name="date">`; never
-    `dateModified`, never a bare `<time>` -- and it replaces the feed date when
-    it is earlier by more than TOLERANCE. Stage 4's window then drops the old
-    item. A date printed at the end of the feed title in the
+    page's own publication date is read -- the article's own first (an
+    article-typed JSON-LD entity, the main article's itemprop="datePublished"),
+    then `article:published_time`, `<meta name="date">`, a WebPage entity;
+    never `dateModified`, never a bare `<time>`, and none at all when two of
+    them disagree by more than TOLERANCE -- and it replaces the feed date when
+    it is earlier by more than TOLERANCE; the window then drops the old item.
+    A date printed at the end of the feed title in the
     "<headline> | <Source> - Mon DD, YYYY" form is read the same way (it needs
     no fetch; measured: only kpler.com carries it today). Every never-seen item
     of a domain's own feed gets a budgeted page check (the spot check), so R2
-    runs even in fast mode, where no page used to be read.
+    runs even in fast mode, where no page used to be read. The pipeline decides
+    R2 for the whole scan at once (pipeline._run_date_credibility, and the
+    snippet backfill), so that a date several new items share -- a template
+    constant, not a publication date -- is recognised (TEMPLATE_MIN) and
+    ignored instead of dropping them all.
 
 R3  Re-stamp evidence means verify or defer -- on BATCH evidence only. Legit
     news feeds re-date stored articles all the time (updates); a re-publication
@@ -32,11 +38,12 @@ R3  Re-stamp evidence means verify or defer -- on BATCH evidence only. Legit
     per-domain budget. A page read without a date (Kpler's empty
     datePublished), or an exhausted budget, DEFERS the item (not persisted,
     counted, retried next scan; no age-out -- see the README). A page we could
-    NOT read defers too while another page of the same site was read this
-    scan; only a site that blocks us as a whole admits its items with the feed
-    date, counted as unverified: our own blocks must not become a zero. The
-    pipeline owns that phase (pipeline._run_date_credibility); this module owns
-    the pure pieces.
+    NOT read defers too, unless the site answered it with a 4xx or a bot-wall
+    challenge and no other page of the site was read this scan: only a site
+    that blocks us admits its items with the feed date, counted as unverified,
+    so our own blocks do not become a zero. A check that did not complete (our
+    deadline) is no answer at all: the item is deferred. The pipeline owns that
+    phase (pipeline._run_date_credibility); this module owns the pure pieces.
 
 T   Clean titles. "<headline> | <Source>( - <date>)?" loses the suffix of the
     item's OWN source name, and a title that ends with the page's <h1> (joined
@@ -93,6 +100,12 @@ DAY_SPAN = timedelta(hours=24)
 #:     fail from the runner, so those items are admitted unverified, not lost.
 RESTAMP_BATCH_MIN = 3
 RESTAMP_BATCH_SPAN = timedelta(minutes=10)
+
+#: Template guard: when this many never-seen items of one feed carry the SAME
+#: older page date in one scan, the date is a CMS constant, not theirs -- the
+#: feed's page dates are ignored for the scan (the items count as dateless)
+#: instead of dropping every new article it publishes.
+TEMPLATE_MIN = 3
 
 #: Anything outside these bounds is a CMS placeholder (epoch zero, 0001-01-01,
 #: a year typo), never a publication date.
@@ -284,17 +297,18 @@ def _norm(text: str) -> str:
 class PageSignals:
     """Every publication-date signal of one page, read in ONE tree traversal.
 
-    Not read, on purpose: a bare `<time datetime>`. Sidebars, related-article
-    cards and "updated" stamps all carry one, and taking the first would
-    re-date a new article to a neighbour's older date; it is only trusted with
-    itemprop="datePublished" on it.
+    Not read, on purpose: a bare `<time datetime>` (sidebars, related-article
+    cards and "updated" stamps all carry one), and an itemprop="datePublished"
+    that does not belong to the page's main article (see _main_article_dates):
+    a related card, a comment or a sidebar would re-date a new article to a
+    neighbour's older date.
     """
 
+    jsonld_article: list[ParsedDate] = field(default_factory=list)  # article-typed JSON-LD entities
+    itemprop: list[ParsedDate] = field(default_factory=list)        # itemprop="datePublished" of the main article
     meta_published: ParsedDate | None = None   # <meta property|name="article:published_time">
-    jsonld_article: ParsedDate | None = None   # first article-typed JSON-LD entity
-    itemprop: ParsedDate | None = None         # first itemprop="datePublished" (content / datetime)
     meta_date: ParsedDate | None = None        # <meta name="date">
-    jsonld_page: ParsedDate | None = None      # first WebPage-typed JSON-LD entity
+    jsonld_page: list[ParsedDate] = field(default_factory=list)     # WebPage-typed JSON-LD entities
     headlines: tuple[str, ...] = ()            # first <h1> texts
     title: str = ""                            # <title>
     # src / action / href / content of script, iframe, form, link and meta
@@ -302,19 +316,139 @@ class PageSignals:
     # (looks_like_challenge reads it; kept so no second traversal is needed).
     resources: list[str] = field(default_factory=list)
 
+    def candidates(self) -> list[ParsedDate]:
+        """Every publication date the page states, the article's own first."""
+        out = [*self.jsonld_article, *self.itemprop]
+        out += [d for d in (self.meta_published, self.meta_date) if d is not None]
+        return out + self.jsonld_page
+
+    @property
+    def conflict(self) -> bool:
+        """Two of the page's publication dates disagree by more than TOLERANCE."""
+        return dates_disagree(self.candidates())
+
     @property
     def published(self) -> ParsedDate | None:
-        """The page's own publication date, most specific signal first."""
-        return (self.meta_published or self.jsonld_article or self.itemprop
-                or self.meta_date or self.jsonld_page)
+        """The page's own publication date, or None.
+
+        The article's own date comes first: an article-typed JSON-LD entity,
+        then the main article's itemprop, then <meta article:published_time>,
+        <meta name="date"> and a WebPage entity. When two of them disagree by
+        more than TOLERANCE the page trusts NONE of them: one is wrong, and a
+        wrong older date would drop a genuinely new article.
+        """
+        cands = self.candidates()
+        if not cands or dates_disagree(cands):
+            return None
+        return cands[0]
 
 
-_SCAN_NAMES = frozenset({"title", "meta", "script", "h1", "time", "iframe", "form", "link"})
+def dates_disagree(dates: Iterable[ParsedDate], *, tolerance: timedelta = TOLERANCE) -> bool:
+    """True when two of `dates` are more than `tolerance` apart.
+
+    A date-only value stands for its whole day, so the distance is measured
+    between the spans [value, latest]: "Sep 24, 2026" and 2026-09-24T21:00Z
+    agree.
+    """
+    ds = [d for d in dates if d is not None]
+    if len(ds) < 2:
+        return False
+    return max(d.value for d in ds) - min(d.latest for d in ds) > tolerance
+
+
+_SCAN_NAMES = frozenset({"title", "meta", "script", "h1", "time", "iframe", "form", "link", "article"})
 _INLINE_SCRIPT_HEAD = 2000   # challenge markers sit at the top of an inline script
+# Page furniture: an itemprop date inside one of these is never the article's.
+_OFF_CONTENT = frozenset({"aside", "nav", "footer"})
+
+
+def _itemprops(tag) -> list[str]:
+    v = tag.attrs.get("itemprop")
+    if not v:
+        return []
+    return v.split() if isinstance(v, str) else [str(x) for x in v]
 
 
 def _scan_filter(tag) -> bool:
-    return tag.name in _SCAN_NAMES or tag.attrs.get("itemprop") == "datePublished"
+    return (tag.name in _SCAN_NAMES
+            or "itemscope" in tag.attrs
+            or "datePublished" in _itemprops(tag))
+
+
+def _item_type(tag) -> str:
+    """Last path segment of the microdata itemtype ("http://schema.org/NewsArticle" -> "NewsArticle")."""
+    v = tag.attrs.get("itemtype")
+    if not v:
+        return ""
+    first = (v.split() if isinstance(v, str) else [str(x) for x in v] or [""])[0]
+    return first.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _is_article_scope(tag) -> bool:
+    """An <article> element, or a microdata item of an article type."""
+    if "itemscope" in tag.attrs:
+        t = _item_type(tag)
+        if t:
+            return bool(_ARTICLE_TYPE_RE.search(t))
+    return tag.name == "article"
+
+
+def _owner(tag):
+    """(the article scope `tag` belongs to or None, rejected?).
+
+    Walks up from `tag`: the first <article> / article-typed item is the owner.
+    Page furniture (aside, nav, footer) or a microdata item of another kind
+    (Comment, Person, Review...) reached first rejects the tag: its date is
+    not the article's. A WebPage item is the page itself, transparent.
+    """
+    for p in tag.parents:
+        if p.name in _OFF_CONTENT:
+            return None, True
+        if "itemscope" in p.attrs:
+            if _item_type(p) in _PAGE_TYPES:
+                continue
+            if _is_article_scope(p):
+                return p, False
+            return None, True
+        if p.name == "article":
+            return p, False
+    return None, False
+
+
+def _main_article_dates(itemprop_tags, h1_tags, scopes) -> list[ParsedDate]:
+    """The itemprop="datePublished" values that belong to the page's MAIN article.
+
+    The main article is the scope (<article> or article-typed microdata item)
+    that holds the page's headline: the first <h1> inside such a scope. An
+    itemprop counts when that scope owns it. On a page without any article
+    scope, an itemprop outside page furniture counts. Anything else -- a
+    related-article card, a comment, a sidebar, or article scopes none of
+    which holds the headline -- is not read: many sites mark their teaser
+    cards up as <article>, and a lone card must not pass for the page.
+    """
+    content = [s for s in scopes if not any(p.name in _OFF_CONTENT for p in s.parents)]
+    main = None
+    for h in h1_tags:
+        owner, rejected = _owner(h)
+        if owner is not None and not rejected:
+            main = owner
+            break
+    out: list[ParsedDate] = []
+    for tag in itemprop_tags:
+        owner, rejected = _owner(tag)
+        if rejected:
+            continue
+        if main is not None:
+            if owner is not main:
+                continue
+        elif content or owner is not None:
+            continue
+        name = tag.name
+        parsed = (parse_date_value(tag.get("content"), source=f"itemprop:{name}")
+                  or parse_date_value(tag.get("datetime"), source=f"itemprop:{name}"))
+        if parsed is not None:
+            out.append(parsed)
+    return out
 
 
 def read_page_signals(soup) -> PageSignals:
@@ -325,6 +459,9 @@ def read_page_signals(soup) -> PageSignals:
         return sig
     ld_texts: list[str] = []
     h1s: list[str] = []
+    h1_tags: list = []
+    itemprop_tags: list = []
+    scopes: list = []
     for tag in soup.find_all(_scan_filter):
         name = tag.name
         if name == "meta":
@@ -343,6 +480,8 @@ def read_page_signals(soup) -> PageSignals:
             elif tag.string:
                 sig.resources.append(tag.string[:_INLINE_SCRIPT_HEAD])
         elif name == "h1":
+            if len(h1_tags) < 5:
+                h1_tags.append(tag)
             if len(h1s) < 3:
                 text = _norm(tag.get_text(" ", strip=True))
                 if text and len(text) <= 300:
@@ -353,12 +492,13 @@ def read_page_signals(soup) -> PageSignals:
             value = tag.attrs.get(attr)
             if value and name in ("script", "iframe", "form", "link", "meta"):
                 sig.resources.append(value if isinstance(value, str) else " ".join(value))
-        if sig.itemprop is None and tag.attrs.get("itemprop") == "datePublished":
-            sig.itemprop = (parse_date_value(tag.get("content"), source=f"itemprop:{name}")
-                            or parse_date_value(tag.get("datetime"), source=f"itemprop:{name}"))
-    articles, pages = _jsonld_dates(ld_texts)
-    sig.jsonld_article = articles[0] if articles else None
-    sig.jsonld_page = pages[0] if pages else None
+        if _is_article_scope(tag):
+            scopes.append(tag)
+        if "datePublished" in _itemprops(tag):
+            itemprop_tags.append(tag)
+    sig.jsonld_article, sig.jsonld_page = _jsonld_dates(ld_texts)
+    if itemprop_tags:
+        sig.itemprop = _main_article_dates(itemprop_tags, h1_tags, scopes)
     sig.headlines = tuple(h1s)
     return sig
 
@@ -366,11 +506,10 @@ def read_page_signals(soup) -> PageSignals:
 def page_published_date(soup) -> ParsedDate | None:
     """The page's own publication date, or None. Never dateModified.
 
-    Order: <meta article:published_time>, an article-typed JSON-LD entity, the
-    first itemprop="datePublished", <meta name="date">, a WebPage-typed JSON-LD
-    entity. Empty and unparseable values are skipped (Kpler serves
-    `"datePublished": ""` on some posts), so a page without a usable date
-    returns None -- it never borrows the feed's.
+    See PageSignals.published: the article's own date first, and no date at
+    all when two of the page's dates disagree. Empty and unparseable values
+    are skipped (Kpler serves `"datePublished": ""` on some posts), so a page
+    without a usable date returns None -- it never borrows the feed's.
     """
     return read_page_signals(soup).published
 
@@ -485,11 +624,19 @@ class StoredDates:
 
 @dataclass
 class StoredLookup:
-    """What a news_articles lookup answered: the stored dates found, and the
-    urls that could not be asked (their query failed even after bisection)."""
+    """What a news_articles lookup answered.
+
+    `found`: the stored dates. `failed`: urls with no answer -- `bad` ones the
+    query itself refused even alone (bisection), plus every url left when the
+    database stopped answering (`unavailable` says why: the error, or the
+    lookup's deadline). The pipeline treats a failed url as never seen.
+    """
 
     found: dict[str, StoredDates] = field(default_factory=dict)
     failed: set[str] = field(default_factory=set)
+    bad: set[str] = field(default_factory=set)
+    unavailable: str = ""
+    seconds: float = 0.0
 
 
 def parse_stored_timestamp(raw) -> datetime | None:
@@ -531,6 +678,28 @@ def is_batch(dates: Iterable[datetime], *, minimum: int = RESTAMP_BATCH_MIN,
     return largest_batch(dates, span) >= minimum
 
 
+def shared_page_date(dated: Iterable[tuple[str, ParsedDate]], *,
+                     minimum: int = TEMPLATE_MIN) -> ParsedDate | None:
+    """The page date at least `minimum` distinct urls share, or None.
+
+    `dated` holds (url, page date) of one feed's never-seen items whose page
+    date would re-date them. Real old posts republished together carry their
+    own dates; the same value on several of them is a template constant.
+    """
+    urls_by_date: dict[tuple[datetime, bool], set[str]] = {}
+    first: dict[tuple[datetime, bool], ParsedDate] = {}
+    for url, d in dated:
+        if d is None:
+            continue
+        key = (d.value, d.date_only)
+        urls_by_date.setdefault(key, set()).add(url)
+        first.setdefault(key, d)
+    best = max(urls_by_date, key=lambda k: len(urls_by_date[k]), default=None)
+    if best is None or len(urls_by_date[best]) < minimum:
+        return None
+    return first[best]
+
+
 def rotate_budget(items: list, cap: int, *, bucket: int) -> tuple[list, list]:
     """(selected, over_budget): half the cap to the head of `items` (newest
     first), half to a window that rotates with `bucket` over the rest.
@@ -564,9 +733,11 @@ class PageEvidence:
     """What one fetched article page said about itself.
 
     `read`: the page was parsed and is not a bot-wall interstitial. A challenge
-    page (`challenge`, judged only when there is no publication date) or a page
-    whose markup could not be read counts as NOT read -- R3 treats it like a
-    failed fetch: the source did not hide its date, we never saw the page.
+    page (`challenge`, judged only when there is no publication date), a page
+    whose markup could not be read or a failed fetch (`status` / `error`)
+    counts as NOT read: the source did not hide its date, we never saw the
+    page. Only a completed check has a PageEvidence; one that never completed
+    has none.
     `snippet`: filled by the date check's own fetch (enrich.fetch_page_evidence)
     so the snippet backfill never fetches the same page twice in a scan.
     """
@@ -576,6 +747,18 @@ class PageEvidence:
     challenge: bool = False
     read: bool = False
     snippet: str = ""
+    # The page's publication dates disagreed, so page_date is None
+    # (PageSignals.published); informational.
+    conflict: bool = False
+    # A fetch that failed: the HTTP status when the site answered (None for a
+    # transport error or a timeout) and the error text.
+    status: int | None = None
+    error: str = ""
+
+    @property
+    def blocked(self) -> bool:
+        """The site answered and refused us: a 4xx or a bot-wall challenge."""
+        return self.challenge or (self.status is not None and 400 <= self.status < 500)
 
 
 # A WAF / bot-wall interstitial answered with HTTP 200. Titles of the common
@@ -652,7 +835,8 @@ def record_page(url: str, soup) -> PageEvidence:
         page_date = sig.published
         challenge = page_date is None and _challenge_from(sig)
         ev = PageEvidence(page_date=page_date, headlines=sig.headlines,
-                          challenge=challenge, read=not challenge)
+                          challenge=challenge, read=not challenge,
+                          conflict=page_date is None and sig.conflict)
     except Exception:  # noqa: BLE001
         ev = PageEvidence()
     if url:

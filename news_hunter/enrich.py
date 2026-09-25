@@ -11,12 +11,12 @@ Tambem preenche published_at quando o RSS nao trouxe, lendo meta
 article:published_time ou JSON-LD datePublished.
 
 Date credibility (R2, 2026-09-25): whenever the page HTML is at hand, the
-page's OWN publication date is read too (date_credibility.page_published_date)
-and it replaces the feed date when it is earlier by more than
-date_credibility.TOLERANCE -- a feed that stamps its re-publish time on an old
-post cannot make it look new. Every parsed page is also recorded for the rest
-of the scan (date_credibility.record_page), so the verification phase does not
-fetch it twice.
+page's OWN publication date is read too and recorded for the rest of the scan
+(date_credibility.record_page). An item WITH a feed date keeps it here: the
+pipeline decides R2 for the whole scan at once (pipeline._run_date_credibility
+and the snippet backfill), where a date several new items share -- a template
+constant -- can be told from a real one. The recorded page also spares the
+verification phase a second fetch.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
-from .date_credibility import PageEvidence, credible_published, parse_date_value, record_page
+from .date_credibility import PageEvidence, parse_date_value, record_page
 from .fetcher import RSS_THIN_SUMMARY_CHARS, RawItem
 from .filter import strip_wp_footer
 
@@ -292,21 +292,39 @@ def _page_snippet(html: str, soup, resolved_domain: str, resolved_url: str) -> s
     return _clean_snippet_candidate(" ".join(ps).strip())
 
 
-def fetch_page_evidence(url: str, domain: str = "", *, timeout: int = 6) -> PageEvidence | None:
-    """Fetch one article page for the date-credibility check. None if the fetch failed.
+_HTTP_STATUS_RE = re.compile(r"^\s*(?:HTTP Error )?([1-5]\d\d)\b")
+
+
+def http_status(exc: BaseException) -> int | None:
+    """The HTTP status a failed fetch got back, or None (transport error, timeout).
+
+    requests and curl_cffi both hang the response on the exception; the
+    message ("403 Client Error: ...", "HTTP Error 403: ...") is the fallback.
+    """
+    code = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(code, int):
+        return code
+    m = _HTTP_STATUS_RE.match(str(exc))
+    return int(m.group(1)) if m else None
+
+
+def fetch_page_evidence(url: str, domain: str = "", *, timeout: int = 6) -> PageEvidence:
+    """Fetch one article page for the date-credibility check.
 
     The same fetch_html the enrich path uses (browser impersonation on a 403,
     the Brasil Energia session), so "verified" means "the page the reader would
-    open says so". The result is recorded for the scan like any enrich fetch,
-    with the page's snippet: the snippet backfill must not fetch it again.
+    open says so". A page that came back is recorded for the scan like any
+    enrich fetch, with its snippet: the snippet backfill must not fetch it
+    again. A fetch that failed comes back unread, with the HTTP status when the
+    site answered (a 4xx is a site refusing us; a timeout or a 5xx is not).
     """
     if fetch_html is None or not url or url.startswith("https://news.google.com/"):
-        return None
+        return PageEvidence(error="no fetch path for this url")
     try:
         html = fetch_html(url, timeout=timeout)
     except Exception as e:  # noqa: BLE001
         log.debug("fetch_html (date check) falhou em %s: %s", url, e)
-        return None
+        return PageEvidence(status=http_status(e), error=f"{type(e).__name__}: {e!s}"[:200])
     soup = BeautifulSoup(html, "lxml")
     ev = record_page(url, soup)
     if ev.read:
@@ -369,11 +387,8 @@ def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippe
         # JSON-LD datePublished is the site's, never the article's), then the
         # first <time datetime> the listing scrapers rely on.
         published = page.page_date.value if page.page_date else _time_datetime(soup)
-    else:
-        # R2: the earliest credible date wins. A feed <pubDate> can be the
-        # re-publish time (Kpler, 2026-09-25); the page's own datePublished,
-        # when earlier by more than the tolerance, is the truth.
-        published = credible_published(published, page.page_date)
+    # A feed date stays as it came. R2 (the page's own, earlier date) is the
+    # pipeline's call, made once for the scan: pipeline._run_date_credibility.
 
     if snippet:
         return snippet, published, resolved_url, resolved_domain, extracted_title

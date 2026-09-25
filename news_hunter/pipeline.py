@@ -9,7 +9,8 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 
 from .date_credibility import (
-    TOLERANCE as DATE_TOLERANCE,
+    PageEvidence,
+    ParsedDate,
     clean_display_title,
     is_batch,
     is_older,
@@ -18,6 +19,7 @@ from .date_credibility import (
     reset_scan as reset_page_evidence,
     restamps,
     rotate_budget,
+    shared_page_date,
     site_was_read,
     split_source_suffix,
 )
@@ -134,27 +136,33 @@ TRANSLATE_RETRY_DEADLINE = 10.0 # teto da fase
 # --- Stage 4b: date credibility (added 2026-09-25) -------------------------
 # Kpler's feed stamped its re-publish time on 81 of 100 old posts and 75 of them
 # landed as new (date_credibility.py has the incident and the three rules).
-# This stage checks the pages of a feed's NEVER-SEEN items:
+# This stage judges the pages of a feed's NEVER-SEEN items -- the ones enrich
+# or the lede rescue already read for free, the rest within a budget:
 #
 #   * every feed gets a small spot check (DATE_SPOT_CAP_DOMAIN pages): a page
 #     that proves the item older re-dates it (the window drops it) and counts
-#     as re-stamp evidence; a dateless or unreadable page admits the item with
-#     the feed date. A spot check never defers.
+#     as re-stamp evidence; a dateless or unreadable page, or no answer in
+#     time, admits the item with the feed date. A spot check never defers.
 #   * a feed whose evidence forms a BATCH (date_credibility.is_batch over its
 #     stored re-dates, title contradictions and page-proven old items) is
 #     flagged, in the same scan: the rest of its never-seen items are checked
-#     up to DATE_VERIFY_CAP_DOMAIN, and a page read without a date, or an
-#     exhausted budget, DEFERS the item (not persisted, counted, retried next
-#     scan). A page we could not read defers too while other pages of the same
-#     site were read this scan; only a site blocked as a whole (no page read)
-#     admits its items with the feed date, counted as unverified.
+#     up to DATE_VERIFY_CAP_DOMAIN, and a page read without a date, a check
+#     that did not complete, or an exhausted budget DEFERS the item (not
+#     persisted, counted, judged again next scan). A page we could not read
+#     defers too -- unless the site answered it with a 4xx or a challenge and
+#     no page of the site was read this scan: a site that blocks us admits its
+#     items with the feed date, counted as unverified.
+#   * a date TEMPLATE_MIN never-seen items of one feed share is a template
+#     constant (date_credibility.shared_page_date): the feed's page dates are
+#     ignored for the scan.
 #
-# Bounded like every other fetch phase: a global cap shared round-robin across
-# feeds, a per-round deadline, and half of each feed's budget to its newest
-# items while the other half rotates with the 5-minute scan bucket (a
-# re-stamped feed carries dozens of "fresh" old posts; a real new one behind
-# them must get its turn). The pages download while the evidence-only lookup
-# runs, so the stage costs about one lookup plus the slowest page.
+# Bounded like every other fetch phase: a global cap (flagged feeds first, the
+# others round-robin from a start that rotates with the 5-minute scan bucket),
+# a per-round deadline, and half of each feed's budget to its newest items
+# while the other half rotates with the bucket (a re-stamped feed carries
+# dozens of "fresh" old posts; a real new one behind them must get its turn).
+# The pages download while the evidence-only lookup runs, so the stage costs
+# about one lookup plus the slowest page.
 DATE_CHECK_WORKERS = 8
 DATE_CHECK_TIMEOUT = 5          # fetch_html timeout of one page check (s)
 DATE_CHECK_DEADLINE = 6.0       # wall time of one round of page checks (s)
@@ -162,6 +170,8 @@ DATE_CHECK_CAP = 32             # page checks per scan, all feeds (round-robin)
 DATE_SPOT_CAP_DOMAIN = 4        # pages per feed per scan while it is not flagged
 DATE_VERIFY_CAP_DOMAIN = 8      # pages per flagged feed per scan (spot checks included)
 DATE_VERIFY_BUCKET_SECONDS = 300
+# Spot-check outcomes of a feed that is not flagged, in log order.
+_SPOT_KINDS = ("ok", "dateless", "unread", "incomplete", "unchecked")
 # Google News is not a domain's own feed: its dates are Google's, not the
 # outlet's, and its outlets are the ones that refuse page fetches from the
 # runner (reuters 401, bloomberg / asharq / arabnews 403 -- README "Why an
@@ -197,14 +207,17 @@ class _DateStats:
     #   page  a never-seen item whose own page proved it > 24 h older
     evidence: dict[str, dict[str, tuple[datetime, str]]] = field(default_factory=dict)
     verified: int = 0                                           # flagged feeds, page dated
-    spot: dict[str, int] = field(default_factory=dict)          # non-flagged: ok/dateless/unread/unchecked
+    spot: dict[str, int] = field(default_factory=dict)          # non-flagged feeds: see _SPOT_KINDS
     deferred: dict[str, dict[str, int]] = field(default_factory=dict)    # feed -> reason -> n
     unverified: dict[str, dict[str, int]] = field(default_factory=dict)  # feed -> reason -> n
+    template: dict[str, str] = field(default_factory=dict)      # feed -> the page date its items shared
     looked_up: int = 0             # urls asked to news_articles
     lookup_failed_candidates: int = 0
     lookup_failed_evidence: int = 0
+    lookup_notes: set[str] = field(default_factory=set)         # why urls went unanswered
     fetched: int = 0               # pages this stage fetched itself
     reused: int = 0                # pages enrich had already read this scan
+    errors: dict[str, str] = field(default_factory=dict)        # feed / phase -> exception
     seconds: float = 0.0           # wall time of the stage (set by run_search)
     # (url, outcome) for every decision this stage took; read by tests and by
     # scripts/diagnose_date_credibility.py, never logged row by row.
@@ -212,6 +225,14 @@ class _DateStats:
 
     def add_evidence(self, feed_domain: str, url: str, feed_date: datetime, kind: str) -> None:
         self.evidence.setdefault(feed_domain, {}).setdefault(url, (feed_date, kind))
+
+    def drop_page_evidence(self, feed_domain: str) -> None:
+        wit = self.evidence.get(feed_domain)
+        if wit:
+            for url in [u for u, (_d, kind) in wit.items() if kind == "page"]:
+                del wit[url]
+            if not wit:
+                del self.evidence[feed_domain]
 
     def older(self, domain: str, url: str = "", *, by_title: bool = False) -> None:
         self.page_older[domain] = self.page_older.get(domain, 0) + 1
@@ -236,6 +257,20 @@ class _DateStats:
     def spot_outcome(self, kind: str, url: str = "") -> None:
         self.spot[kind] = self.spot.get(kind, 0) + 1
         self.trace.append((url, f"spot_{kind}"))
+
+    def note_lookup(self, lk, *, evidence: bool) -> None:
+        """Count a lookup's unanswered urls and remember why."""
+        if evidence:
+            self.lookup_failed_evidence += len(lk.failed)
+        else:
+            self.lookup_failed_candidates += len(lk.failed)
+        if lk.unavailable:
+            self.lookup_notes.add("deadline" if lk.unavailable.startswith("deadline") else "db_unavailable")
+        if lk.bad:
+            self.lookup_notes.add("bad_url")
+
+    def fail(self, where: str, exc: BaseException) -> None:
+        self.errors[where] = f"{type(exc).__name__}: {exc!s}"[:160]
 
     @property
     def n_deferred(self) -> int:
@@ -268,6 +303,16 @@ class _DateStats:
         batch = largest_batch(d for d, _kind in wit.values())
         return f"{fd}({','.join(parts)};batch={batch})"
 
+    def lookup_status(self) -> str:
+        failed = self.lookup_failed_candidates + self.lookup_failed_evidence
+        notes = ";".join(sorted(self.lookup_notes))
+        if not failed:
+            return "ok"
+        if failed >= self.looked_up:
+            return f"FAILED({notes})" if notes else "FAILED"
+        return (f"PARTIAL(candidates={self.lookup_failed_candidates},"
+                f"evidence={self.lookup_failed_evidence}{';' + notes if notes else ''})")
+
     def log_line(self) -> str:
         def _kv(d: dict[str, int]) -> str:
             return ", ".join(f"{k}={v}" for k, v in sorted(d.items(), key=lambda kv: (-kv[1], kv[0])))
@@ -278,26 +323,20 @@ class _DateStats:
                 for fd, per in sorted(d.items())
             )
 
-        failed = self.lookup_failed_candidates + self.lookup_failed_evidence
-        if not failed:
-            lookup = "ok"
-        elif self.lookup_failed_candidates and self.lookup_failed_candidates == self.looked_up:
-            lookup = "FAILED"
-        else:
-            lookup = (f"PARTIAL(candidates={self.lookup_failed_candidates},"
-                      f"evidence={self.lookup_failed_evidence})")
-        spot = " ".join(f"{k}={self.spot[k]}" for k in ("ok", "dateless", "unread", "unchecked")
-                        if self.spot.get(k))
+        spot = " ".join(f"{k}={self.spot[k]}" for k in _SPOT_KINDS if self.spot.get(k))
         return (
             f"date credibility: page_older={self.n_page_older} [{_kv(self.page_older)}]"
             f" (title_date={self.title_older})"
+            f" template_date=[{', '.join(f'{fd}({d})' for fd, d in sorted(self.template.items()))}]"
             f" restamp_domains=[{', '.join(self._evidence(fd) for fd in self.flagged())}]"
             f" isolated=[{', '.join(self._evidence(fd) for fd in self.isolated())}]"
             f" verified={self.verified} spot=[{spot}]"
             f" unverified_admitted={self.n_unverified} [{_per_feed(self.unverified)}]"
             f" deferred={self.n_deferred} [{_per_feed(self.deferred)}]"
             f" pages={self.fetched}+{self.reused}reused looked_up={self.looked_up}"
-            f" lookup={lookup} in {self.seconds:.1f}s"
+            f" lookup={self.lookup_status()}"
+            f" error={len(self.errors)} [{', '.join(sorted(self.errors))}]"
+            f" in {self.seconds:.1f}s"
         )
 
 
@@ -595,7 +634,7 @@ def _backfill_candidates(empty: list[Article]) -> list[Article]:
 def _run_snippet_backfill(
     articles: list[Article],
     errors: list[str],
-    redated: list[tuple[Article, datetime]] | None = None,
+    redated: list[tuple[Article, ParsedDate]] | None = None,
 ) -> int:
     """Busca o corpo dos artigos aprovados que ainda estao sem snippet.
 
@@ -607,10 +646,10 @@ def _run_snippet_backfill(
     de repetir fetch+extractor aqui: quando um extractor de dominio melhora, as
     duas fases melhoram juntas.
 
-    Date credibility (R2): the fetch also reads the page's own publication date,
-    and enrich_item hands back the earlier one. Articles whose page proved them
-    older than their feed date are appended to `redated` as (article, page
-    date); the caller re-applies the window. The page <h1> also cleans the title.
+    Date credibility (R2): the fetch also reads the page's own publication date.
+    Articles whose page proves them older than their date are appended to
+    `redated` as (article, page date); the caller decides (_apply_backfill_r2).
+    The page <h1> also cleans the title.
 
     Retorna quantos snippets foram preenchidos. Fail-soft: qualquer erro deixa o
     artigo exatamente como estava (sem snippet), que e o comportamento de hoje.
@@ -680,15 +719,12 @@ def _run_snippet_backfill(
             if snippet and snippet.strip():
                 a.snippet = snippet
                 filled += 1
-            if (
-                redated is not None
-                and _pub is not None
-                and a.published_at is not None
-                and _pub < a.published_at - DATE_TOLERANCE
-            ):
-                redated.append((a, _pub))
             ev = page_seen(a.url)
-            if ev is not None and ev.headlines:
+            if ev is None or not ev.read:
+                continue
+            if redated is not None and is_older(ev.page_date, a.published_at):
+                redated.append((a, ev.page_date))  # type: ignore[arg-type]
+            if ev.headlines:
                 a.title = clean_display_title(a.title, a.source_name, ev.headlines)
         for fut in not_done:
             fut.cancel()
@@ -853,80 +889,13 @@ def _title_date_evidence(it: RawItem) -> bool:
     return is_older(tdate, it.published_at)
 
 
-def _submit_page_checks(ex, items, outcome: dict, stats: _DateStats) -> dict:
-    """Page evidence for `items`: reuse what enrich read this scan, fetch the rest.
+def _date_candidates(articles: list[Article], origins: dict[str, _Origin]) -> list[tuple[Article, _Origin]]:
+    """The items Stage 4b judges: feed-dated items of a domain's own feed.
 
-    Returns {future: url} for the fetches it submitted. `outcome[url]` holds a
-    PageEvidence (read or not) or None (the fetch failed / timed out).
+    Not candidates: a fabricated / approximate date, an item without a feed
+    date (its date already came from its page), Google News (exempt).
     """
-    futs: dict = {}
-    for a, o in items:
-        ev = page_seen(o.fetch_url) or page_seen(a.url)
-        if ev is not None:
-            outcome[a.url] = ev
-            stats.reused += 1
-        else:
-            futs[ex.submit(fetch_page_evidence, o.fetch_url, a.domain,
-                           timeout=DATE_CHECK_TIMEOUT)] = a.url
-            stats.fetched += 1
-    return futs
-
-
-def _collect_page_checks(futs: dict, outcome: dict, deadline: float, errors: list[str]) -> None:
-    """Wait for the submitted checks until `deadline`; what is late counts as unread."""
-    if not futs:
-        return
-    done, not_done = wait(futs.keys(), timeout=max(0.0, deadline - time.time()))
-    for fut in done:
-        url = futs[fut]
-        try:
-            outcome[url] = fut.result()
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"date check {url}: {e!s}")
-            outcome[url] = None
-    for fut in not_done:
-        fut.cancel()
-        outcome[futs[fut]] = None
-
-
-def _run_date_credibility(
-    articles: list[Article],
-    origins: dict[str, _Origin],
-    stats: _DateStats,
-    *,
-    hours: int,
-    now: datetime,
-    errors: list[str],
-    evidence_pool: list[tuple[str, str, datetime]] | None = None,
-) -> list[Article]:
-    """Stage 4b: check the pages of never-seen items; verify or defer on a batch.
-
-    Candidates are the feed-dated items of a domain's own feed (Google News is
-    exempt) about to be persisted. Their stored dates come first: a stored url
-    the feed dates > 24 h after we first had it is re-stamp evidence, and a url
-    whose lookup failed defers only its own item. Then, in one pool:
-
-      round 1   every feed's never-seen items get a page check -- the spot
-                budget, or the verify budget for a feed already flagged --
-                while the evidence-only urls (`evidence_pool`: keyword-matched
-                items the enrich cap kept out of stage 4) are looked up;
-      evidence  a page that proves a never-seen item older joins the stored
-                re-dates and title contradictions; a feed whose evidence is a
-                batch (date_credibility.is_batch) is flagged;
-      round 2   a feed flagged only now gets the rest of its verify budget.
-
-    Outcomes for a never-seen item:
-      page proves it older      re-dated (the window drops it) -- every feed
-      page dated, not older     kept (verified)
-      page read, no date        kept -- deferred when the feed is flagged
-      page not read             kept -- when flagged: deferred if another page
-                                of the site was read this scan, admitted with
-                                the feed date (unverified) if none was
-      not checked (budget)      kept -- deferred when the feed is flagged
-
-    Returns the articles to persist.
-    """
-    candidates: list[tuple[Article, _Origin]] = []
+    out: list[tuple[Article, _Origin]] = []
     seen: set[str] = set()
     for a in articles:
         o = origins.get(a.url)
@@ -939,132 +908,379 @@ def _run_date_credibility(
         ):
             continue
         seen.add(a.url)
-        candidates.append((a, o))
+        out.append((a, o))
+    return out
+
+
+@dataclass
+class _FeedPlan:
+    """One feed's never-seen items in Stage 4b."""
+
+    fd: str
+    items: list[tuple[Article, _Origin]]                                   # all of them
+    reused: list[tuple[Article, _Origin]] = field(default_factory=list)    # page read earlier this scan
+    chosen: list[tuple[Article, _Origin]] = field(default_factory=list)    # pages to fetch
+    unchosen: list[tuple[Article, _Origin]] = field(default_factory=list)  # over the budget
+    template: ParsedDate | None = None                                     # the template constant, if any
+
+    def checked(self) -> set[str]:
+        return {a.url for a, _o in self.reused} | {a.url for a, _o in self.chosen}
+
+
+def _plan_feed(fd: str, items: list[tuple[Article, _Origin]], *, flagged: bool, bucket: int,
+               outcome: dict[str, PageEvidence], stats: _DateStats) -> _FeedPlan:
+    """Split a feed's never-seen items: pages already read (free), then the budget.
+
+    A page enrich or the lede rescue read this scan costs nothing to judge, so
+    it never takes a place in the fetch budget.
+    """
+    plan = _FeedPlan(fd=fd, items=items)
+    rest: list[tuple[Article, _Origin]] = []
+    for a, o in items:
+        ev = page_seen(o.fetch_url) or page_seen(a.url)
+        if ev is not None:
+            outcome[a.url] = ev
+            plan.reused.append((a, o))
+        else:
+            rest.append((a, o))
+    stats.reused += len(plan.reused)
+    rest.sort(key=lambda ao: ao[1].feed_date, reverse=True)  # type: ignore[arg-type, return-value]
+    cap = DATE_VERIFY_CAP_DOMAIN if flagged else DATE_SPOT_CAP_DOMAIN
+    plan.chosen, plan.unchosen = rotate_budget(rest, cap, bucket=bucket)
+    return plan
+
+
+def _cut(plan: _FeedPlan, cut: set[int]) -> None:
+    """Move the chosen items whose article id is in `cut` back to the head of unchosen."""
+    back = [ao for ao in plan.chosen if id(ao[0]) in cut]
+    if back:
+        plan.chosen = [ao for ao in plan.chosen if id(ao[0]) not in cut]
+        plan.unchosen = back + plan.unchosen
+
+
+def _fetch_order(plans: dict[str, _FeedPlan], flagged: set[str], *, bucket: int,
+                 cap: int) -> list[tuple[Article, _Origin]]:
+    """Round 1 of the page fetches: flagged feeds first, then the others.
+
+    The others share what is left of `cap` round-robin, starting from a feed
+    that rotates with the 5-minute bucket: when the cap bites, a different
+    feed loses its last check each scan (no alphabetical starvation). Items
+    beyond the cap go back to their feed's over-budget list.
+    """
+    first = [plans[fd].chosen for fd in sorted(plans) if fd in flagged]
+    others = [fd for fd in sorted(plans) if fd not in flagged]
+    if others:
+        k = bucket % len(others)
+        others = others[k:] + others[:k]
+    ordered = _round_robin(first) + _round_robin([plans[fd].chosen for fd in others])
+    cut = {id(a) for a, _o in ordered[cap:]}
+    if cut:
+        for plan in plans.values():
+            _cut(plan, cut)
+    return ordered[:cap]
+
+
+def _second_round(plans: dict[str, _FeedPlan], newly_flagged: set[str], failed: dict,
+                  *, room: int) -> list[tuple[Article, _Origin]]:
+    """A feed flagged only after round 1 gets the rest of its verify budget.
+
+    A feed flagged by evidence alone (stored re-dates beyond the enrich cap,
+    title dates) may have no never-seen item at all: it has no plan, and
+    nothing to check.
+    """
+    extras = []
+    for fd in sorted(newly_flagged):
+        plan = plans.get(fd)
+        if plan is None or fd in failed:
+            continue
+        extras.append(plan.unchosen[: max(0, DATE_VERIFY_CAP_DOMAIN - len(plan.chosen))])
+    picked = _round_robin(extras)[: max(0, room)]
+    ids = {id(a) for a, _o in picked}
+    for a, o in picked:
+        plan = plans[o.feed_domain]
+        plan.chosen.append((a, o))
+    for plan in plans.values():
+        plan.unchosen = [ao for ao in plan.unchosen if id(ao[0]) not in ids]
+    return picked
+
+
+def _submit_page_checks(ex, items, stats: _DateStats) -> dict:
+    """Fetch the pages of `items`; returns {future: url}."""
+    futs: dict = {}
+    for a, o in items:
+        futs[ex.submit(fetch_page_evidence, o.fetch_url, a.domain,
+                       timeout=DATE_CHECK_TIMEOUT)] = a.url
+        stats.fetched += 1
+    return futs
+
+
+def _collect_page_checks(futs: dict, outcome: dict[str, PageEvidence], deadline: float,
+                         errors: list[str]) -> None:
+    """Wait for the checks until `deadline`.
+
+    A check that completed leaves its PageEvidence (read, or failed with its
+    status). One that did not complete -- our deadline, cancelled, never
+    started because the workers were busy -- leaves NOTHING: it is no answer,
+    and Stage 4b treats it as not checked.
+    """
+    if not futs:
+        return
+    done, not_done = wait(futs.keys(), timeout=max(0.0, deadline - time.time()))
+    for fut in done:
+        url = futs[fut]
+        try:
+            outcome[url] = fut.result()
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"date check {url}: {e!s}")
+            outcome[url] = PageEvidence(error=f"{type(e).__name__}: {e!s}"[:200])
+    for fut in not_done:
+        fut.cancel()
+
+
+def _assess_feed(plan: _FeedPlan, outcome: dict[str, PageEvidence], stats: _DateStats) -> None:
+    """The template guard, then the feed's page evidence for R3.
+
+    Idempotent (run after each round): the feed's page evidence is rebuilt
+    from every page judged so far.
+    """
+    older = []
+    for a, o in plan.reused + plan.chosen:
+        ev = outcome.get(a.url)
+        if ev is not None and ev.read and is_older(ev.page_date, o.feed_date):
+            older.append((a, o, ev.page_date))
+    stats.drop_page_evidence(plan.fd)
+    shared = shared_page_date((a.url, d) for a, _o, d in older)  # type: ignore[misc]
+    if shared is not None:
+        plan.template = shared
+        stats.template[plan.fd] = shared.raw or shared.value.isoformat()
+        return
+    for a, o, _d in older:
+        stats.add_evidence(plan.fd, a.url, o.feed_date, "page")  # type: ignore[arg-type]
+
+
+def _feed_verdicts(plan: _FeedPlan, *, flagged: bool,
+                   outcome: dict[str, PageEvidence]) -> list[tuple[Article, _Origin, str, PageEvidence | None]]:
+    """The verdict on every never-seen item of one feed. Pure: nothing changes yet.
+
+      not checked (over the budget)      flagged: defer    else: spot unchecked
+      check did not complete (deadline)  flagged: defer    else: spot incomplete
+      page not read                      flagged: defer, unless the site answered
+                                         with a 4xx / a challenge and no page of
+                                         the site was read this scan (admitted,
+                                         unverified)       else: spot unread
+      page read, older by > 24 h         re-dated (the window drops it)
+      page read, no date                 flagged: defer    else: spot dateless
+      page read, dated                   flagged: verified else: spot ok
+
+    A template feed's page dates are ignored: its pages count as dateless.
+    Accepted residual: a single completed 403 on the only page tried, with no
+    other page of the site read this scan, is admitted as site_blocked.
+    """
+    checked = plan.checked()
+    out: list[tuple[Article, _Origin, str, PageEvidence | None]] = []
+    for a, o in plan.items:
+        ev = outcome.get(a.url)
+        if a.url not in checked:
+            verdict = "defer:over_budget" if flagged else "spot:unchecked"
+        elif ev is None:
+            verdict = "defer:incomplete" if flagged else "spot:incomplete"
+        elif not ev.read:
+            if not flagged:
+                verdict = "spot:unread"
+            elif ev.blocked and not site_was_read(o.fetch_url):
+                verdict = "admit:site_blocked"
+            else:
+                verdict = "defer:unread"
+        else:
+            page_date = None if plan.template is not None else ev.page_date
+            if is_older(page_date, o.feed_date):
+                verdict = "older"
+            elif page_date is None:
+                verdict = "defer:no_page_date" if flagged else "spot:dateless"
+            else:
+                verdict = "verified" if flagged else "spot:ok"
+        out.append((a, o, verdict, ev))
+    return out
+
+
+def _apply_verdicts(verdicts, *, hours: int, stats: _DateStats, drop: set[str]) -> None:
+    for a, o, verdict, ev in verdicts:
+        kind, _, reason = verdict.partition(":")
+        if kind == "defer":
+            # Not persisted this scan, counted; the next scan judges it again.
+            # No age-out on purpose: admitting a flagged feed's dateless page
+            # after N hours would land a burst's undated posts together, later.
+            stats.defer(o.feed_domain, reason, a.url)
+            drop.add(a.url)
+            continue
+        if kind == "older":
+            stats.older(a.domain, a.url)
+            a.published_at = ev.page_date.value  # type: ignore[union-attr]
+            if not within_window(a.published_at, hours):
+                drop.add(a.url)
+                continue
+        elif kind == "admit":
+            stats.admit(o.feed_domain, reason, a.url)
+        elif kind == "spot":
+            stats.spot_outcome(reason, a.url)
+        else:
+            stats.verify(a.url)
+        if ev is not None and ev.read:
+            if ev.headlines:
+                a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+            if ev.snippet and not (a.snippet or "").strip():
+                a.snippet = ev.snippet
+
+
+def _per_feed(fd: str, failed: dict[str, BaseException], fn, *args, **kwargs):
+    """One feed's step. An exception fails THAT feed alone: logged at ERROR with
+    the traceback, and its never-seen items wait for the next scan."""
+    if fd in failed:
+        return None
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:  # noqa: BLE001
+        failed[fd] = e
+        log.error("date credibility: feed %s failed in %s; its never-seen items are "
+                  "deferred to the next scan", fd, getattr(fn, "__name__", fn), exc_info=True)
+        return None
+
+
+def _run_date_credibility(
+    articles: list[Article],
+    origins: dict[str, _Origin],
+    stats: _DateStats,
+    *,
+    hours: int,
+    now: datetime,
+    errors: list[str],
+    evidence_pool: list[tuple[str, str, datetime]] | None = None,
+) -> list[Article]:
+    """Stage 4b: judge the pages of never-seen items; verify or defer on a batch.
+
+    Candidates are the feed-dated items of a domain's own feed (Google News is
+    exempt) about to be persisted. Their stored dates come first: a stored url
+    the feed dates > 24 h after we first had it is re-stamp evidence; a url the
+    lookup could not answer counts as never seen (it is checked, and the
+    database trigger keeps a stored row's date from moving forward anyway).
+    Then, per feed:
+
+      free      pages this scan already read (enrich, lede rescue) are judged
+                without a fetch;
+      round 1   the rest get a page check -- the spot budget, or the verify
+                budget for a feed already flagged -- flagged feeds first, the
+                others sharing the global cap round-robin from a rotating
+                start, while the evidence-only urls (`evidence_pool`: matched
+                items the enrich cap kept out of stage 4) are looked up;
+      evidence  the template guard (TEMPLATE_MIN never-seen items sharing one
+                older page date: the feed's page dates are ignored this scan),
+                then the pages that prove a never-seen item older join the
+                stored re-dates and title contradictions; a batch
+                (date_credibility.is_batch) flags the feed;
+      round 2   a feed flagged only now gets the rest of its verify budget.
+
+    Verdicts: _feed_verdicts. Each feed is judged apart (_per_feed): an
+    exception in one feed defers only that feed's never-seen items. An
+    exception anywhere else propagates; run_search then persists the scan
+    without this stage (logged at ERROR, `error=` in the log line).
+
+    Returns the articles to persist.
+    """
+    candidates = _date_candidates(articles, origins)
     if not candidates:
         return articles
-
-    drop: set[str] = set()
-    lk = existing_dates([a.url for a, _ in candidates])
+    lk = existing_dates([a.url for a, _o in candidates])
     stats.looked_up += len(candidates)
-    stored = lk.found
+    stats.note_lookup(lk, evidence=False)
     for a, o in candidates:
-        if a.url in lk.failed:
-            stats.lookup_failed_candidates += 1
-            stats.defer(o.feed_domain, "lookup_failed", a.url)
-            drop.add(a.url)
-        elif restamps(o.feed_date, stored.get(a.url)):
+        if restamps(o.feed_date, lk.found.get(a.url)):
             stats.add_evidence(o.feed_domain, a.url, o.feed_date, "db")  # type: ignore[arg-type]
-    never = [(a, o) for a, o in candidates if a.url not in stored and a.url not in lk.failed]
-
     by_feed: dict[str, list[tuple[Article, _Origin]]] = {}
-    for a, o in never:
-        by_feed.setdefault(o.feed_domain, []).append((a, o))
+    for a, o in candidates:
+        if a.url not in lk.found:
+            by_feed.setdefault(o.feed_domain, []).append((a, o))
+    seen = {a.url for a, _o in candidates}
+    pool: dict[str, tuple[str, datetime]] = {}
+    for url, feed_domain, feed_date in evidence_pool or ():
+        if url not in seen and feed_domain not in DATE_CHECK_EXEMPT_FEEDS:
+            pool.setdefault(url, (feed_domain, feed_date))
+
     bucket = int(now.timestamp() // DATE_VERIFY_BUCKET_SECONDS)
     flagged_before = set(stats.flagged())
-    chosen: dict[str, list] = {}
-    unchosen: dict[str, list] = {}
+    failed: dict[str, BaseException] = {}
+    outcome: dict[str, PageEvidence] = {}
+    plans: dict[str, _FeedPlan] = {}
     for fd in sorted(by_feed):
-        items = sorted(by_feed[fd], key=lambda ao: ao[1].feed_date, reverse=True)
-        cap = DATE_VERIFY_CAP_DOMAIN if fd in flagged_before else DATE_SPOT_CAP_DOMAIN
-        chosen[fd], unchosen[fd] = rotate_budget(items, cap, bucket=bucket)
-    ordered = _round_robin([chosen[fd] for fd in sorted(chosen)])
-    round1 = ordered[:DATE_CHECK_CAP]
-    for a, o in ordered[DATE_CHECK_CAP:]:          # over the global cap
-        chosen[o.feed_domain].remove((a, o))
-        unchosen[o.feed_domain].append((a, o))
+        plan = _per_feed(fd, failed, _plan_feed, fd, by_feed[fd], flagged=fd in flagged_before,
+                         bucket=bucket, outcome=outcome, stats=stats)
+        if plan is not None:
+            plans[fd] = plan
+    round1 = _fetch_order(plans, flagged_before, bucket=bucket, cap=DATE_CHECK_CAP)
 
-    outcome: dict[str, object] = {}
-    round2: list[tuple[Article, _Origin]] = []
     ex = ThreadPoolExecutor(max_workers=DATE_CHECK_WORKERS)
     try:
-        futs = _submit_page_checks(ex, round1, outcome, stats)
+        futs = _submit_page_checks(ex, round1, stats)
         deadline = time.time() + DATE_CHECK_DEADLINE
         # The evidence-only urls are looked up while the pages download.
-        pool: dict[str, tuple[str, datetime]] = {}
-        for url, feed_domain, feed_date in evidence_pool or ():
-            if url not in seen and feed_domain not in DATE_CHECK_EXEMPT_FEEDS:
-                pool.setdefault(url, (feed_domain, feed_date))
         if pool:
             ev_lk = existing_dates(list(pool))
             stats.looked_up += len(pool)
-            stats.lookup_failed_evidence += len(ev_lk.failed)
+            stats.note_lookup(ev_lk, evidence=True)
             for url, (feed_domain, feed_date) in pool.items():
                 if restamps(feed_date, ev_lk.found.get(url)):
                     stats.add_evidence(feed_domain, url, feed_date, "db")
         _collect_page_checks(futs, outcome, deadline, errors)
-        for a, o in round1:
-            ev = outcome.get(a.url)
-            if ev is not None and ev.read and is_older(ev.page_date, o.feed_date):  # type: ignore[union-attr]
-                stats.add_evidence(o.feed_domain, a.url, o.feed_date, "page")  # type: ignore[arg-type]
-        # A feed flagged only now gets the rest of its verify budget.
-        room = DATE_CHECK_CAP - len(round1)
-        for fd in sorted(set(stats.flagged()) - flagged_before):
-            extra = unchosen.get(fd, [])[: max(0, min(DATE_VERIFY_CAP_DOMAIN - len(chosen.get(fd, [])),
-                                                    room - len(round2)))]
-            round2.extend(extra)
-            unchosen[fd] = unchosen[fd][len(extra):]
+        for fd in sorted(plans):
+            _per_feed(fd, failed, _assess_feed, plans[fd], outcome, stats)
+        round2 = _second_round(plans, set(stats.flagged()) - flagged_before, failed,
+                               room=DATE_CHECK_CAP - len(round1))
         if round2:
-            futs = _submit_page_checks(ex, round2, outcome, stats)
+            futs = _submit_page_checks(ex, round2, stats)
             _collect_page_checks(futs, outcome, time.time() + DATE_CHECK_DEADLINE, errors)
-        for a, o in round2:
-            ev = outcome.get(a.url)
-            if ev is not None and ev.read and is_older(ev.page_date, o.feed_date):  # type: ignore[union-attr]
-                stats.add_evidence(o.feed_domain, a.url, o.feed_date, "page")  # type: ignore[arg-type]
+            for fd in sorted({o.feed_domain for _a, o in round2}):
+                _per_feed(fd, failed, _assess_feed, plans[fd], outcome, stats)
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
 
     flagged = set(stats.flagged())
-    checked = {a.url for a, _ in round1} | {a.url for a, _ in round2}
-    for a, o in never:
-        fd = o.feed_domain
-        is_flagged = fd in flagged
-        if a.url not in checked:
-            if is_flagged:
-                stats.defer(fd, "over_budget", a.url)
-                drop.add(a.url)
-            else:
-                stats.spot_outcome("unchecked", a.url)
+    drop: set[str] = set()
+    for fd in sorted(plans):
+        verdicts = _per_feed(fd, failed, _feed_verdicts, plans[fd], flagged=fd in flagged, outcome=outcome)
+        if verdicts is not None:
+            _per_feed(fd, failed, _apply_verdicts, verdicts, hours=hours, stats=stats, drop=drop)
+    for fd, exc in sorted(failed.items()):
+        stats.fail(fd, exc)
+        for a, _o in by_feed.get(fd, []):
+            stats.defer(fd, "error", a.url)
+            drop.add(a.url)
+    if not drop:
+        return articles
+    return [a for a in articles if a.url not in drop]
+
+
+def _apply_backfill_r2(articles: list[Article], redated: list[tuple[Article, ParsedDate]],
+                       origins: dict[str, _Origin], stats: _DateStats, hours: int) -> list[Article]:
+    """R2 on the snippet backfill's own page fetches: an article whose page proves
+    it older takes the page date, and the window decides. A feed Stage 4b found
+    serving a template date -- or whose backfilled pages share one -- keeps its
+    feed dates."""
+    by_feed: dict[str, list[tuple[Article, ParsedDate]]] = {}
+    for a, d in redated:
+        o = origins.get(a.url)
+        by_feed.setdefault(o.feed_domain if o else a.domain, []).append((a, d))
+    drop: set[str] = set()
+    for fd, pairs in sorted(by_feed.items()):
+        if fd in stats.template:
             continue
-        ev = outcome.get(a.url)
-        if ev is None or not ev.read:  # type: ignore[union-attr]
-            # Not read: transport error, HTTP >= 400, a timeout, our deadline,
-            # or a bot-wall interstitial -- one rule for all of them.
-            if not is_flagged:
-                stats.spot_outcome("unread", a.url)
-            elif site_was_read(o.fetch_url):
-                # The site answers, this page did not: it waits for next scan
-                # (a flagged feed's 403 on an old post must not publish it).
-                stats.defer(fd, "unread", a.url)
-                drop.add(a.url)
-            else:
-                # The whole site blocks us (investing.com fails 8/8 from the
-                # runner): deferring would make our own block a zero.
-                stats.admit(fd, "site_blocked", a.url)
+        shared = shared_page_date((a.url, d) for a, d in pairs)
+        if shared is not None:
+            stats.template[fd] = shared.raw or shared.value.isoformat()
             continue
-        page_date = ev.page_date  # type: ignore[union-attr]
-        if is_older(page_date, o.feed_date):
+        for a, d in pairs:
             stats.older(a.domain, a.url)
-            a.published_at = page_date.value  # type: ignore[union-attr]
+            a.published_at = d.value
             if not within_window(a.published_at, hours):
                 drop.add(a.url)
-                continue
-        elif page_date is None:
-            if is_flagged:
-                # The page was read and hides its date (Kpler's empty
-                # datePublished). No age-out on purpose: admitting after N
-                # hours would land a burst's undated posts together, later.
-                stats.defer(fd, "no_page_date", a.url)
-                drop.add(a.url)
-                continue
-            stats.spot_outcome("dateless", a.url)
-        elif is_flagged:
-            stats.verify(a.url)
-        else:
-            stats.spot_outcome("ok", a.url)
-        if ev.headlines:  # type: ignore[union-attr]
-            a.title = clean_display_title(a.title, a.source_name, ev.headlines)  # type: ignore[union-attr]
-        if ev.snippet and not (a.snippet or "").strip():  # type: ignore[union-attr]
-            a.snippet = ev.snippet  # type: ignore[union-attr]
     if not drop:
         return articles
     return [a for a in articles if a.url not in drop]
@@ -1437,25 +1653,18 @@ def run_search(
                     # Sem titulo real e sem data nao ha noticia: o que sobraria
                     # e um slug carimbado com a hora de agora. Descarta.
                     continue
-            # R2, the earliest credible date wins. enrich_item already swapped
-            # in the page's own date when it had the page (lede rescue, the
-            # fetch path); the date a feed prints at the end of its own title
-            # ("... | Kpler - Jun 30, 2026") costs no fetch and is read here.
-            # Either way the window below drops an old item -- counted, never
-            # silent.
+            # R2 from the title: the date a feed prints at the end of its own
+            # title ("... | Kpler - Jun 30, 2026") costs no fetch and is read
+            # here; the window below drops an old item -- counted, never
+            # silent. The page's own date is judged in Stage 4b, for the whole
+            # scan at once.
             source_name = source_name_for(resolved_domain)
             feed_date = it.published_at
-            if feed_date is not None and not published_is_approx:
-                by_title = False
-                if real_title and "|" in real_title:
-                    _, title_date = split_source_suffix(real_title, source_name)
-                    if is_older(title_date, feed_date) and title_date.value < published:  # type: ignore[union-attr]
-                        published = title_date.value  # type: ignore[union-attr]
-                        by_title = True
-                if published < feed_date - DATE_TOLERANCE:
-                    date_stats.older(
-                        resolved_domain, normalize_url(resolved_url), by_title=by_title
-                    )
+            if feed_date is not None and not published_is_approx and real_title and "|" in real_title:
+                _, title_date = split_source_suffix(real_title, source_name)
+                if is_older(title_date, feed_date) and title_date.value < published:  # type: ignore[union-attr]
+                    published = title_date.value  # type: ignore[union-attr]
+                    date_stats.older(resolved_domain, normalize_url(resolved_url), by_title=True)
             if not within_window(published, hours):
                 continue
             # Wrapper Google News nao resolvido = link quebrado, descarta.
@@ -1559,10 +1768,18 @@ def run_search(
         # R3: never-seen items of a feed caught re-stamping are verified
         # against their page or deferred. See _run_date_credibility.
         t_dc = time.time()
-        to_persist = _run_date_credibility(
-            to_persist, origins, date_stats, hours=hours, now=now, errors=errors,
-            evidence_pool=evidence_pool,
-        )
+        try:
+            to_persist = _run_date_credibility(
+                to_persist, origins, date_stats, hours=hours, now=now, errors=errors,
+                evidence_pool=evidence_pool,
+            )
+        except Exception as e:  # noqa: BLE001
+            # The guard must never stop the upsert: this scan persists as it
+            # would have without Stage 4b, every source (Google News included).
+            log.error("date credibility: Stage 4b failed; this scan persists without it",
+                      exc_info=True)
+            date_stats.fail("stage", e)
+            errors.append(f"date credibility: {e!s}")
         date_stats.seconds = time.time() - t_dc
 
         # Always logged, zero included: a filter nobody can see the size of is
@@ -1595,19 +1812,18 @@ def run_search(
         # Espelho do lede rescue para quem casou no TITULO: busca o corpo dos
         # aprovados que continuam sem snippet. Antes da traducao de proposito,
         # para que um item estrangeiro backfillado ja saia com snippet_en.
-        backfill_redated: list[tuple[Article, datetime]] = []
+        backfill_redated: list[tuple[Article, ParsedDate]] = []
         n_backfilled = _run_snippet_backfill(to_persist, errors, backfill_redated)
-        # R2 on the backfill's own page fetches: an article whose page proved it
-        # older than its feed date takes the page date, and the window decides.
+        # R2 on the backfill's own page fetches (_apply_backfill_r2). Like Stage
+        # 4b, it must never stop the upsert.
         if backfill_redated:
-            late_drop: set[str] = set()
-            for a, page_date in backfill_redated:
-                date_stats.older(a.domain, a.url)
-                a.published_at = page_date
-                if not within_window(page_date, hours):
-                    late_drop.add(a.url)
-            if late_drop:
-                to_persist = [a for a in to_persist if a.url not in late_drop]
+            try:
+                to_persist = _apply_backfill_r2(to_persist, backfill_redated, origins,
+                                                date_stats, hours)
+            except Exception as e:  # noqa: BLE001
+                log.error("date credibility: the backfill's R2 failed; its dates stay as they came",
+                          exc_info=True)
+                date_stats.fail("backfill", e)
 
         # Always logged, zero included: a date rule nobody can see the size of
         # is a rule nobody notices eating real articles.

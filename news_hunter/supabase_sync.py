@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
+import time
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -52,10 +54,59 @@ _tried_init = False
 _MAX_QUERY_URL_CHARS = 12000
 _MAX_QUERY_URLS = 100
 
-# Failed requests one date lookup may spend (_SupabaseSink._existing_dates):
-# enough to bisect a 100-url chunk down to one bad url twice over (~9 failures
-# each), small enough that a dead database costs seconds, not minutes.
+# The stored-date lookups of the date-credibility phase
+# (_SupabaseSink._existing_dates). A 4xx is about THIS query (a Cloudflare 400,
+# an over-long query string) and is bisected; LOOKUP_FAILURE_BUDGET caps the
+# failed requests one lookup may spend doing that: enough to isolate one bad
+# url in a 100-url chunk twice over (~9 failures each). A timeout, a 5xx or a
+# transport error is about the DATABASE: the lookup stops at once, and bisecting
+# would only multiply the load on a database that is already struggling.
 LOOKUP_FAILURE_BUDGET = 20
+# One request of a lookup, on a client of its own (the shared client waits up
+# to supabase-py's default 120 s). A healthy ~100-url chunk answers in well
+# under a second from the runner.
+LOOKUP_REQUEST_TIMEOUT = 4.0
+# Wall clock of one lookup. Past it, the urls not asked yet count as
+# unanswered -- the pipeline then checks their pages as never seen. The scan
+# makes two lookups (candidates, evidence-only), so a sick database adds at
+# most ~2 x (8 + 4) s to a scan of ~36-51 s, far from the 5 minutes after
+# which the next dispatch cancels it; a healthy one costs ~1 s in all.
+LOOKUP_DEADLINE = 8.0
+# 4xx answers that are not about the query: bisecting them only spends requests.
+_NOT_QUERY_4XX = frozenset({401, 407, 408, 429})
+_STATUS_RE = re.compile(r"^\s*(?:HTTP Error )?([1-5]\d\d)\b")
+
+
+def _lookup_failure_kind(exc: BaseException) -> str:
+    """"query" when the request itself was refused (a 4xx), else "database".
+
+    postgrest raises APIError with `code` = the HTTP status when the error body
+    is not JSON (a Cloudflare page), or PostgREST's own code (PGRST1xx/2xx are
+    request errors, PGRST0xx connection errors) or a Postgres SQLSTATE (class
+    22 / 42: this query's data or syntax; 57014 statement timeout, 53xxx out
+    of resources, 08xxx connection: the database). httpx timeouts and
+    transport errors carry no status at all.
+    """
+    code = getattr(exc, "code", None)
+    status: int | None = None
+    if isinstance(code, int):
+        status = code
+    elif isinstance(code, str) and code.strip():
+        c = code.strip().upper()
+        if c.isdigit() and len(c) == 3:
+            status = int(c)
+        elif c.startswith("PGRST"):
+            return "query" if c[5:6] in ("1", "2") else "database"
+        else:
+            return "query" if c[:2] in ("22", "42") else "database"
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if not isinstance(status, int):
+        m = _STATUS_RE.match(str(exc))
+        status = int(m.group(1)) if m else None
+    if isinstance(status, int) and 400 <= status < 500 and status not in _NOT_QUERY_4XX:
+        return "query"
+    return "database"
 
 
 def _chunk_urls_for_query(urls: list[str]) -> list[list[str]]:
@@ -87,8 +138,10 @@ class _SupabaseSink:
     def __init__(self) -> None:
         self.client = None
         self.table = "news_articles"
+        self.lookup_client = None
         url = os.environ.get("SUPABASE_URL", "").strip()
         key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+        self._url, self._key = url, key
         if not url or not key:
             log.info("Supabase desabilitado (SUPABASE_URL/SUPABASE_SERVICE_KEY ausentes)")
             return
@@ -127,6 +180,28 @@ class _SupabaseSink:
                     out[url] = pub
         return out
 
+    def _lookup_client(self):
+        """The client the date lookups use: its own, with LOOKUP_REQUEST_TIMEOUT.
+
+        A separate connection, too: a lookup abandoned on its timeout never
+        shares a stream with the upsert that follows. Falls back to the shared
+        client when a second one cannot be built (and in tests).
+        """
+        lc = getattr(self, "lookup_client", None)
+        if lc is not None:
+            return lc
+        url, key = getattr(self, "_url", ""), getattr(self, "_key", "")
+        if url and key and self.client is not None:
+            try:
+                from supabase import ClientOptions, create_client  # type: ignore[import-untyped]
+
+                lc = create_client(url, key, options=ClientOptions(
+                    postgrest_client_timeout=LOOKUP_REQUEST_TIMEOUT))
+            except Exception as e:  # noqa: BLE001
+                log.warning("cliente de lookup (timeout curto) falhou, uso o compartilhado: %s", e)
+        self.lookup_client = lc or self.client
+        return self.lookup_client
+
     def _existing_dates(self, urls: list[str]) -> "StoredLookup":
         """published_at + created_at of the rows that already exist, per url.
 
@@ -137,12 +212,16 @@ class _SupabaseSink:
         time of a row whose published_at an earlier re-stamp already pushed
         forward. Empty when the client is not configured (local runs).
 
-        Failure is per url, never per lookup (StoredLookup.failed): a chunk that
-        fails twice is bisected, so one url whose query keeps failing (a
-        Cloudflare 400, an over-long query) ends up failing alone instead of
-        taking every RSS insert of the scan with it. LOOKUP_FAILURE_BUDGET caps
-        the failed requests of one lookup: when the database is really down the
-        rest is marked failed without asking again.
+        Failure is per url, never "all or nothing" (StoredLookup.failed; the
+        caller treats those urls as never seen and checks their pages):
+          * a 4xx is about the query -- the chunk is bisected (no retry: a 4xx
+            repeats), so one url whose query keeps failing (a Cloudflare 400,
+            an over-long query) ends up alone in StoredLookup.bad; at most
+            LOOKUP_FAILURE_BUDGET failed requests are spent that way;
+          * a timeout, a 5xx or a transport error is about the database -- the
+            lookup stops at once and every url not answered yet is failed
+            (StoredLookup.unavailable says why);
+          * past LOOKUP_DEADLINE of wall clock the lookup stops the same way.
 
         Sequential, on purpose. Measured on the runner 2026-09-25: the same
         chunks sent from 4 threads over the client's shared HTTP/2 connection
@@ -153,39 +232,46 @@ class _SupabaseSink:
         from .date_credibility import StoredDates, StoredLookup, parse_stored_timestamp
 
         out = StoredLookup()
-        if self.client is None or not urls:
+        client = self._lookup_client() if self.client is not None else None
+        if client is None or not urls:
             return out
+        t0 = time.monotonic()
         budget = LOOKUP_FAILURE_BUDGET
-        # (chunk, retry?): a whole chunk gets one retry for a transient error;
-        # the halves of a bisected chunk do not, so a bad url is found fast.
-        queue = deque((chunk, True) for chunk in _chunk_urls_for_query(urls))
+        queue = deque(_chunk_urls_for_query(urls))
+
+        def _give_up(reason: str, chunk: list[str]) -> None:
+            out.unavailable = reason
+            out.failed.update(chunk)
+            while queue:
+                out.failed.update(queue.popleft())
+
         while queue:
-            chunk, retry = queue.popleft()
-            res = None
-            for attempt in range(2 if retry else 1):
-                if budget <= 0:
+            chunk = queue.popleft()
+            if time.monotonic() - t0 > LOOKUP_DEADLINE:
+                _give_up(f"deadline {LOOKUP_DEADLINE:.0f}s", chunk)
+                break
+            try:
+                res = (
+                    client.table(self.table)
+                    .select("url, published_at, created_at")
+                    .in_("url", chunk)
+                    .execute()
+                )
+            except Exception as e:  # noqa: BLE001
+                if _lookup_failure_kind(e) == "database":
+                    _give_up(f"{type(e).__name__}: {e!s}"[:160], chunk)
                     break
-                try:
-                    res = (
-                        self.client.table(self.table)
-                        .select("url, published_at, created_at")
-                        .in_("url", chunk)
-                        .execute()
-                    )
-                    break
-                except Exception as e:  # noqa: BLE001
-                    budget -= 1
-                    log.warning(
-                        "lookup de datas gravadas falhou (%d urls, tentativa %d): %s",
-                        len(chunk), attempt + 1, e,
-                    )
-            if res is None:
-                if len(chunk) == 1 or budget <= 0:
-                    out.failed.update(chunk)
-                else:
+                budget -= 1
+                if len(chunk) > 1 and budget > 0:
                     mid = len(chunk) // 2
-                    queue.appendleft((chunk[mid:], False))
-                    queue.appendleft((chunk[:mid], False))
+                    queue.appendleft(chunk[mid:])
+                    queue.appendleft(chunk[:mid])
+                else:
+                    out.failed.update(chunk)
+                    if len(chunk) == 1:
+                        out.bad.update(chunk)
+                        log.warning("lookup de datas gravadas: url recusada pela consulta (%s): %s",
+                                    chunk[0][:120], e)
                 continue
             for r in res.data or []:
                 url = r.get("url")
@@ -194,10 +280,12 @@ class _SupabaseSink:
                         published_at=parse_stored_timestamp(r.get("published_at")),
                         created_at=parse_stored_timestamp(r.get("created_at")),
                     )
+        out.seconds = time.monotonic() - t0
         if out.failed:
             log.warning(
-                "lookup de datas gravadas: %d de %d urls sem resposta",
-                len(out.failed), len(urls),
+                "lookup de datas gravadas: %d de %d urls sem resposta em %.1fs (%s)",
+                len(out.failed), len(urls), out.seconds,
+                out.unavailable or f"{len(out.bad)} url(s) recusada(s)",
             )
         return out
 
@@ -528,7 +616,7 @@ def existing_dates(urls: list[str]) -> "StoredLookup":
         return get_sink()._existing_dates(urls)
     except Exception as e:  # noqa: BLE001
         log.warning("existing_dates falhou: %s", e)
-        return StoredLookup(failed=set(urls))
+        return StoredLookup(failed=set(urls), unavailable=f"{type(e).__name__}: {e!s}"[:160])
 
 
 def urls_with_snippet(urls: list[str]) -> set[str] | None:
