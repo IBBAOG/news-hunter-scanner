@@ -218,7 +218,8 @@ class _DateStats:
     lookup_seconds: float = 0.0    # wall time of the stored-date lookups
     fetched: int = 0               # pages this stage fetched itself
     reused: int = 0                # pages enrich had already read this scan
-    errors: dict[str, str] = field(default_factory=dict)        # feed / phase -> exception
+    errors: dict[str, int] = field(default_factory=dict)        # feed / phase / "item" -> failures
+    error_notes: dict[str, str] = field(default_factory=dict)   # ... -> the last exception
     seconds: float = 0.0           # wall time of the stage (set by run_search)
     # (url, outcome) for every decision this stage took; read by tests and by
     # scripts/diagnose_date_credibility.py, never logged row by row.
@@ -273,7 +274,8 @@ class _DateStats:
             self.lookup_notes.add("bad_url")
 
     def fail(self, where: str, exc: BaseException) -> None:
-        self.errors[where] = f"{type(exc).__name__}: {exc!s}"[:160]
+        self.errors[where] = self.errors.get(where, 0) + 1
+        self.error_notes[where] = f"{type(exc).__name__}: {exc!s}"[:160]
 
     @property
     def n_deferred(self) -> int:
@@ -338,7 +340,8 @@ class _DateStats:
             f" deferred={self.n_deferred} [{_per_feed(self.deferred)}]"
             f" pages={self.fetched}+{self.reused}reused looked_up={self.looked_up}"
             f" lookup={self.lookup_status()}"
-            f" error={len(self.errors)} [{', '.join(sorted(self.errors))}]"
+            f" error={sum(self.errors.values())}"
+            f" [{', '.join(w if n == 1 else f'{w}={n}' for w, n in sorted(self.errors.items()))}]"
             f" in {self.seconds:.1f}s"
         )
 
@@ -638,6 +641,7 @@ def _run_snippet_backfill(
     articles: list[Article],
     errors: list[str],
     redated: list[tuple[Article, ParsedDate]] | None = None,
+    date_stats: _DateStats | None = None,
 ) -> int:
     """Busca o corpo dos artigos aprovados que ainda estao sem snippet.
 
@@ -728,7 +732,11 @@ def _run_snippet_backfill(
             if redated is not None and is_older(ev.page_date, a.published_at):
                 redated.append((a, ev.page_date))  # type: ignore[arg-type]
             if ev.headlines:
-                a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+                try:
+                    a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+                except Exception as e:  # noqa: BLE001
+                    if date_stats is not None:
+                        _item_failed(date_stats, "title cleaning", a.url, e)
         for fut in not_done:
             fut.cancel()
     finally:
@@ -1130,9 +1138,20 @@ def _apply_verdicts(verdicts, *, hours: int, stats: _DateStats, drop: set[str]) 
             stats.verify(a.url)
         if ev is not None and ev.read:
             if ev.headlines:
-                a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+                try:
+                    a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+                except Exception as e:  # noqa: BLE001
+                    _item_failed(stats, "title cleaning", a.url, e)
             if ev.snippet and not (a.snippet or "").strip():
                 a.snippet = ev.snippet
+
+
+def _item_failed(stats: _DateStats, what: str, url: str, exc: BaseException) -> None:
+    """One item's date-credibility step raised: logged at ERROR with the
+    traceback, counted (`error=... [item]`), and the item goes on without that
+    step -- a malformed item never aborts the scan."""
+    log.error("date-credibility check skipped the %s of %s", what, url[:200], exc_info=exc)
+    stats.fail("item", exc)
 
 
 def _per_feed(fd: str, failed: dict[str, BaseException], fn, *args, **kwargs):
@@ -1443,13 +1462,12 @@ def run_search(
                     # the flag lasts while the feed is passing old posts off as
                     # new -- not for as long as a re-stamped post stays anywhere
                     # in a 100-item feed.
-                    if (
-                        it.feed_domain not in DATE_CHECK_EXEMPT_FEEDS
-                        and it.published_at is not None
-                        and within_window(it.published_at, hours)
-                        and _title_date_evidence(it)
-                    ):
-                        date_stats.add_evidence(it.feed_domain, key, it.published_at, "title")
+                    if it.feed_domain not in DATE_CHECK_EXEMPT_FEEDS and it.published_at is not None:
+                        try:
+                            if within_window(it.published_at, hours) and _title_date_evidence(it):
+                                date_stats.add_evidence(it.feed_domain, key, it.published_at, "title")
+                        except Exception as e:  # noqa: BLE001
+                            _item_failed(date_stats, "title evidence", it.url, e)
                     matched = _keep_candidate(
                         it, match_keywords, hours, exact_keywords,
                         allow_lede_rescue=True,
@@ -1664,10 +1682,13 @@ def run_search(
             source_name = source_name_for(resolved_domain)
             feed_date = it.published_at
             if feed_date is not None and not published_is_approx and real_title and "|" in real_title:
-                _, title_date = split_source_suffix(real_title, source_name)
-                if is_older(title_date, feed_date) and title_date.value < published:  # type: ignore[union-attr]
-                    published = title_date.value  # type: ignore[union-attr]
-                    date_stats.older(resolved_domain, normalize_url(resolved_url), by_title=True)
+                try:
+                    _, title_date = split_source_suffix(real_title, source_name)
+                    if is_older(title_date, feed_date) and title_date.value < published:  # type: ignore[union-attr]
+                        published = title_date.value  # type: ignore[union-attr]
+                        date_stats.older(resolved_domain, normalize_url(resolved_url), by_title=True)
+                except Exception as e:  # noqa: BLE001
+                    _item_failed(date_stats, "title date", resolved_url, e)
             if not within_window(published, hours):
                 continue
             # Wrapper Google News nao resolvido = link quebrado, descarta.
@@ -1689,9 +1710,13 @@ def run_search(
                 # and a title ending with the page's <h1> becomes the h1 (only
                 # when enrich read the page this scan).
                 page_ev = page_seen(resolved_url)
-                display_title = clean_display_title(
-                    real_title, source_name, page_ev.headlines if page_ev else ()
-                )
+                try:
+                    display_title = clean_display_title(
+                        real_title, source_name, page_ev.headlines if page_ev else ()
+                    )
+                except Exception as e:  # noqa: BLE001
+                    _item_failed(date_stats, "title cleaning", resolved_url, e)
+                    display_title = real_title
             else:
                 # Fallback: slug da URL. urldecode percent-escapes (%C3%A1 -> á)
                 # e capitaliza como sentence case — senao fica "projeto cine petrobras...".
@@ -1816,7 +1841,7 @@ def run_search(
         # aprovados que continuam sem snippet. Antes da traducao de proposito,
         # para que um item estrangeiro backfillado ja saia com snippet_en.
         backfill_redated: list[tuple[Article, ParsedDate]] = []
-        n_backfilled = _run_snippet_backfill(to_persist, errors, backfill_redated)
+        n_backfilled = _run_snippet_backfill(to_persist, errors, backfill_redated, date_stats)
         # R2 on the backfill's own page fetches (_apply_backfill_r2). Like Stage
         # 4b, it must never stop the upsert.
         if backfill_redated:

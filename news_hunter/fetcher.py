@@ -113,6 +113,22 @@ _PT_DATE_RE = re.compile(
 )
 
 
+def _usable_offset(dt: datetime | None) -> datetime | None:
+    """`dt`, or None when its UTC offset is out of range.
+
+    dateutil builds an offset of 24 h or more ("+9999", "+99:00", "UTC+30")
+    without complaint; it raises only when first USED -- in within_window,
+    halfway through the scan, taking every source down with it.
+    """
+    if dt is None:
+        return None
+    try:
+        dt.utcoffset()
+    except (ValueError, OverflowError):
+        return None
+    return dt
+
+
 def _parse_ptbr_date(s: str) -> datetime | None:
     """Parse RFC 822-style pubDate with Portuguese locale.
 
@@ -130,8 +146,8 @@ def _parse_ptbr_date(s: str) -> datetime | None:
     if not month_en:
         return None
     try:
-        return date_parser.parse(f"{day_en}, {day_num} {month_en} {year} {time_str} {tz_str}")
-    except (ValueError, TypeError):
+        return _usable_offset(date_parser.parse(f"{day_en}, {day_num} {month_en} {year} {time_str} {tz_str}"))
+    except (ValueError, TypeError, OverflowError):
         return None
 
 
@@ -332,10 +348,10 @@ def _fetch_sitemap(feed_url: str, feed_domain: str) -> tuple[list[RawItem], str 
             date_el = news_el.find(f"{{{_NS_NEWS}}}publication_date")
             if date_el is not None and date_el.text:
                 try:
-                    published = date_parser.parse(date_el.text.strip())
-                    if published.tzinfo is None:
+                    published = _usable_offset(date_parser.parse(date_el.text.strip()))
+                    if published is not None and published.tzinfo is None:
                         published = published.replace(tzinfo=timezone.utc)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OverflowError):
                     published = None
 
         src_domain = urlparse(link).netloc.lower() or feed_domain
@@ -388,8 +404,9 @@ def _listing_hints(anchor) -> tuple[str, datetime | None]:
             t = node.find("time", attrs={"datetime": True}) if hasattr(node, "find") else None
             if t is not None:
                 try:
-                    parsed = date_parser.parse(t["datetime"])
-                    published = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                    parsed = _usable_offset(date_parser.parse(t["datetime"]))
+                    if parsed is not None:
+                        published = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
                 except (ValueError, TypeError, OverflowError):
                     published = None
             if published is None:
@@ -515,8 +532,10 @@ def _parse_lastmod(el) -> datetime | None:
     if el is None or not (el.text or "").strip():
         return None
     try:
-        d = date_parser.parse(el.text.strip())
+        d = _usable_offset(date_parser.parse(el.text.strip()))
     except (ValueError, TypeError, OverflowError):
+        return None
+    if d is None:
         return None
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 

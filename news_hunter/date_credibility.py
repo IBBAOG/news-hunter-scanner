@@ -164,16 +164,16 @@ def parse_date_value(raw, *, source: str = "", now: datetime | None = None) -> P
     try:
         a = date_parser.parse(s, default=_DEFAULT_A)
         b = date_parser.parse(s, default=_DEFAULT_B)
+        if a.date() != b.date():
+            return None  # year, month or day was missing and got filled in
+        # An hour without minutes ("10h", "10:00" without seconds) is a time.
+        date_only = a.time() != b.time() and a.hour != b.hour
+        # The conversion belongs inside the try: dateutil happily builds an
+        # offset of 24 h or more ("+99:00", "+2400", "UTC+30") that raises
+        # only when first used -- here, not in the caller's scan.
+        dt = a.replace(tzinfo=timezone.utc) if a.tzinfo is None else a.astimezone(timezone.utc)
     except (ValueError, TypeError, OverflowError):
         return None
-    if a.date() != b.date():
-        return None  # year, month or day was missing and got filled in
-    date_only = a.time() != b.time() and a.hour != b.hour
-    dt = a
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
     if date_only:
         dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
     ref = now or datetime.now(timezone.utc)
