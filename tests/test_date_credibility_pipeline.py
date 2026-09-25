@@ -568,6 +568,46 @@ def test_a_page_read_without_a_snippet_is_not_fetched_again_by_the_backfill(monk
     assert run.fetched.count(BLOG + "lng-chart-of-the-day") == 1
 
 
+def test_a_page_older_but_still_inside_the_window_keeps_its_snippet_and_headline(monkeypatch):
+    """Re-dated by the spot check yet inside a 72 h window: persisted with the
+    page's date, and with the text and <h1> of the page the check already read
+    (the backfill skips a page this scan has read)."""
+    h1 = "Hormuz queues ease as insurers cut war risk premiums"
+    page_date = NOW - timedelta(hours=30)
+    late = _item("hormuz-queues-ease", f"Tanker queues shrink {h1} | Kpler -", summary="", age_h=1)
+    pages = {**PAGES, BLOG + "hormuz-queues-ease": _page(
+        h1, page_date.isoformat(), body="War risk premiums for Hormuz transits fell for a second "
+        "week as tanker queues off Fujairah shrank to their lowest since June.")}
+    run = _drive(monkeypatch, [late], pages=pages, hours=72)
+    got = _by_url(run)[BLOG + "hormuz-queues-ease"]
+    assert _outcome(run, BLOG + "hormuz-queues-ease") == "older_page"
+    assert abs((got.published_at - page_date).total_seconds()) < 1
+    assert got.snippet.startswith("War risk premiums")
+    assert got.title == h1
+    assert run.fetched.count(BLOG + "hormuz-queues-ease") == 1
+
+
+def test_a_date_check_that_finished_late_still_hands_its_snippet_to_the_backfill(monkeypatch):
+    """Stage 4b stopped waiting (its deadline), the fetch finished afterwards and
+    recorded the page with its snippet: the backfill takes it, no second fetch."""
+    from bs4 import BeautifulSoup
+
+    from news_hunter.date_credibility import record_page
+    from news_hunter.store import Article
+
+    url = BLOG + "late-date-check"
+    ev = record_page(url, BeautifulSoup(_page("Late date check", TODAY), "lxml"))
+    ev.snippet = "LNG carriers queued off the Strait of Hormuz for a third day."
+    a = Article(url=url, domain="kpler.com", source_name="Kpler", title="Late date check",
+                snippet="", published_at=NOW, found_at=NOW)
+    fetched: list[str] = []
+    monkeypatch.setattr(pipeline, "urls_with_snippet", lambda urls: set())
+    monkeypatch.setattr(enrich, "fetch_html", lambda u, timeout=6: fetched.append(u) or "")
+    pipeline._run_snippet_backfill([a], [])
+    assert a.snippet == ev.snippet
+    assert fetched == []
+
+
 # ---------------------------------------------------------------------------
 # Guard rails
 # ---------------------------------------------------------------------------

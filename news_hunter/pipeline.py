@@ -616,7 +616,13 @@ def _run_snippet_backfill(
     artigo exatamente como estava (sem snippet), que e o comportamento de hoje.
     """
     # A page this scan already read (enrich, the date checks) is not fetched
-    # again: whatever snippet it had is already on the article.
+    # again. A date check that finished after Stage 4b's deadline still left
+    # its snippet on the page record: it is picked up here.
+    for a in articles:
+        if not (a.snippet or "").strip():
+            ev = page_seen(a.url)
+            if ev is not None and ev.snippet:
+                a.snippet = ev.snippet
     empty = [a for a in articles if not (a.snippet or "").strip() and page_seen(a.url) is None]
     if not empty:
         return 0
@@ -1041,8 +1047,8 @@ def _run_date_credibility(
             a.published_at = page_date.value  # type: ignore[union-attr]
             if not within_window(a.published_at, hours):
                 drop.add(a.url)
-            continue
-        if page_date is None:
+                continue
+        elif page_date is None:
             if is_flagged:
                 # The page was read and hides its date (Kpler's empty
                 # datePublished). No age-out on purpose: admitting after N

@@ -11,9 +11,10 @@ two questions that decide whether they are safe to ship:
         TEMPLATE date -- the same date on every page, which R2 must never be
         allowed to turn into a silent zero. `const` tells them apart: a template
         shows as one page date repeated across items with different feed dates.
-  R3 -- which feeds re-date urls news_articles already stores (or print older
-        dates in their own titles), and what would happen to their never-seen
-        fresh items: verified, dropped as older, or deferred?
+  R3 -- which feeds show a BATCH of re-stamps (stored urls re-dated, older
+        dates printed in their own titles, never-seen items whose page proves
+        them older), and what would happen to their never-seen fresh items:
+        kept, dropped as older, deferred or admitted?
 
 Read-only: it never writes news_articles. Run it on the scanner's runner
 (.github/workflows/diagnose_date_credibility.yml) so fetches see the same WAFs
@@ -37,8 +38,10 @@ or after that instant as never stored (what the database will look like once a
 burst of wrongly inserted rows is deleted). --titles runs the title cleaner
 over every stored title containing "|" and prints what would change.
 --full-scan runs one complete scan (Google News included) with every write
-closed and prints its wall time and the Stage 4b cost; --no-date-credibility
-switches Stage 4b off for the A side of an A/B.
+closed and prints its wall time, the page fetches and the Stage 4b cost;
+--no-date-credibility is the A side of an A/B: Stage 4b (spot checks, verify
+budget, stored-date lookups), the title evidence and the page-evidence parsing
+of every enriched page switched off.
 
 Columns (feed mode):
     items    entries the fetcher returned        fresh  feed date inside --hours
@@ -54,11 +57,18 @@ Columns (feed mode):
     dbEv     stored fresh MATCHED items re-dated (feed > min(pub, created) + tol),
              as count/largest 10-minute batch
     tEv      fresh items whose title date is older, count/largest batch
-    FLAG     R3's batch rule holds (date_credibility.is_batch on dbEv or tEv)
-    new      never-seen fresh matched items
-    r3v/o/d/a  their fate if FLAGGED: verified / dropped as older / deferred
-             (page read, no date) / admitted unverified (page not fetched,
-             or a WAF challenge)
+    FLAG     R3's batch rule holds: date_credibility.is_batch over dbEv, tEv and
+             the never-seen items whose sampled page proved them older, together
+    new      never-seen fresh matched items (all sampled, up to --r3-pages)
+    r3v/o/d/a  their fate under Stage 4b's rules: kept (page dated, or a spot
+             check of a feed that is not flagged) / dropped as older /
+             deferred (flagged: page read without a date, page unread while
+             another page of the site was read, beyond the sample) / admitted
+             (flagged and the whole site unread, or not flagged and dateless /
+             unread / beyond the sample). The sample is larger than Stage
+             4b's budget (4 spot / 8 verify pages per feed per scan): these
+             columns say what the pages show; --dry-run says what one scan
+             does.
 """
 from __future__ import annotations
 
@@ -254,31 +264,32 @@ def run_feeds(args) -> int:
                 tolder += 1
                 if it.url in fresh_urls:
                     tev_dates.append(it.published_at)
-        stored = _stored_lookup([it.url for it in fresh], snapshot) if fresh else {}
-        lookup_ok = stored is not None
-        stored = _apply_cleanup(stored or {}, cutoff)
+        lk = _apply_cleanup(_stored_lookup([it.url for it in fresh], snapshot), cutoff) \
+            if fresh else dc.StoredLookup()
+        lookup_ok = not lk.failed
+        stored = lk.found
         db_ev = [it.url for it in match if dc.restamps(it.published_at, stored.get(it.url))]
         db_dates = [it.published_at for it in match if it.url in set(db_ev)]
         db_ev_all = [it.url for it in fresh if dc.restamps(it.published_at, stored.get(it.url))]
-        new = [it for it in match if it.url not in stored]
-        # the pipeline's rule: a BATCH of re-dates (date_credibility.is_batch)
-        flagged = dc.is_batch(db_dates) or dc.is_batch(tev_dates)
+        new = [it for it in match if it.url not in stored and it.url not in lk.failed]
         tev = len(tev_dates)
         sample = sorted(fresh, key=lambda i: i.published_at, reverse=True)
         rest = sorted([i for i in dated if i.url not in fresh_urls], key=lambda i: i.published_at, reverse=True)
         sample = (sample + rest)[: args.pages]
-        if flagged:
-            in_sample = {i.url for i in sample}
-            extra = sorted(new, key=lambda i: i.published_at, reverse=True)[: args.r3_pages]
-            sample += [i for i in extra if i.url not in in_sample]
+        # Every never-seen item gets a page check in production (the spot
+        # check, or the verify budget once flagged): sample them all, up to
+        # --r3-pages, and decide the flag AFTER reading them, as Stage 4b does.
+        in_sample = {i.url for i in sample}
+        extra = sorted(new, key=lambda i: i.published_at, reverse=True)[: args.r3_pages]
+        sample += [i for i in extra if i.url not in in_sample]
         for it in sample:
             jobs[it.url] = d
         rows[d] = {
             "items": items, "fresh": fresh, "match": match, "sample": sample,
             "tdate": tdate, "tolder": tolder, "tev": tev, "stored": stored,
             "lookup_ok": lookup_ok, "db_ev": db_ev, "db_ev_all": db_ev_all,
-            "db_batch": dc.largest_batch(db_dates), "tev_batch": dc.largest_batch(tev_dates),
-            "new": new, "flagged": flagged, "errors": slot["errors"],
+            "db_dates": db_dates, "tev_dates": tev_dates,
+            "new": new, "errors": slot["errors"],
         }
 
     print(f"page fetches: {len(jobs)} (workers {PAGE_WORKERS})", flush=True)
@@ -337,24 +348,45 @@ def run_feeds(args) -> int:
         for raw, feeds_dates in by_date.items():
             if len(feeds_dates) >= 2 and max(feeds_dates) - min(feeds_dates) > dc.TOLERANCE:
                 const = max(const, len(feeds_dates))
-        # The pipeline's verdicts for a flagged feed's never-seen items:
-        # verified / older / deferred (fetched, no page date) / admitted (we
-        # could not fetch the page: transport error, HTTP >= 400, a challenge).
+        # Stage 4b's rules on what the sample shows: page-proven old never-seen
+        # items join the stored re-dates and title contradictions; a batch
+        # flags the feed; an unread page defers only while the site answered.
+        def _read(pg):
+            return bool(pg) and pg.get("fetched") and not pg.get("challenge")
+
+        page_dates = [it.published_at for it in r["new"]
+                      if _read(pages.get(it.url)) and dc.is_older(pages[it.url].get("page_date"), it.published_at)]
+        evidence = r["db_dates"] + r["tev_dates"] + page_dates
+        r["flagged"] = flagged = dc.is_batch(evidence)
+        r["page_ev"] = len(page_dates)
+        r["batch"] = dc.largest_batch(evidence)
+        site_read = any(_read(pages.get(i.url)) for i in smp)
         r3v = r3o = r3d = r3a = 0
-        if r["flagged"]:
-            for it in r["new"]:
-                pg = pages.get(it.url)
-                if pg is None:
-                    continue
-                pdt = pg.get("page_date") if pg.get("fetched") else None
-                if not pg.get("fetched") or pg.get("challenge"):
-                    r3a += 1
-                elif pdt is None:
+        for it in r["new"]:
+            pg = pages.get(it.url)
+            if pg is None:                          # beyond --r3-pages
+                if flagged:
                     r3d += 1
-                elif dc.is_older(pdt, it.published_at):
-                    r3o += 1
                 else:
-                    r3v += 1
+                    r3a += 1
+                continue
+            pdt = pg.get("page_date")
+            if not _read(pg):
+                if flagged and site_read:
+                    r3d += 1
+                else:
+                    r3a += 1
+            elif dc.is_older(pdt, it.published_at):
+                r3o += 1
+            elif pdt is None:
+                if flagged:
+                    r3d += 1
+                else:
+                    r3a += 1
+            else:
+                r3v += 1
+        r["db_batch"] = dc.largest_batch(r["db_dates"])
+        r["tev_batch"] = dc.largest_batch(r["tev_dates"])
         db_col = f"{len(r['db_ev'])}/{r['db_batch']}"
         tev_col = f"{r['tev']}/{r['tev_batch']}"
         print(f"{d[:34]:34} {len(r['items']):5} {len(r['fresh']):5} {len(r['match']):5} "
@@ -372,13 +404,12 @@ def run_feeds(args) -> int:
             notes.append(f"TEMPLATE? {d}: {const} sampled items share one page date across different feed dates")
         if sig_disagree:
             notes.append(f"SIGNALS  {d}: {sig_disagree} pages whose date signals disagree by > tol+day")
-        if r["db_ev"] or r["tev"]:
+        if r["db_ev"] or r["tev"] or r["page_ev"]:
             notes.append(
-                f"{'FLAGGED ' if r['flagged'] else 'ISOLATED'} {d}: db_evidence={len(r['db_ev'])} "
-                f"(largest 10-min batch {r['db_batch']}, fresh-all {len(r['db_ev_all'])}) "
-                f"title_evidence={r['tev']} (batch {r['tev_batch']}) new={len(r['new'])}"
-                + (f" -> verified {r3v}, older {r3o}, deferred {r3d}, admitted unverified {r3a}"
-                   if r["flagged"] else " -> not flagged")
+                f"{'FLAGGED ' if r['flagged'] else 'ISOLATED'} {d}: db={len(r['db_ev'])} "
+                f"(fresh-all {len(r['db_ev_all'])}) title={r['tev']} page={r['page_ev']} "
+                f"largest 10-min batch {r['batch']}; new={len(r['new'])} -> kept {r3v}, "
+                f"older {r3o}, deferred {r3d}, admitted {r3a}"
             )
             for u in r["db_ev"][:3]:
                 s = r["stored"].get(u)
@@ -427,19 +458,13 @@ def run_dry(args) -> int:
     snapshot = _load_snapshot(args.stored_json, None)
     cutoff = _parse_cutoff(args.cleanup_after)
 
-    real_lookup = supabase_sync.existing_dates
-
     def _lookup(urls):
-        if snapshot is not None:
-            got = {u: snapshot[u] for u in urls if u in snapshot}
-        else:
-            got = real_lookup(urls)
-        return _apply_cleanup(got, cutoff)
+        return _apply_cleanup(_stored_lookup(list(urls), snapshot), cutoff)
 
     def _no_write(*_a, **_k):
         raise RuntimeError("diagnose_date_credibility --dry-run must never write")
 
-    supabase_sync.existing_dates = _lookup
+    pipeline.existing_dates = _lookup
     # Read-only, belt and braces: every write door is closed, not just the one
     # run_search uses today.
     supabase_sync.push_new = _no_write
@@ -473,7 +498,7 @@ def run_dry(args) -> int:
     keywords, exact, prov = _keywords()
     fresh = [it for it in items if it.published_at and within_window(it.published_at, args.hours)]
     match = [it for it in fresh if _matched(it, keywords, exact, args.hours)]
-    stored = _lookup([it.url for it in fresh]) or {}
+    stored = _lookup([it.url for it in fresh]).found
     persisted = {a.url: a for a in captured}
     trace = dict(stats.trace) if stats else {}
     print(f"keyword set : {prov}")
@@ -488,9 +513,7 @@ def run_dry(args) -> int:
         if it.url in persisted:
             if it.url in stored:
                 what = "PERSIST-existing"
-            elif t == "verified":
-                what = "PERSIST-verified"
-            elif t.startswith("admitted_"):
+            elif t:                          # verified, spot_*, admitted_*, older_page
                 what = "PERSIST-" + t.upper()
             else:
                 what = "PERSIST-new"
@@ -548,10 +571,26 @@ def run_full_scan(args) -> int:
     done ... dt=" lines of the News Hunter scan workflow at the same hour (they
     also pay ~3 s of upsert POSTs, which this run skips).
     """
-    from news_hunter import pipeline, supabase_sync, translation_retry
+    import threading
+
+    from news_hunter import enrich, pipeline, supabase_sync, translation_retry
 
     def _no_write(*_a, **_k):
         raise RuntimeError("diagnose_date_credibility --full-scan must never write")
+
+    # Every article-page download of the scan goes through enrich.fetch_html
+    # (enrich, lede rescue, snippet backfill, the date checks): count them.
+    fetches = Counter()
+    fetch_lock = threading.Lock()
+    real_fetch = enrich.fetch_html
+
+    def _counted_fetch(url, *a, **k):
+        with fetch_lock:
+            fetches["pages"] += 1
+        return real_fetch(url, *a, **k)
+
+    if real_fetch is not None:
+        enrich.fetch_html = _counted_fetch
 
     supabase_sync.push_new = _no_write
     supabase_sync._SupabaseSink.push = _no_write
@@ -575,11 +614,16 @@ def run_full_scan(args) -> int:
         label = "date credibility OFF"
         pipeline._run_date_credibility = lambda articles, *a, **k: articles
         pipeline._title_date_evidence = lambda it: False
+        # ... and the page-evidence parsing of every enriched page: nothing is
+        # read or remembered (the snippet backfill fetches as it did before).
+        enrich.record_page = lambda url, soup: dc.PageEvidence()
     t0 = time.time()
     res = pipeline.run_search(include_google_news=True, fast_mode=True, hours_override=args.hours)
     dt = time.time() - t0
     stats = holder.get("stats")
     print(f"\nfull scan (no writes, {label}): dt={dt:.1f}s would_upsert={len(captured)} "
+          f"page_fetches={fetches['pages']} "
+          f"date_check_fetches={stats.fetched if stats else 0} reused={stats.reused if stats else 0} "
           f"stage4b={stats.seconds if stats else -1:.2f}s errors={len(res.get('errors', []))}")
     print(stats.log_line() if stats else "no stats")
     return 0
