@@ -470,8 +470,15 @@ def reset_scan() -> None:
 
 
 def record_page(url: str, soup) -> PageEvidence:
-    """Read and remember what a fetched page says about itself (thread-safe)."""
-    ev = PageEvidence(page_date=page_published_date(soup), headlines=page_headlines(soup))
+    """Read and remember what a fetched page says about itself (thread-safe).
+
+    Fail-soft: a page whose markup trips the readers yields empty evidence (no
+    date, no h1) rather than an exception inside the enrich path.
+    """
+    try:
+        ev = PageEvidence(page_date=page_published_date(soup), headlines=page_headlines(soup))
+    except Exception:  # noqa: BLE001
+        ev = PageEvidence()
     if url:
         with _lock:
             _pages[url] = ev

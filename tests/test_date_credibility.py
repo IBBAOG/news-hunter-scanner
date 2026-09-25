@@ -204,6 +204,16 @@ def test_broken_json_ld_still_yields_its_date_published():
     assert p is not None and p.value == datetime(2026, 3, 1, 10, 0, tzinfo=UTC)
 
 
+def test_record_page_is_fail_soft(monkeypatch):
+    def _boom(_soup):
+        raise ValueError("unexpected markup")
+
+    monkeypatch.setattr(dc, "page_published_date", _boom)
+    ev = dc.record_page("https://example.com/a", _soup("<html></html>"))
+    assert ev.page_date is None and ev.headlines == ()
+    assert dc.page_seen("https://example.com/a") is ev
+
+
 def test_page_headlines_reads_the_h1():
     html = _kpler_page("New pipelines bypassing the Strait of Hormuz could come online in 1-2 years", "Jul 10, 2026")
     assert dc.page_headlines(_soup(html)) == (

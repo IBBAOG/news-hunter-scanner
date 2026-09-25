@@ -517,11 +517,18 @@ def run_full_scan(args) -> int:
             holder["stats"] = self
 
     pipeline._DateStats = _Tap
+    label = "date credibility ON"
+    if args.no_date_credibility:
+        # The A side of an A/B: Stage 4b and the title evidence switched off,
+        # everything else identical.
+        label = "date credibility OFF"
+        pipeline._run_date_credibility = lambda articles, *a, **k: articles
+        pipeline._title_date_evidence = lambda it: False
     t0 = time.time()
     res = pipeline.run_search(include_google_news=True, fast_mode=True, hours_override=args.hours)
     dt = time.time() - t0
     stats = holder.get("stats")
-    print(f"\nfull scan (no writes): dt={dt:.1f}s would_upsert={len(captured)} "
+    print(f"\nfull scan (no writes, {label}): dt={dt:.1f}s would_upsert={len(captured)} "
           f"stage4b={stats.seconds if stats else -1:.2f}s errors={len(res.get('errors', []))}")
     print(stats.log_line() if stats else "no stats")
     return 0
@@ -595,6 +602,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", metavar="FEED_URL", help="run the real pipeline over one feed (no writes)")
     ap.add_argument("--titles", action="store_true", help="T regression check over every stored title with '|'")
     ap.add_argument("--full-scan", action="store_true", help="one complete scan, no writes: dt + Stage 4b cost")
+    ap.add_argument("--no-date-credibility", action="store_true",
+                    help="with --full-scan: switch Stage 4b off (the A side of an A/B timing)")
     ap.add_argument("-v", "--verbose", action="store_true", help="print every sampled page")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s", stream=sys.stdout)
