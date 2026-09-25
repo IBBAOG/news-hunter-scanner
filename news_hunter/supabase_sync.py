@@ -184,8 +184,16 @@ class _SupabaseSink:
         apareceram no topo do feed em 04/08 como "13m ago".
 
         Regra: se a linha ja existe com uma data, ela vence. Se e nova, o
-        carimbo aproximado entra (uma unica vez). Uma data REAL obtida num scan
-        futuro sobrescreve normalmente — o item continua curavel.
+        carimbo aproximado entra (uma unica vez).
+
+        A REAL date found by a later scan only lands when it is EARLIER than the
+        stored one. Since migration 20272100000000 (trigger
+        trg_news_articles_published_at_monotone, BEFORE UPDATE OF published_at,
+        live in production) an UPDATE can only move published_at backwards: a
+        later value is silently replaced by the stored one in the database,
+        unless the session sets news_hunter.allow_published_at_forward. A row
+        stamped too late stays curable (the earlier real date lands); a row
+        stamped too early is no longer "corrected forward" by a scan.
 
         Se o lookup falhar, os aproximados sao deixados de fora deste push (o
         proximo scan tenta de novo em ~5 min): perder uma insercao e reversivel,

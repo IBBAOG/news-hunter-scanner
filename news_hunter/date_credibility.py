@@ -18,15 +18,20 @@ R2  The earliest credible date wins. Whenever the article HTML is at hand, the
     in the "<headline> | <Source> - Mon DD, YYYY" form is read the same way
     (it needs no fetch; measured: only kpler.com carries it today).
 
-R3  Re-stamp evidence means verify or defer. When a feed re-dates a URL we
-    ALREADY store (feed date > min(stored published_at, created_at) +
-    TOLERANCE), that feed's dates are modification times for the rest of the
-    scan: each never-seen item of that feed must pass R2 with its page actually
-    fetched, inside a per-domain budget. What cannot be verified (no page date,
-    fetch failed, budget or deadline exhausted) is DEFERRED -- not persisted in
-    this scan, counted, retried by the next scan while the feed still carries
-    it. The pipeline owns that phase (pipeline._run_date_credibility); this
-    module owns the pure pieces.
+R3  Re-stamp evidence means verify or defer -- on BATCH evidence only. Legit
+    news feeds re-date stored articles all the time (updates); a re-publication
+    shows as a batch: RESTAMP_BATCH_MIN re-dated URLs we already store (feed
+    date > min(stored published_at, created_at) + TOLERANCE), or as many items
+    whose printed title date contradicts the feed date, within
+    RESTAMP_BATCH_SPAN of one another. A flagged feed's dates are modification
+    times for the scan: each never-seen item must pass R2 with its page
+    fetched, inside a per-domain budget. A page that WAS fetched and hides its
+    date (Kpler's empty datePublished), or an exhausted budget, DEFERS the item
+    (not persisted, counted, retried next scan). A page we could NOT fetch
+    (transport error, HTTP >= 400, a WAF challenge) admits the item with the
+    feed date, counted as unverified: our own blocks must not become a zero.
+    The pipeline owns that phase (pipeline._run_date_credibility); this module
+    owns the pure pieces.
 
 T   Clean titles. "<headline> | <Source>( - <date>)?" loses the suffix of the
     item's OWN source name, and a title that ends with the page's <h1> (joined
@@ -57,6 +62,30 @@ TOLERANCE = timedelta(hours=24)
 
 #: A date-only value is compared by the end of its day.
 DAY_SPAN = timedelta(hours=24)
+
+#: R3 flags a feed on a BATCH of re-dates, never on isolated ones: at least
+#: RESTAMP_BATCH_MIN distinct urls whose feed dates fall within
+#: RESTAMP_BATCH_SPAN of one another -- counted separately for stored urls the
+#: feed re-dated and for items whose printed title date is older than the feed
+#: date. Measured 2026-09-25 on news_articles_published_at_clamp_20260925_bak:
+#:   * legit feeds re-date stored articles all the time (updates, not
+#:     re-publications). Last 30 days, urls re-dated > 24 h after first seen:
+#:     wsj 36 (22 of them > 72 h), estadao 14, theedgemalaysia 13, asharq 12,
+#:     moneycontrol 10, argus 9, investing.com 8 (all > 72 h), dw 6. Neither
+#:     jump size nor age separates them from Kpler; the batch does.
+#:   * replayed one scan per 5 minutes over 2026-08-26 .. 09-25 (RSS feeds,
+#:     the only ones R3 reads): "any one re-date" would have flagged estadao
+#:     for 291 h in 10 episodes; "3 visible in one scan" still twice (24.6 h),
+#:     from six unrelated updates in 2.2 h; "3 within 10 minutes" never -- its
+#:     closest updates were 6 minutes apart, three of them within 27 minutes,
+#:     so a 30-minute span would flag it and 10 does not.
+#:   * Kpler on 2026-09-25 re-dated 6 stored posts within 3 min 19 s
+#:     (10:41:49 .. 10:45:08) and showed 60 title-date contradictions in one
+#:     scan: flagged. investing.com re-dates its four "live levels" pages
+#:     together (within 13-33 s) every week: flagged twice in 30 days. Its pages
+#:     fail from the runner, so those items are admitted unverified, not lost.
+RESTAMP_BATCH_MIN = 3
+RESTAMP_BATCH_SPAN = timedelta(minutes=10)
 
 #: Anything outside these bounds is a CMS placeholder (epoch zero, 0001-01-01,
 #: a year typo), never a publication date.
@@ -423,6 +452,23 @@ def restamps(url: str, feed_date: datetime | None, stored: StoredDates | None,
     return ref is not None and feed_date > ref + tolerance
 
 
+def largest_batch(dates: Iterable[datetime], span: timedelta = RESTAMP_BATCH_SPAN) -> int:
+    """How many of `dates` fit, at most, inside one window of length `span`."""
+    ts = sorted(d for d in dates if d is not None)
+    best = lo = 0
+    for hi, t in enumerate(ts):
+        while t - ts[lo] > span:
+            lo += 1
+        best = max(best, hi - lo + 1)
+    return best
+
+
+def is_batch(dates: Iterable[datetime], *, minimum: int = RESTAMP_BATCH_MIN,
+             span: timedelta = RESTAMP_BATCH_SPAN) -> bool:
+    """R3: do these re-date times form a batch (a re-publication, not updates)?"""
+    return largest_batch(dates, span) >= minimum
+
+
 def rotate_budget(items: list, cap: int, *, bucket: int) -> tuple[list, list]:
     """(selected, over_budget): half the cap to the head of `items` (newest
     first), half to a window that rotates with `bucket` over the rest.
@@ -453,10 +499,63 @@ def rotate_budget(items: list, cap: int, *, bucket: int) -> tuple[list, list]:
 
 @dataclass
 class PageEvidence:
-    """What one fetched article page said about itself."""
+    """What one fetched article page said about itself.
+
+    `challenge`: the answer was a bot-wall interstitial, not the article (only
+    judged when the page carries no publication date). R3 treats it like a
+    failed fetch -- the source did not hide its date, we never saw the page.
+    """
 
     page_date: ParsedDate | None = None
     headlines: tuple[str, ...] = field(default_factory=tuple)
+    challenge: bool = False
+
+
+# A WAF / bot-wall interstitial answered with HTTP 200. Titles of the common
+# ones (Cloudflare, Imperva / Incapsula / Distil, Akamai, DataDome, PerimeterX,
+# DDoS-Guard, Amazon) and resource paths only their challenges load. Consulted
+# only for a page WITHOUT a publication date, so a real article that merely
+# embeds a widget from one of these vendors is never reclassified.
+# Generic phrases count only as the WHOLE title, optionally followed by
+# " | <vendor or site>" ("Attention Required! | Cloudflare"): a headline such
+# as "Access denied: the week Iran closed Hormuz" is not an interstitial.
+_CHALLENGE_TITLE_RE = re.compile(
+    r"^\W*(?:just a moment|attention required|access denied|pardon our interruption"
+    r"|are you a robot|robot check|security check|bot verification|ddos-guard"
+    r"|403 forbidden|please wait|one moment,? please)[\s.!…]*(?:\|.*)?$",
+    re.IGNORECASE,
+)
+# Distinctive enough to count anywhere in the title.
+_CHALLENGE_TITLE_ANYWHERE_RE = re.compile(
+    r"incapsula incident id|checking (?:your|the) browser before accessing"
+    r"|verify(?:ing)? (?:that )?you are (?:a )?human",
+    re.IGNORECASE,
+)
+_CHALLENGE_TITLE_MAX = 100  # interstitial titles are short
+_CHALLENGE_MARKERS = (
+    "/cdn-cgi/challenge-platform/", "_cf_chl_opt", "cf-browser-verification",
+    "captcha-delivery.com", "_incapsula_resource", "px-captcha",
+    "perimeterx", "ddos-guard.net", "/distil_r_captcha",
+)
+
+
+def looks_like_challenge(soup) -> bool:
+    """True when the fetched page is a bot-wall interstitial, not an article."""
+    if soup is None:
+        return False
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    if title and len(title) <= _CHALLENGE_TITLE_MAX and (
+        _CHALLENGE_TITLE_RE.search(title) or _CHALLENGE_TITLE_ANYWHERE_RE.search(title)
+    ):
+        return True
+    for tag in soup.find_all(["script", "iframe", "form", "link", "meta"], limit=300):
+        blob = " ".join(
+            str(v) for v in (tag.get("src"), tag.get("action"), tag.get("href"),
+                             tag.get("content"), tag.string) if v
+        ).lower()
+        if blob and any(m in blob for m in _CHALLENGE_MARKERS):
+            return True
+    return False
 
 
 _lock = threading.Lock()
@@ -476,7 +575,12 @@ def record_page(url: str, soup) -> PageEvidence:
     date, no h1) rather than an exception inside the enrich path.
     """
     try:
-        ev = PageEvidence(page_date=page_published_date(soup), headlines=page_headlines(soup))
+        page_date = page_published_date(soup)
+        ev = PageEvidence(
+            page_date=page_date,
+            headlines=page_headlines(soup),
+            challenge=page_date is None and looks_like_challenge(soup),
+        )
     except Exception:  # noqa: BLE001
         ev = PageEvidence()
     if url:

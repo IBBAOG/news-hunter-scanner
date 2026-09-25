@@ -51,9 +51,14 @@ Columns (feed mode):
              feed dates differ by more than the tolerance (template suspicion)
     tdate    items whose title prints a date     tOld   ... older than the feed date
     stored   fresh items already in news_articles
-    dbEv     stored fresh MATCHED items re-dated (feed > min(pub, created) + tol)
-    tEv      fresh items whose title date is older (the pipeline's extra evidence)
-    new      never-seen fresh matched items      r3 ver/old/def  their fate if FLAGGED
+    dbEv     stored fresh MATCHED items re-dated (feed > min(pub, created) + tol),
+             as count/largest 10-minute batch
+    tEv      fresh items whose title date is older, count/largest batch
+    FLAG     R3's batch rule holds (date_credibility.is_batch on dbEv or tEv)
+    new      never-seen fresh matched items
+    r3v/o/d/a  their fate if FLAGGED: verified / dropped as older / deferred
+             (page read, no date) / admitted unverified (page not fetched,
+             or a WAF challenge)
 """
 from __future__ import annotations
 
@@ -156,6 +161,7 @@ def _page_signals(url: str) -> dict:
     soup = BeautifulSoup(html, "lxml")
     out["fetched"] = True
     out["page_date"] = dc.page_published_date(soup)
+    out["challenge"] = out["page_date"] is None and dc.looks_like_challenge(soup)
     sig = {}
     for attrs in dc._PUBLISHED_META:
         tag = soup.find("meta", attrs=attrs)
@@ -243,7 +249,8 @@ def run_feeds(args) -> int:
         fresh = [it for it in dated if within_window(it.published_at, args.hours)]
         match = [it for it in fresh if _matched(it, keywords, exact, args.hours)]
         fresh_urls = {it.url for it in fresh}
-        tdate = tolder = tev = 0
+        tdate = tolder = 0
+        tev_dates: list = []     # feed dates of fresh items whose title date is older
         for it in items:
             if not it.title or "|" not in it.title:
                 continue
@@ -254,14 +261,17 @@ def run_feeds(args) -> int:
             if dc.is_older(td, it.published_at):
                 tolder += 1
                 if it.url in fresh_urls:
-                    tev += 1
+                    tev_dates.append(it.published_at)
         stored = _stored_lookup([it.url for it in fresh], snapshot) if fresh else {}
         lookup_ok = stored is not None
         stored = _apply_cleanup(stored or {}, cutoff)
         db_ev = [it.url for it in match if dc.restamps(it.url, it.published_at, stored.get(it.url))]
+        db_dates = [it.published_at for it in match if it.url in set(db_ev)]
         db_ev_all = [it.url for it in fresh if dc.restamps(it.url, it.published_at, stored.get(it.url))]
         new = [it for it in match if it.url not in stored]
-        flagged = bool(db_ev) or tev > 0
+        # the pipeline's rule: a BATCH of re-dates (date_credibility.is_batch)
+        flagged = dc.is_batch(db_dates) or dc.is_batch(tev_dates)
+        tev = len(tev_dates)
         sample = sorted(fresh, key=lambda i: i.published_at, reverse=True)
         rest = sorted([i for i in dated if i.url not in fresh_urls], key=lambda i: i.published_at, reverse=True)
         sample = (sample + rest)[: args.pages]
@@ -275,6 +285,7 @@ def run_feeds(args) -> int:
             "items": items, "fresh": fresh, "match": match, "sample": sample,
             "tdate": tdate, "tolder": tolder, "tev": tev, "stored": stored,
             "lookup_ok": lookup_ok, "db_ev": db_ev, "db_ev_all": db_ev_all,
+            "db_batch": dc.largest_batch(db_dates), "tev_batch": dc.largest_batch(tev_dates),
             "new": new, "flagged": flagged, "errors": slot["errors"],
         }
 
@@ -296,8 +307,8 @@ def run_feeds(args) -> int:
 
     hdr = (f"{'feed':34} {'items':>5} {'fresh':>5} {'match':>5} {'smp':>3} {'fail':>4} "
            f"{'nodt':>4} {'older':>5} {'oldF':>4} {'later':>5} {'const':>5} {'tdate':>5} "
-           f"{'tOld':>4} {'strd':>4} {'dbEv':>4} {'tEv':>4} {'FLAG':>4} {'new':>4} "
-           f"{'r3v':>3} {'r3o':>3} {'r3d':>3}")
+           f"{'tOld':>4} {'strd':>4} {'dbEv':>5} {'tEv':>5} {'FLAG':>4} {'new':>4} "
+           f"{'r3v':>3} {'r3o':>3} {'r3d':>3} {'r3a':>3}")
     print("\n" + hdr)
     totals = Counter()
     notes: list[str] = []
@@ -334,38 +345,48 @@ def run_feeds(args) -> int:
         for raw, feeds_dates in by_date.items():
             if len(feeds_dates) >= 2 and max(feeds_dates) - min(feeds_dates) > dc.TOLERANCE:
                 const = max(const, len(feeds_dates))
-        r3v = r3o = r3d = 0
+        # The pipeline's verdicts for a flagged feed's never-seen items:
+        # verified / older / deferred (fetched, no page date) / admitted (we
+        # could not fetch the page: transport error, HTTP >= 400, a challenge).
+        r3v = r3o = r3d = r3a = 0
         if r["flagged"]:
             for it in r["new"]:
                 pg = pages.get(it.url)
                 if pg is None:
                     continue
                 pdt = pg.get("page_date") if pg.get("fetched") else None
-                if not pg.get("fetched") or pdt is None:
+                if not pg.get("fetched") or pg.get("challenge"):
+                    r3a += 1
+                elif pdt is None:
                     r3d += 1
                 elif dc.is_older(pdt, it.published_at):
                     r3o += 1
                 else:
                     r3v += 1
+        db_col = f"{len(r['db_ev'])}/{r['db_batch']}"
+        tev_col = f"{r['tev']}/{r['tev_batch']}"
         print(f"{d[:34]:34} {len(r['items']):5} {len(r['fresh']):5} {len(r['match']):5} "
               f"{len(smp):3} {fail:4} {nodate:4} {older:5} {older_f:4} {later:5} {const:5} "
-              f"{r['tdate']:5} {r['tolder']:4} {len(r['stored']):4} {len(r['db_ev']):4} "
-              f"{r['tev']:4} {'YES' if r['flagged'] else '':>4} {len(r['new']):4} "
-              f"{r3v:3} {r3o:3} {r3d:3}")
+              f"{r['tdate']:5} {r['tolder']:4} {len(r['stored']):4} {db_col:>5} "
+              f"{tev_col:>5} {'YES' if r['flagged'] else '':>4} {len(r['new']):4} "
+              f"{r3v:3} {r3o:3} {r3d:3} {r3a:3}")
         totals.update(feeds=1, items=len(r["items"]), fresh=len(r["fresh"]), match=len(r["match"]),
                       smp=len(smp), fail=fail, nodate=nodate, older=older, older_f=older_f,
                       smp_fresh=smp_fresh, later=later, flagged=int(r["flagged"]),
-                      new=len(r["new"]), r3v=r3v, r3o=r3o, r3d=r3d)
+                      new=len(r["new"]), r3v=r3v, r3o=r3o, r3d=r3d, r3a=r3a)
         if smp_fresh and older_f * 2 > smp_fresh:
             notes.append(f"R2>50%   {d}: {older_f}/{smp_fresh} fresh sampled items have an older page date")
         if const >= 3:
             notes.append(f"TEMPLATE? {d}: {const} sampled items share one page date across different feed dates")
         if sig_disagree:
             notes.append(f"SIGNALS  {d}: {sig_disagree} pages whose date signals disagree by > tol+day")
-        if r["flagged"]:
+        if r["db_ev"] or r["tev"]:
             notes.append(
-                f"FLAGGED  {d}: db_evidence={len(r['db_ev'])} (fresh-all {len(r['db_ev_all'])}) "
-                f"title_evidence={r['tev']} new={len(r['new'])} -> verified {r3v}, older {r3o}, deferred {r3d}"
+                f"{'FLAGGED ' if r['flagged'] else 'ISOLATED'} {d}: db_evidence={len(r['db_ev'])} "
+                f"(largest 10-min batch {r['db_batch']}, fresh-all {len(r['db_ev_all'])}) "
+                f"title_evidence={r['tev']} (batch {r['tev_batch']}) new={len(r['new'])}"
+                + (f" -> verified {r3v}, older {r3o}, deferred {r3d}, admitted unverified {r3a}"
+                   if r["flagged"] else " -> not flagged")
             )
             for u in r["db_ev"][:3]:
                 s = r["stored"].get(u)
@@ -473,7 +494,14 @@ def run_dry(args) -> int:
     for it in sorted(match, key=lambda i: i.published_at, reverse=True):
         t = trace.get(it.url, "")
         if it.url in persisted:
-            what = "PERSIST-existing" if it.url in stored else ("PERSIST-verified" if t == "verified" else "PERSIST-new")
+            if it.url in stored:
+                what = "PERSIST-existing"
+            elif t == "verified":
+                what = "PERSIST-verified"
+            elif t.startswith("admitted_"):
+                what = "PERSIST-" + t.upper()
+            else:
+                what = "PERSIST-new"
         elif t:
             what = t.upper()
         elif it.url not in enriched_urls:
@@ -483,14 +511,40 @@ def run_dry(args) -> int:
             what = "NOT-PERSISTED(other)"
         outcome[what] += 1
         a = persisted.get(it.url)
-        lines.append(f"  {what:24} feed={_fmt_dt(it.published_at)} {it.url.rsplit('/', 1)[-1][:60]:60} "
-                     f"| {(a.title if a else it.title)[:70]}")
+        kws = ",".join(a.matched_keywords) if a else ""
+        lines.append(f"  {what:28} feed={_fmt_dt(it.published_at)} {it.url.rsplit('/', 1)[-1][:56]:56} "
+                     f"[{kws[:30]}] | {(a.title if a else it.title)[:60]}")
     print("\n=== outcome of the keyword-matched fresh items ===")
     for k, v in sorted(outcome.items()):
-        print(f"  {k:24} {v}")
+        print(f"  {k:28} {v}")
     print("\n".join(lines))
+
+    # The two things this dry run exists to prove, checked item by item on what
+    # WOULD be written: no old post persisted as new, no row kept on the
+    # source's own name alone.
+    from news_hunter import date_credibility as _dc
+    from news_hunter.keyword_senses import drop_own_name
+
+    old_new = own_only = 0
+    for a in captured:
+        if a.url in stored:
+            continue                       # an existing row, not a new one
+        it = next((i for i in items if i.url == a.url), None)
+        if it is not None and it.title:
+            _, td = _dc.split_source_suffix(it.title, source_name_for(it.source_domain))
+            if _dc.is_older(td, it.published_at):
+                old_new += 1
+        ev = _dc.page_seen(a.url)
+        if ev is not None and it is not None and _dc.is_older(ev.page_date, it.published_at):
+            old_new += 1
+        if not drop_own_name(a.matched_keywords, a.domain):
+            own_only += 1
+    print(f"\nnew rows that are old posts (title or page date > 24 h older): {old_new}")
+    print(f"rows kept on the source's own name alone: {own_only}")
     print(f"\nrun_search: n_total={res.get('n_total')} date_page_older={res.get('date_page_older')} "
-          f"date_deferred={res.get('date_deferred')} restamp={res.get('date_restamp_domains')}")
+          f"date_deferred={res.get('date_deferred')} "
+          f"unverified_admitted={res.get('date_unverified_admitted')} "
+          f"own_name_dropped={res.get('own_name_dropped')} restamp={res.get('date_restamp_domains')}")
     return 0
 
 

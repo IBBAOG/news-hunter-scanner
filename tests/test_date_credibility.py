@@ -389,6 +389,104 @@ def test_restamp_uses_min_of_published_and_first_seen():
     assert not dc.restamps("u", datetime(2026, 9, 25, tzinfo=UTC), None)
 
 
+def _epochs(*secs: int) -> list[datetime]:
+    return [datetime.fromtimestamp(s, UTC) for s in secs]
+
+
+def test_batch_rule_on_the_measured_sequences():
+    # news_articles_kpler_restamp_20260925_bak: the six stored posts re-dated
+    # 10:41:49 .. 10:45:08 on 2026-09-25.
+    kpler = _epochs(1790332909, 1790332994, 1790333034, 1790333041, 1790333087, 1790333108)
+    assert dc.largest_batch(kpler) == 6 and dc.is_batch(kpler)
+    # investing.com's four "live levels" pages, re-dated together (09-18).
+    investing = _epochs(1789759113, 1789759120, 1789759122, 1789759126)
+    assert dc.is_batch(investing)
+    # estadao, clamp backup: six unrelated updates in 2.2 h -- never three in
+    # ten minutes (closest pair 6 minutes apart), three within 27 minutes.
+    estadao = _epochs(1788213264, 1788214539, 1788214905, 1788216237, 1788218794, 1788221054)
+    assert dc.largest_batch(estadao) == 2 and not dc.is_batch(estadao)
+    assert dc.largest_batch(estadao, timedelta(minutes=30)) == 3
+    # one or two re-dates are never a batch, whatever their spacing
+    assert not dc.is_batch(kpler[:2]) and not dc.is_batch([]) and not dc.is_batch(kpler[:1])
+
+
+def test_challenge_pages_are_recognised():
+    cloudflare = (
+        "<html><head><title>Just a moment...</title>"
+        '<script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1"></script></head>'
+        "<body><h1>www.example.com</h1></body></html>"
+    )
+    datadome = (
+        '<html><head><title>example.com</title></head><body>'
+        '<iframe src="https://geo.captcha-delivery.com/captcha/?initialCid=x"></iframe></body></html>'
+    )
+    assert dc.looks_like_challenge(_soup(cloudflare))
+    assert dc.looks_like_challenge(_soup(datadome))
+    for title in ("Attention Required! | Cloudflare", "Access denied",
+                  "Access denied | www.example.com used Cloudflare to restrict access",
+                  "Request unsuccessful. Incapsula incident ID: 123-456", "Pardon Our Interruption"):
+        assert dc.looks_like_challenge(_soup(f"<html><head><title>{title}</title></head></html>")), title
+    ev = dc.record_page("https://example.com/blocked", _soup(cloudflare))
+    assert ev.challenge is True and ev.page_date is None
+
+
+def test_articles_are_never_taken_for_challenges():
+    kpler = _kpler_page("Russian barrels to fill Chinese crude stocks?", "")
+    assert not dc.looks_like_challenge(_soup(kpler))
+    headline = ("<html><head><title>Access denied: the week Iran closed the Strait of Hormuz to every "
+                "tanker</title></head><body><h1>Access denied</h1></body></html>")
+    assert not dc.looks_like_challenge(_soup(headline))
+    # a dated page is never judged at all, whatever it embeds
+    dated = ('<html><head><title>Just a moment...</title><meta property="article:published_time" '
+             'content="2026-09-25T08:00:00Z"/></head></html>')
+    assert dc.record_page("https://example.com/dated", _soup(dated)).challenge is False
+
+
+# ---------------------------------------------------------------------------
+# A source's own name is not a keyword on its own domain
+# ---------------------------------------------------------------------------
+
+def test_own_name_registry_is_explicit_and_only_kpler():
+    from news_hunter import keyword_senses as ks
+
+    assert ks.SOURCE_OWN_NAME_KEYWORDS == {"kpler.com": frozenset({"kpler"})}
+    assert ks.own_name_keywords("kpler.com") == {"kpler"}
+    assert ks.own_name_keywords("www.kpler.com") == {"kpler"}
+    assert ks.drop_own_name(["Kpler", "LNG", "Hormuz"], "kpler.com") == ["LNG", "Hormuz"]
+    assert ks.drop_own_name(["kpler"], "www.kpler.com") == []
+    # NOT generic: every Petrobras item on the Petrobras agency is ours.
+    assert ks.drop_own_name(["Petrobras"], "agencia.petrobras.com.br") == ["Petrobras"]
+    assert ks.drop_own_name(["Kpler"], "reuters.com") == ["Kpler"]
+
+
+def test_keep_candidate_ignores_kpler_on_kpler_com():
+    from news_hunter.fetcher import RawItem
+    from news_hunter.pipeline import LEDE_RESCUE_MARKER, _keep_candidate
+
+    kws = ["Kpler", "LNG", "Hormuz", "crude"]
+    now = datetime.now(UTC)
+    marketing = RawItem(
+        url="https://kpler.com/blog/how-to-choose-ship-tracking-software-for-your-business",
+        title="How to choose ship tracking software for your business How to choose the right ship "
+              "tracking software for your business | Kpler - Mar 22, 2026",
+        summary="This guide explains how ship tracking works and how to choose the right solution.",
+        published_at=now - timedelta(hours=1), source_domain="kpler.com", feed_domain="www.kpler.com",
+    )
+    drops: dict[str, int] = {}
+    assert _keep_candidate(marketing, kws, 24, set(), allow_lede_rescue=True,
+                           own_name_drops=drops) == [LEDE_RESCUE_MARKER]
+    assert drops == {"kpler.com": 1}
+    lng = RawItem(
+        url="https://kpler.com/blog/hormuz-risk-and-winter-restocking-keep-lng-bid",
+        title="Hormuz risk and winter restocking keep LNG bid Hormuz risk and winter restocking keep "
+              "LNG bid | Kpler - Sep 09, 2026",
+        summary="", published_at=now - timedelta(hours=1), source_domain="kpler.com",
+        feed_domain="www.kpler.com",
+    )
+    assert _keep_candidate(lng, kws, 24, set(), own_name_drops=drops) == ["Hormuz", "LNG"]
+    assert drops == {"kpler.com": 1}
+
+
 def test_rotate_budget_gives_the_head_its_half_and_rotates_the_rest():
     items = [f"i{n}" for n in range(20)]
     seen: set[str] = set()

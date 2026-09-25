@@ -11,7 +11,9 @@ from urllib.parse import unquote
 from .date_credibility import (
     TOLERANCE as DATE_TOLERANCE,
     clean_title,
+    is_batch,
     is_older,
+    largest_batch,
     page_seen,
     reset_scan as reset_page_evidence,
     restamps,
@@ -22,7 +24,7 @@ from .enrich import _resolve_google_news_url, enrich_item, fetch_page_evidence, 
 from .fetcher import RawItem, iter_collect
 
 from .filter import matches_keywords, strip_related, within_window
-from .keyword_senses import drop_sense_excluded
+from .keyword_senses import drop_own_name, drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
 from .store import (
     Article,
@@ -130,10 +132,13 @@ TRANSLATE_RETRY_DEADLINE = 10.0 # teto da fase
 # --- Stage 4b: date credibility (added 2026-09-25) -------------------------
 # Kpler's feed stamped its re-publish time on 81 of 100 old posts and 75 of them
 # landed as new (date_credibility.py has the incident and the three rules).
-# This stage is R3: a feed caught re-dating a url we already store, or printing
-# an older date in its own titles, has its dates treated as modification times
-# for the rest of the scan -- each never-seen item of it is verified against
-# its page, and what cannot be verified is deferred (not persisted, counted).
+# This stage is R3: a feed caught re-dating a BATCH of urls we already store,
+# or printing a batch of older dates in its own titles
+# (date_credibility.RESTAMP_BATCH_MIN within RESTAMP_BATCH_SPAN), has its dates
+# treated as modification times for the rest of the scan -- each never-seen
+# item of it is verified against its page. A page that was fetched and hides
+# its date, or an exhausted budget, defers the item (not persisted, counted); a
+# page we could not fetch admits it with the feed date, counted as unverified.
 #
 # Bounded like every other fetch phase. Half of a domain's budget goes to its
 # newest items (a genuinely new post lands in the same scan), half rotates
@@ -171,10 +176,15 @@ class _DateStats:
 
     page_older: dict[str, int] = field(default_factory=dict)   # domain -> items re-dated
     title_older: int = 0                                        # of which by the title date
-    restamp_db: dict[str, list[str]] = field(default_factory=dict)  # feed -> stored urls re-dated
-    title_evidence: dict[str, int] = field(default_factory=dict)    # feed -> items whose title date is older
+    # feed -> (url, feed date) of stored urls the feed re-dated
+    restamp_db: dict[str, list[tuple[str, datetime]]] = field(default_factory=dict)
+    # feed -> feed dates of fresh items whose printed title date is older
+    title_evidence: dict[str, list[datetime]] = field(default_factory=dict)
     verified: int = 0
     deferred: dict[str, dict[str, int]] = field(default_factory=dict)  # feed -> reason -> n
+    # feed -> reason -> n: flagged-feed items admitted with the feed date
+    # because their page could not be fetched (never deferred: see R3)
+    unverified: dict[str, dict[str, int]] = field(default_factory=dict)
     lookup_failed: bool = False
     checked: int = 0          # candidates looked up in news_articles (Stage 4b)
     fetched: int = 0          # pages Stage 4b fetched itself
@@ -198,38 +208,66 @@ class _DateStats:
         self.verified += 1
         self.trace.append((url, "verified"))
 
+    def admit(self, feed_domain: str, reason: str, url: str = "") -> None:
+        per = self.unverified.setdefault(feed_domain, {})
+        per[reason] = per.get(reason, 0) + 1
+        self.trace.append((url, f"admitted_{reason}"))
+
     @property
     def n_deferred(self) -> int:
         return sum(sum(v.values()) for v in self.deferred.values())
 
     @property
+    def n_unverified(self) -> int:
+        return sum(sum(v.values()) for v in self.unverified.values())
+
+    @property
     def n_page_older(self) -> int:
         return sum(self.page_older.values())
 
+    def _db_dates(self, fd: str) -> list[datetime]:
+        return [f for _url, f in self.restamp_db.get(fd, [])]
+
+    def is_flagged(self, fd: str) -> bool:
+        """R3 batch rule: a burst of re-dates, never one or two isolated updates."""
+        return is_batch(self._db_dates(fd)) or is_batch(self.title_evidence.get(fd, []))
+
     def flagged(self) -> list[str]:
-        return sorted(set(self.restamp_db) | set(self.title_evidence))
+        return sorted(fd for fd in set(self.restamp_db) | set(self.title_evidence) if self.is_flagged(fd))
+
+    def isolated(self) -> list[str]:
+        """Feeds with some re-date evidence, below the batch threshold (not flagged)."""
+        return sorted(fd for fd in set(self.restamp_db) | set(self.title_evidence) if not self.is_flagged(fd))
+
+    def _evidence(self, fd: str) -> str:
+        # visible/largest-batch, e.g. db=6/6: six re-dated, all six in one batch
+        parts = []
+        if fd in self.restamp_db:
+            dates = self._db_dates(fd)
+            parts.append(f"db={len(dates)}/{largest_batch(dates)}")
+        if fd in self.title_evidence:
+            dates = self.title_evidence[fd]
+            parts.append(f"title={len(dates)}/{largest_batch(dates)}")
+        return f"{fd}({','.join(parts)})"
 
     def log_line(self) -> str:
         def _kv(d: dict[str, int]) -> str:
             return ", ".join(f"{k}={v}" for k, v in sorted(d.items(), key=lambda kv: (-kv[1], kv[0])))
 
-        flagged = []
-        for fd in self.flagged():
-            parts = []
-            if fd in self.restamp_db:
-                parts.append(f"db={len(self.restamp_db[fd])}")
-            if fd in self.title_evidence:
-                parts.append(f"title={self.title_evidence[fd]}")
-            flagged.append(f"{fd}({','.join(parts)})")
-        deferred = "; ".join(
-            f"{fd}: {' '.join(f'{r}={n}' for r, n in sorted(per.items()))}"
-            for fd, per in sorted(self.deferred.items())
-        )
+        def _per_feed(d: dict[str, dict[str, int]]) -> str:
+            return "; ".join(
+                f"{fd}: {' '.join(f'{r}={n}' for r, n in sorted(per.items()))}"
+                for fd, per in sorted(d.items())
+            )
+
         return (
             f"date credibility: page_older={self.n_page_older} [{_kv(self.page_older)}]"
             f" (title_date={self.title_older})"
-            f" restamp_domains=[{', '.join(flagged)}]"
-            f" verified={self.verified} deferred={self.n_deferred} [{deferred}]"
+            f" restamp_domains=[{', '.join(self._evidence(fd) for fd in self.flagged())}]"
+            f" isolated=[{', '.join(self._evidence(fd) for fd in self.isolated())}]"
+            f" verified={self.verified}"
+            f" unverified_admitted={self.n_unverified} [{_per_feed(self.unverified)}]"
+            f" deferred={self.n_deferred} [{_per_feed(self.deferred)}]"
             f" checked={self.checked} fetched={self.fetched} in {self.seconds:.1f}s"
             + (" lookup=FAILED" if self.lookup_failed else "")
         )
@@ -254,6 +292,7 @@ def _keep_candidate(
     exact_keywords: set[str] | None = None,
     *,
     allow_lede_rescue: bool = False,
+    own_name_drops: dict[str, int] | None = None,
 ) -> list[str] | None:
     """Filtragem barata pre-enriquecimento.
 
@@ -269,7 +308,28 @@ def _keep_candidate(
     [LEDE_RESCUE_MARKER] em vez de None. O pipeline busca o corpo de um
     subconjunto limitado desses itens e re-valida a keyword contra o lede.
     Sem esse flag o comportamento e identico ao anterior (descarta).
+
+    A keyword that is the item's own source name does not count on that
+    source's domain (keyword_senses.SOURCE_OWN_NAME_KEYWORDS: `Kpler` on
+    kpler.com). An item whose only hits were its own name is treated as having
+    none, and is counted in `own_name_drops` (domain -> n) when given.
     """
+    own_hit = False
+
+    def _own(labels: list[str] | None) -> list[str] | None:
+        nonlocal own_hit
+        if not labels:
+            return labels
+        kept = drop_own_name(labels, item.source_domain)
+        if not kept:
+            own_hit = True
+        return kept
+
+    def _none() -> None:
+        if own_hit and own_name_drops is not None:
+            own_name_drops[item.source_domain] = own_name_drops.get(item.source_domain, 0) + 1
+        return None
+
     # Janela primeiro: filtra a maioria dos itens sem pagar custo de regex.
     if item.published_at is not None and not within_window(item.published_at, hours):
         return None
@@ -298,26 +358,26 @@ def _keep_candidate(
         if item.published_at is None:
             # Homepage scrapers: usa path inteiro (section + slug) como hint
             path_text = path.replace("-", " ").replace("/", " ")
-            path_match = matches_keywords(path_text, keywords, exact_keywords)
-            return path_match if path_match else None
+            path_match = _own(matches_keywords(path_text, keywords, exact_keywords))
+            return path_match if path_match else _none()
         # Sitemaps WordPress padrao: usa apenas o slug (ultimo segmento)
         slug = path.rstrip("/").rsplit("/", 1)[-1].replace("-", " ")
-        slug_match = matches_keywords(slug, keywords, exact_keywords)
-        return slug_match if slug_match else None
+        slug_match = _own(matches_keywords(slug, keywords, exact_keywords))
+        return slug_match if slug_match else _none()
     # Title-first: titulos sao curtos. Se casou, retorna imediatamente.
     # The summary rides along as SENSE context only (keyword_senses.py): a bare
     # "Compass" in the title is judged together with the "Jeep"/"SUV" of the
     # summary. It never adds hits of its own at this step.
     clean_summary = strip_related(item.summary)
-    matched = matches_keywords(
+    matched = _own(matches_keywords(
         item.title, keywords, exact_keywords, sense_context=clean_summary
-    )
+    ))
     if matched:
         return matched
     summary_match = (
-        matches_keywords(
+        _own(matches_keywords(
             clean_summary, keywords, exact_keywords, sense_context=item.title
-        )
+        ))
         if clean_summary
         else None
     )
@@ -326,8 +386,9 @@ def _keep_candidate(
     # Near-miss: titulo + summary nao casaram. Item de RSS bem-formado
     # (titulo + data presentes) vira candidato a lede rescue; o resto descarta.
     if allow_lede_rescue and item.title and item.published_at is not None:
+        _none()   # counted: the only hit was the source's own name
         return [LEDE_RESCUE_MARKER]
-    return None
+    return _none()
 
 
 def _run_lede_rescue(
@@ -399,10 +460,10 @@ def _run_lede_rescue(
                 continue
             # Re-valida keyword contra titulo + lede. So segue se casar de fato.
             hay = f"{it.title} \n {snippet}"
-            final_match = matches_keywords(
+            final_match = drop_own_name(matches_keywords(
                 hay, keywords, exact_keywords,
                 sense_context=strip_related(it.summary),
-            )
+            ), it.source_domain)
             if not final_match:
                 continue
             rescued += 1
@@ -847,7 +908,10 @@ def _verify_or_defer(
 
     for url, (feed_domain, feed_date) in witnesses.items():
         if restamps(url, feed_date, stored.get(url)):
-            stats.restamp_db.setdefault(feed_domain, []).append(url)
+            stats.restamp_db.setdefault(feed_domain, []).append((url, feed_date))
+    # Batch evidence only (date_credibility.RESTAMP_BATCH_MIN within
+    # RESTAMP_BATCH_SPAN): one or two re-dated urls are updates, not a
+    # re-publication, and flag nothing.
     flagged = set(stats.flagged())
     if not flagged:
         return articles
@@ -903,15 +967,26 @@ def _verify_or_defer(
     for a, o in selected:
         ev = outcome.get(a.url, _DEADLINE)
         if ev is _DEADLINE:
+            # Our own time budget ran out before the page came back: like an
+            # exhausted page budget, the item waits for the next scan.
             stats.defer(o.feed_domain, "deadline", a.url)
             drop.add(a.url)
             continue
         if ev is _FETCH_FAILED:
-            stats.defer(o.feed_domain, "fetch_failed", a.url)
-            drop.add(a.url)
+            # Transport error or HTTP >= 400 (WAF 401/403/406, ...): the source
+            # did not hide a date, WE could not read the page. Deferring would
+            # turn our own block into a zero (investing.com fails 8/8 from the
+            # runner), so the item is admitted with the feed date -- counted.
+            stats.admit(o.feed_domain, "fetch_failed", a.url)
+            continue
+        if ev.challenge:  # type: ignore[union-attr]
+            # A bot-wall interstitial answered with HTTP 200: same as above.
+            stats.admit(o.feed_domain, "challenge", a.url)
             continue
         page_date = ev.page_date  # type: ignore[union-attr]
         if page_date is None:
+            # The page was read and hides its date (Kpler's empty
+            # datePublished): the one case the source itself withholds proof.
             stats.defer(o.feed_domain, "no_page_date", a.url)
             drop.add(a.url)
             continue
@@ -1008,6 +1083,9 @@ def run_search(
     # (url key, feed domain, feed date) of every keyword-matched item of a
     # domain's own feed -- the R3 re-stamp evidence pool.
     evidence_pool: list[tuple[str, str, datetime]] = []
+    # domain -> items whose only keyword hit was the source's own name
+    # (keyword_senses.SOURCE_OWN_NAME_KEYWORDS). Logged every scan.
+    own_name_drops: dict[str, int] = {}
     # Non-article urls dropped before persistence, per EXCLUDED_URL_PATTERNS key
     # (store.py). Counted at the three points an item's real url becomes known —
     # collect, GNews resolve, stage 4 — and each drop removes the item from the
@@ -1087,12 +1165,13 @@ def run_search(
                         and within_window(it.published_at, hours)
                         and _title_date_evidence(it)
                     ):
-                        date_stats.title_evidence[it.feed_domain] = (
-                            date_stats.title_evidence.get(it.feed_domain, 0) + 1
+                        date_stats.title_evidence.setdefault(it.feed_domain, []).append(
+                            it.published_at
                         )
                     matched = _keep_candidate(
                         it, match_keywords, hours, exact_keywords,
                         allow_lede_rescue=True,
+                        own_name_drops=own_name_drops,
                     )
                     if matched is None:
                         continue
@@ -1344,9 +1423,12 @@ def run_search(
 
             final_hay = f"{display_title} \n {snippet}"
             sense_ctx = strip_related(it.summary)
-            final_match = matches_keywords(
+            raw_final = matches_keywords(
                 final_hay, match_keywords, exact_keywords, sense_context=sense_ctx
             )
+            # The source's own name never counts on its own domain (`Kpler` on
+            # kpler.com): its titles, bylines and bodies all say it.
+            final_match = drop_own_name(raw_final, resolved_domain)
             if is_topic:
                 # Site ja e topico — se nao casou keyword especifica, marca como #topic.
                 if not final_match:
@@ -1358,13 +1440,17 @@ def run_search(
                 # without this filter the fallback would resurrect the very hit
                 # the sense exclusion just dropped (keyword_senses.py).
                 if fast_mode and matched:
-                    final_match = drop_sense_excluded(
+                    final_match = drop_own_name(drop_sense_excluded(
                         matched, f"{final_hay} \n {sense_ctx}", exact_keywords
-                    )
+                    ), resolved_domain)
                     if not final_match:
+                        if raw_final and not drop_own_name(raw_final, resolved_domain):
+                            own_name_drops[resolved_domain] = own_name_drops.get(resolved_domain, 0) + 1
                         continue
                 else:
                     # Re-validacao estrita para fontes genericas.
+                    if raw_final:   # every hit was the source's own name
+                        own_name_drops[resolved_domain] = own_name_drops.get(resolved_domain, 0) + 1
                     continue
             # Rewrite native foreign terms to their canonical English concept so
             # the /news-hunter feed's keyword scope surfaces the item (§2.4):
@@ -1410,6 +1496,13 @@ def run_search(
             sum(n_excluded.values()),
             (" (" + ", ".join(f"{k}={v}" for k, v in sorted(n_excluded.items())) + ")")
             if n_excluded else "",
+        )
+        # Same rule for the own-name keyword: every item it took out is counted.
+        log.info(
+            "own-name keywords: %d items matched only their source's own name%s",
+            sum(own_name_drops.values()),
+            (" (" + ", ".join(f"{k}={v}" for k, v in sorted(own_name_drops.items())) + ")")
+            if own_name_drops else "",
         )
 
         if n_dropped_blind:
@@ -1497,7 +1590,9 @@ def run_search(
         "excluded_by_rule": dict(sorted(n_excluded.items())),
         "date_page_older": date_stats.n_page_older,
         "date_deferred": date_stats.n_deferred,
+        "date_unverified_admitted": date_stats.n_unverified,
         "date_restamp_domains": date_stats.flagged(),
+        "own_name_dropped": sum(own_name_drops.values()),
     }
 
 

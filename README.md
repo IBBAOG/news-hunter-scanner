@@ -282,8 +282,10 @@ the feed on 04/08 labelled "13m ago" (481 rows had been poisoned this way since
    listing and the next scan (~5 min) retries it.
 3. **A fabricated date is write-once** (`Article.published_is_approx`).
    `supabase_sync` looks up the existing row and keeps its stored date, so the
-   stamp only ever lands on first discovery. A *real* date found later still
-   overwrites it, so a row is always curable.
+   stamp only ever lands on first discovery. A *real* date found later
+   overwrites it only when it is EARLIER: since migration 20272100000000 the
+   trigger `trg_news_articles_published_at_monotone` lets an UPDATE move
+   `published_at` backwards only.
 
 Regression tests: `tests/test_stale_listing_items.py`.
 
@@ -303,14 +305,21 @@ fetched a page for an item that already had title, date and snippet. The rules
    value ("Apr 01, 2026") counts as the end of its day. A date the feed prints
    at the end of its own title (`"… | Kpler - Jun 30, 2026"`) is read the same
    way, with no fetch.
-2. **Re-stamp evidence means verify or defer (R3).** A feed that dates a url we
-   already store later than `min(published_at, created_at) + 24h` (or prints an
-   older date in the title of a fresh item) is flagged for the scan. Each
-   never-seen item of it must show its page date: fetched within 8 pages per
-   feed per scan, half to the newest items, half rotating through the rest. No
-   page date, a failed fetch or an exhausted budget means **deferred**: not
-   persisted, counted, retried next scan. Google News is exempt: its dates are
-   Google's, and its outlets are the ones that refuse the runner's fetches.
+2. **Batch re-stamp evidence means verify or defer (R3).** News feeds re-date
+   stored articles all the time (updates); a re-publication shows as a
+   **batch**. A feed is flagged for the scan when at least 3 stored urls it
+   re-dates (feed date > `min(published_at, created_at) + 24h`), or at least 3
+   fresh items whose printed title date is older than the feed date, fall within
+   10 minutes of one another (`RESTAMP_BATCH_MIN` / `RESTAMP_BATCH_SPAN`,
+   measured: over 30 days only Kpler and investing.com's weekly "live levels"
+   batch qualify; "any one re-date" would have flagged estadao for 291 h). Each
+   never-seen item of a flagged feed must show its page date, fetched within 8
+   pages per feed per scan (half to the newest items, half rotating). A page
+   that was fetched and hides its date, or an exhausted budget, means
+   **deferred** (not persisted, counted, retried next scan). A page we could not
+   fetch (transport error, HTTP >= 400, a WAF challenge) is **admitted with the
+   feed date**, counted as `unverified_admitted`: our own blocks must not become
+   a zero. Google News is exempt: its dates are Google's.
 3. **Clean titles.** `"<headline> | <own source name>( - <date>)"` loses the
    suffix, and a title ending with the page's `<h1>` after plain whitespace
    (Kpler's `"<SEO title> <headline>"`) becomes the `<h1>`.
@@ -320,8 +329,11 @@ Stored rows are not this rule's concern: the database keeps
 included:
 
 ```
-date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.cbsnews.com(db=1), www.investing.com(db=3), www.kpler.com(db=6,title=60)] verified=0 deferred=7 [www.kpler.com: no_page_date=7] checked=431 fetched=7 in 3.2s
+date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.investing.com(db=3/3), www.kpler.com(db=6/6,title=60/12)] isolated=[www.cbsnews.com(db=1/1)] verified=0 unverified_admitted=0 [] deferred=7 [www.kpler.com: no_page_date=7] checked=431 fetched=7 in 3.2s
 ```
+
+`db=6/6` reads "6 re-dated urls visible, 6 of them in one 10-minute batch";
+`isolated` lists feeds with re-date evidence below the batch threshold.
 
 Measure before touching a threshold: `diagnose_date_credibility.yml` samples
 every registered feed's pages from the runner (R2 re-dates, template dates, R3
@@ -984,3 +996,18 @@ another company from the Cosan business.
 
 Adding a keyword: add an entry, tune it against real rows (read-only SQL), and
 extend `tests/test_keyword_sense_exclusions.py` with those rows.
+
+### A source's own name (2026-09-25)
+
+A different problem sits next to it: the text is not ambiguous, the source is.
+Every kpler.com item says "Kpler" (the `| Kpler - <date>` title suffix, the
+body, the byline), so the `Kpler` keyword -- meant for what OTHER outlets write
+about the company -- matched Kpler's whole blog: 38 of 103 kpler.com rows on
+2026-09-25 matched only `Kpler` (marketing posts such as "How to choose ship
+tracking software for your business"). `SOURCE_OWN_NAME_KEYWORDS` in
+`keyword_senses.py` lists, per domain, keywords that do not count there; every
+stage (title, summary, slug, lede rescue, Stage 4 and its fast-mode fallback)
+drops them, and an item left with no keyword is not persisted, counted in the
+`own-name keywords:` line each scan logs. The only entry is `kpler.com ->
+{kpler}`. It is explicit on purpose, never derived from the display name:
+`Petrobras` on agencia.petrobras.com.br is exactly what we want.
