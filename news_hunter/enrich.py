@@ -9,6 +9,14 @@ Ordem:
 
 Tambem preenche published_at quando o RSS nao trouxe, lendo meta
 article:published_time ou JSON-LD datePublished.
+
+Date credibility (R2, 2026-09-25): whenever the page HTML is at hand, the
+page's OWN publication date is read too (date_credibility.page_published_date)
+and it replaces the feed date when it is earlier by more than
+date_credibility.TOLERANCE -- a feed that stamps its re-publish time on an old
+post cannot make it look new. Every parsed page is also recorded for the rest
+of the scan (date_credibility.record_page), so the verification phase does not
+fetch it twice.
 """
 from __future__ import annotations
 
@@ -24,6 +32,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 
+from .date_credibility import PageEvidence, credible_published, record_page
 from .fetcher import RSS_THIN_SUMMARY_CHARS, RawItem
 from .filter import strip_wp_footer
 
@@ -232,6 +241,23 @@ def _resolve_google_news_url(url: str) -> tuple[str, str]:
     return url, urlparse(url).netloc.lower()
 
 
+def fetch_page_evidence(url: str, *, timeout: int = 6) -> PageEvidence | None:
+    """Fetch one article page for the date-credibility check. None if the fetch failed.
+
+    The same fetch_html the enrich path uses (browser impersonation on a 403,
+    the Brasil Energia session), so "verified" means "the page the reader would
+    open says so". The result is recorded for the scan like any enrich fetch.
+    """
+    if fetch_html is None or not url or url.startswith("https://news.google.com/"):
+        return None
+    try:
+        html = fetch_html(url, timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        log.debug("fetch_html (date check) falhou em %s: %s", url, e)
+        return None
+    return record_page(url, BeautifulSoup(html, "lxml"))
+
+
 def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippet: bool = True) -> tuple[str, datetime | None, str, str, str]:
     """Retorna (snippet, published_at, url_resolvida, dominio_resolvido, titulo).
 
@@ -270,6 +296,10 @@ def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippe
         return snippet, published, resolved_url, resolved_domain, extracted_title
 
     soup = BeautifulSoup(html, "lxml")
+    # What the page says about itself (publication date, <h1>), remembered for
+    # the rest of the scan: the date-credibility phase and the title cleaner
+    # read it back instead of fetching the page again.
+    page = record_page(resolved_url, soup)
 
     # Extrai titulo da pagina se o feed nao trouxe
     if not item.title:
@@ -280,6 +310,11 @@ def enrich_item(item: RawItem, *, resolve_google_news: bool = False, need_snippe
         _, meta_pub = _extract_from_meta(soup)
         if meta_pub:
             published = meta_pub
+    else:
+        # R2: the earliest credible date wins. A feed <pubDate> can be the
+        # re-publish time (Kpler, 2026-09-25); the page's own datePublished,
+        # when earlier by more than the tolerance, is the truth.
+        published = credible_published(published, page.page_date)
 
     if snippet:
         return snippet, published, resolved_url, resolved_domain, extracted_title

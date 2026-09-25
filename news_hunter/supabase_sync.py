@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 if TYPE_CHECKING:
+    from .date_credibility import StoredDates
     from .store import Article
 
 log = logging.getLogger(__name__)
@@ -119,6 +120,41 @@ class _SupabaseSink:
                 url, pub = r.get("url"), r.get("published_at")
                 if url and pub:
                     out[url] = pub
+        return out
+
+    def _existing_dates(self, urls: list[str]) -> dict[str, "StoredDates"] | None:
+        """published_at + created_at of the rows that already exist. None on failure.
+
+        The date-credibility phase (pipeline._run_date_credibility) needs both:
+        a feed that dates a stored url later than min(published_at, created_at)
+        + tolerance is re-stamping. created_at is write-once (column DEFAULT
+        now(), never in an upsert payload), so it still holds the first-seen
+        time of a row whose published_at an earlier re-stamp already pushed
+        forward. {} when the client is not configured (local runs).
+        """
+        from .date_credibility import StoredDates, parse_stored_timestamp
+
+        if self.client is None or not urls:
+            return {}
+        out: dict[str, StoredDates] = {}
+        for chunk in _chunk_urls_for_query(urls):
+            try:
+                res = (
+                    self.client.table(self.table)
+                    .select("url, published_at, created_at")
+                    .in_("url", chunk)
+                    .execute()
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("lookup de datas gravadas falhou (%d urls): %s", len(chunk), e)
+                return None
+            for r in res.data or []:
+                url = r.get("url")
+                if url:
+                    out[url] = StoredDates(
+                        published_at=parse_stored_timestamp(r.get("published_at")),
+                        created_at=parse_stored_timestamp(r.get("created_at")),
+                    )
         return out
 
     def _freeze_approx_dates(
@@ -424,6 +460,22 @@ def _article_to_row(
         "title_en": tx.get("title_en", a.title_en),
         "snippet_en": tx.get("snippet_en", a.snippet_en),
     }
+
+
+def existing_dates(urls: list[str]) -> dict[str, "StoredDates"] | None:
+    """Module-level door to _SupabaseSink._existing_dates (see there).
+
+    {} when Supabase is not configured or `urls` is empty; None when the lookup
+    fails -- the caller then defers the rows it cannot judge, the same rule
+    _freeze_approx_dates follows.
+    """
+    if not urls:
+        return {}
+    try:
+        return get_sink()._existing_dates(urls)
+    except Exception as e:  # noqa: BLE001
+        log.warning("existing_dates falhou: %s", e)
+        return None
 
 
 def urls_with_snippet(urls: list[str]) -> set[str] | None:

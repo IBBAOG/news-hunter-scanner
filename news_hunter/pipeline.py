@@ -4,10 +4,21 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 
-from .enrich import _resolve_google_news_url, enrich_item, source_name_for
+from .date_credibility import (
+    TOLERANCE as DATE_TOLERANCE,
+    clean_title,
+    is_older,
+    page_seen,
+    reset_scan as reset_page_evidence,
+    restamps,
+    rotate_budget,
+    split_source_suffix,
+)
+from .enrich import _resolve_google_news_url, enrich_item, fetch_page_evidence, source_name_for
 from .fetcher import RawItem, iter_collect
 
 from .filter import matches_keywords, strip_related, within_window
@@ -114,6 +125,101 @@ TRANSLATE_CAP = 40           # max itens traduzidos por scan (espelha LEDE_RESCU
 TRANSLATE_RETRY_CAP = 20        # max rows retried per scan (inside TRANSLATE_CAP)
 TRANSLATE_RETRY_DAYS = 7        # only rows published in the last N days
 TRANSLATE_RETRY_DEADLINE = 10.0 # teto da fase
+
+
+# --- Stage 4b: date credibility (added 2026-09-25) -------------------------
+# Kpler's feed stamped its re-publish time on 81 of 100 old posts and 75 of them
+# landed as new (date_credibility.py has the incident and the three rules).
+# This stage is R3: a feed caught re-dating a url we already store, or printing
+# an older date in its own titles, has its dates treated as modification times
+# for the rest of the scan -- each never-seen item of it is verified against
+# its page, and what cannot be verified is deferred (not persisted, counted).
+#
+# Bounded like every other fetch phase. Half of a domain's budget goes to its
+# newest items (a genuinely new post lands in the same scan), half rotates
+# through the rest with the 5-minute scan bucket (a re-stamped feed carries
+# dozens of "fresh" old posts, and without the rotation a real one sitting
+# behind them would never get its turn).
+DATE_VERIFY_WORKERS = 8
+DATE_VERIFY_DEADLINE = 10.0   # teto da fase (fetch_html = 6s/item)
+DATE_VERIFY_CAP = 32          # max page fetches per scan (global)
+DATE_VERIFY_CAP_DOMAIN = 8    # max page fetches per flagged feed per scan
+DATE_VERIFY_BUCKET_SECONDS = 300
+# Google News is not a domain's own feed: its dates are Google's, and the
+# GNews-only outlets are exactly the ones that refuse page fetches from the
+# runner (reuters 401, bloomberg / asharq / arabnews 403 -- README "Why an
+# article can reach the feed with no body"). "Verify or defer" there would be
+# "defer": a silent zero. Measured 2026-09-25 against news_articles, Google
+# re-dates stored urls of wsj / asharqbusiness / moneycontrol / reuters in
+# 10-30% of any 30-day window. R2 still applies to those items whenever their
+# page IS fetched (snippet backfill).
+DATE_CHECK_EXEMPT_FEEDS: frozenset[str] = frozenset({"news.google.com"})
+
+
+@dataclass(frozen=True)
+class _Origin:
+    """Where a persisted candidate's date came from (for Stage 4b)."""
+
+    feed_domain: str
+    feed_date: datetime | None   # the feed's own date; None when fabricated/absent
+    fetch_url: str               # the url enrich fetched (pre-normalisation)
+
+
+@dataclass
+class _DateStats:
+    """Everything the one-line "date credibility" log reports."""
+
+    page_older: dict[str, int] = field(default_factory=dict)   # domain -> items re-dated
+    title_older: int = 0                                        # of which by the title date
+    restamp_db: dict[str, list[str]] = field(default_factory=dict)  # feed -> stored urls re-dated
+    title_evidence: dict[str, int] = field(default_factory=dict)    # feed -> items whose title date is older
+    verified: int = 0
+    deferred: dict[str, dict[str, int]] = field(default_factory=dict)  # feed -> reason -> n
+    lookup_failed: bool = False
+
+    def older(self, domain: str, *, by_title: bool = False) -> None:
+        self.page_older[domain] = self.page_older.get(domain, 0) + 1
+        if by_title:
+            self.title_older += 1
+
+    def defer(self, feed_domain: str, reason: str) -> None:
+        per = self.deferred.setdefault(feed_domain, {})
+        per[reason] = per.get(reason, 0) + 1
+
+    @property
+    def n_deferred(self) -> int:
+        return sum(sum(v.values()) for v in self.deferred.values())
+
+    @property
+    def n_page_older(self) -> int:
+        return sum(self.page_older.values())
+
+    def flagged(self) -> list[str]:
+        return sorted(set(self.restamp_db) | set(self.title_evidence))
+
+    def log_line(self) -> str:
+        def _kv(d: dict[str, int]) -> str:
+            return ", ".join(f"{k}={v}" for k, v in sorted(d.items(), key=lambda kv: (-kv[1], kv[0])))
+
+        flagged = []
+        for fd in self.flagged():
+            parts = []
+            if fd in self.restamp_db:
+                parts.append(f"db={len(self.restamp_db[fd])}")
+            if fd in self.title_evidence:
+                parts.append(f"title={self.title_evidence[fd]}")
+            flagged.append(f"{fd}({','.join(parts)})")
+        deferred = "; ".join(
+            f"{fd}: {' '.join(f'{r}={n}' for r, n in sorted(per.items()))}"
+            for fd, per in sorted(self.deferred.items())
+        )
+        return (
+            f"date credibility: page_older={self.n_page_older} [{_kv(self.page_older)}]"
+            f" (title_date={self.title_older})"
+            f" restamp_domains=[{', '.join(flagged)}]"
+            f" verified={self.verified} deferred={self.n_deferred} [{deferred}]"
+            + (" lookup=FAILED" if self.lookup_failed else "")
+        )
 
 
 # Sentinela: item de RSS que passou a janela mas nao casou keyword no titulo
@@ -367,7 +473,11 @@ def _backfill_candidates(empty: list[Article]) -> list[Article]:
     return out
 
 
-def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
+def _run_snippet_backfill(
+    articles: list[Article],
+    errors: list[str],
+    redated: list[tuple[Article, datetime]] | None = None,
+) -> int:
     """Busca o corpo dos artigos aprovados que ainda estao sem snippet.
 
     Roda sobre o conjunto FINAL (to_persist), depois do stage 4 e antes da
@@ -377,6 +487,11 @@ def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
     Reusa enrich_item(need_snippet=True), o mesmo caminho do lede rescue, em vez
     de repetir fetch+extractor aqui: quando um extractor de dominio melhora, as
     duas fases melhoram juntas.
+
+    Date credibility (R2): the fetch also reads the page's own publication date,
+    and enrich_item hands back the earlier one. Articles whose page proved them
+    older than their feed date are appended to `redated` as (article, page
+    date); the caller re-applies the window. The page <h1> also cleans the title.
 
     Retorna quantos snippets foram preenchidos. Fail-soft: qualquer erro deixa o
     artigo exatamente como estava (sem snippet), que e o comportamento de hoje.
@@ -438,6 +553,16 @@ def _run_snippet_backfill(articles: list[Article], errors: list[str]) -> int:
             if snippet and snippet.strip():
                 a.snippet = snippet
                 filled += 1
+            if (
+                redated is not None
+                and _pub is not None
+                and a.published_at is not None
+                and _pub < a.published_at - DATE_TOLERANCE
+            ):
+                redated.append((a, _pub))
+            ev = page_seen(a.url)
+            if ev is not None and ev.headlines:
+                a.title = clean_title(a.title, a.source_name, ev.headlines)
         for fut in not_done:
             fut.cancel()
     finally:
@@ -587,6 +712,179 @@ def _run_translation_retry(attempted: set, errors: list[str]) -> int:
     return filled
 
 
+def _title_date_evidence(it: RawItem) -> bool:
+    """R3 extra evidence: the feed's own title prints an older date than its <pubDate>.
+
+    "<headline> | <Source> - Mon DD, YYYY" with the item's own source name
+    (date_credibility.split_source_suffix). No fetch: a string test per item.
+    Measured 2026-09-25 over every stored title: only kpler.com carries the
+    shape (63 of its 100 feed items).
+    """
+    if it.published_at is None or not it.title or "|" not in it.title:
+        return False
+    _, tdate = split_source_suffix(it.title, source_name_for(it.source_domain))
+    return is_older(tdate, it.published_at)
+
+
+def _interleave(groups: list[list]) -> list:
+    """Round-robin across groups, so a global cap is shared fairly."""
+    out: list = []
+    for rank in range(max((len(g) for g in groups), default=0)):
+        for g in groups:
+            if rank < len(g):
+                out.append(g[rank])
+    return out
+
+
+_FETCH_FAILED = object()
+_DEADLINE = object()
+
+
+def _run_date_credibility(
+    articles: list[Article],
+    origins: dict[str, _Origin],
+    stats: _DateStats,
+    *,
+    hours: int,
+    now: datetime,
+    errors: list[str],
+) -> list[Article]:
+    """Stage 4b (R3): verify or defer the never-seen items of re-stamping feeds.
+
+    A feed is flagged in this scan when it re-dates a url we already store
+    (feed date > min(stored published_at, created_at) + tolerance) or when its
+    own titles print an older date than its <pubDate> (stats.title_evidence,
+    filled during collect). Each never-seen candidate of a flagged feed must
+    show its page date: fetched here unless enrich already read the page this
+    scan. Outcomes:
+
+      page date within tolerance of the feed date -> verified, kept
+      page date older                              -> re-dated (window decides)
+      no page date / fetch failed / over budget /
+      deadline                                     -> deferred, not persisted
+
+    Rows already stored are never deferred: they are not new, and the database
+    keeps their published_at monotone. If the lookup itself fails no row can be
+    judged, so every candidate is deferred for this scan -- the rule
+    _freeze_approx_dates follows (losing an insert for 5 minutes is
+    reversible; showing a months-old post as new is not).
+
+    Returns the articles to persist.
+    """
+    from . import supabase_sync
+
+    candidates: list[tuple[Article, _Origin]] = []
+    seen: set[str] = set()
+    for a in articles:
+        o = origins.get(a.url)
+        if (
+            o is None
+            or a.url in seen
+            or o.feed_date is None
+            or a.published_is_approx
+            or o.feed_domain in DATE_CHECK_EXEMPT_FEEDS
+        ):
+            continue
+        seen.add(a.url)
+        candidates.append((a, o))
+    if not candidates:
+        return articles
+
+    stored = supabase_sync.existing_dates([a.url for a, _ in candidates])
+    if stored is None:
+        stats.lookup_failed = True
+        for _a, o in candidates:
+            stats.defer(o.feed_domain, "lookup_failed")
+        drop = {a.url for a, _ in candidates}
+        return [a for a in articles if a.url not in drop]
+
+    for a, o in candidates:
+        if restamps(a.url, o.feed_date, stored.get(a.url)):
+            stats.restamp_db.setdefault(o.feed_domain, []).append(a.url)
+    flagged = set(stats.flagged())
+    if not flagged:
+        return articles
+
+    by_feed: dict[str, list[tuple[Article, _Origin]]] = {}
+    for a, o in candidates:
+        if o.feed_domain in flagged and a.url not in stored:
+            by_feed.setdefault(o.feed_domain, []).append((a, o))
+    if not by_feed:
+        return articles
+
+    bucket = int(now.timestamp() // DATE_VERIFY_BUCKET_SECONDS)
+    per_feed_selected: list[list[tuple[Article, _Origin]]] = []
+    over: list[tuple[Article, _Origin]] = []
+    for fd in sorted(by_feed):
+        items = sorted(by_feed[fd], key=lambda ao: ao[1].feed_date, reverse=True)
+        sel, rest = rotate_budget(items, DATE_VERIFY_CAP_DOMAIN, bucket=bucket)
+        per_feed_selected.append(sel)
+        over.extend(rest)
+    ordered = _interleave(per_feed_selected)
+    selected, over_global = ordered[:DATE_VERIFY_CAP], ordered[DATE_VERIFY_CAP:]
+    over.extend(over_global)
+
+    outcome: dict[str, object] = {}
+    to_fetch: list[tuple[Article, _Origin]] = []
+    for a, o in selected:
+        ev = page_seen(o.fetch_url) or page_seen(a.url)
+        if ev is not None:
+            outcome[a.url] = ev
+        else:
+            to_fetch.append((a, o))
+    if to_fetch:
+        ex = ThreadPoolExecutor(max_workers=DATE_VERIFY_WORKERS)
+        try:
+            futs = {ex.submit(fetch_page_evidence, o.fetch_url): (a, o) for a, o in to_fetch}
+            done, not_done = wait(futs.keys(), timeout=DATE_VERIFY_DEADLINE)
+            for fut in done:
+                a, _o = futs[fut]
+                try:
+                    ev = fut.result()
+                except Exception as e:  # noqa: BLE001
+                    errors.append(f"date check {a.url}: {e!s}")
+                    ev = None
+                outcome[a.url] = ev if ev is not None else _FETCH_FAILED
+            for fut in not_done:
+                fut.cancel()
+                outcome[futs[fut][0].url] = _DEADLINE
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
+
+    drop: set[str] = set()
+    for a, o in selected:
+        ev = outcome.get(a.url, _DEADLINE)
+        if ev is _DEADLINE:
+            stats.defer(o.feed_domain, "deadline")
+            drop.add(a.url)
+            continue
+        if ev is _FETCH_FAILED:
+            stats.defer(o.feed_domain, "fetch_failed")
+            drop.add(a.url)
+            continue
+        page_date = ev.page_date  # type: ignore[union-attr]
+        if page_date is None:
+            stats.defer(o.feed_domain, "no_page_date")
+            drop.add(a.url)
+            continue
+        if is_older(page_date, o.feed_date):
+            stats.older(a.domain)
+            a.published_at = page_date.value
+            if not within_window(a.published_at, hours):
+                drop.add(a.url)
+            continue
+        stats.verified += 1
+        headlines = ev.headlines  # type: ignore[union-attr]
+        if headlines:
+            a.title = clean_title(a.title, a.source_name, headlines)
+    for _a, o in over:
+        stats.defer(o.feed_domain, "over_budget")
+        drop.add(_a.url)
+    if not drop:
+        return articles
+    return [a for a in articles if a.url not in drop]
+
+
 def run_search(
     *,
     include_google_news: bool = True,
@@ -655,6 +953,10 @@ def run_search(
     n_translated = 0
     n_retried = 0
     n_backfilled = 0
+    # Date credibility (Stage 4b): pages read by this scan, and the counters of
+    # the one INFO line every scan logs (zero included).
+    reset_page_evidence()
+    date_stats = _DateStats()
     # Non-article urls dropped before persistence, per EXCLUDED_URL_PATTERNS key
     # (store.py). Counted at the three points an item's real url becomes known —
     # collect, GNews resolve, stage 4 — and each drop removes the item from the
@@ -721,6 +1023,22 @@ def run_search(
                     if _ex:
                         n_excluded[_ex] = n_excluded.get(_ex, 0) + 1
                         continue
+                    # R3 extra evidence, read off every item the feed presents
+                    # as fresh, keyword match or not (no fetch): a title that
+                    # prints an older date than the <pubDate> proves this
+                    # feed's dates are modification times. Fresh items only, so
+                    # the flag lasts while the feed is passing old posts off as
+                    # new -- not for as long as a re-stamped post stays anywhere
+                    # in a 100-item feed.
+                    if (
+                        it.feed_domain not in DATE_CHECK_EXEMPT_FEEDS
+                        and it.published_at is not None
+                        and within_window(it.published_at, hours)
+                        and _title_date_evidence(it)
+                    ):
+                        date_stats.title_evidence[it.feed_domain] = (
+                            date_stats.title_evidence.get(it.feed_domain, 0) + 1
+                        )
                     matched = _keep_candidate(
                         it, match_keywords, hours, exact_keywords,
                         allow_lede_rescue=True,
@@ -862,6 +1180,8 @@ def run_search(
         # nem re-validacao de keyword (a pagina em si garante relevancia).
         now = datetime.now(timezone.utc)
         to_persist: list[Article] = []
+        # url (normalised) -> where its date came from, for Stage 4b.
+        origins: dict[str, _Origin] = {}
         n_dropped_blind = 0
         for it, matched, snippet, published, resolved_url, resolved_domain, ext_title in enriched:
             # Last gate before persistence: enrich can hand back a url the
@@ -904,6 +1224,23 @@ def run_search(
                     # Sem titulo real e sem data nao ha noticia: o que sobraria
                     # e um slug carimbado com a hora de agora. Descarta.
                     continue
+            # R2, the earliest credible date wins. enrich_item already swapped
+            # in the page's own date when it had the page (lede rescue, the
+            # fetch path); the date a feed prints at the end of its own title
+            # ("... | Kpler - Jun 30, 2026") costs no fetch and is read here.
+            # Either way the window below drops an old item -- counted, never
+            # silent.
+            source_name = source_name_for(resolved_domain)
+            feed_date = it.published_at
+            if feed_date is not None and not published_is_approx:
+                by_title = False
+                if real_title and "|" in real_title:
+                    _, title_date = split_source_suffix(real_title, source_name)
+                    if is_older(title_date, feed_date) and title_date.value < published:  # type: ignore[union-attr]
+                        published = title_date.value  # type: ignore[union-attr]
+                        by_title = True
+                if published < feed_date - DATE_TOLERANCE:
+                    date_stats.older(resolved_domain, by_title=by_title)
             if not within_window(published, hours):
                 continue
             # Wrapper Google News nao resolvido = link quebrado, descarta.
@@ -921,7 +1258,13 @@ def run_search(
             # REAL (nao fabricada): e o caso dos sitemaps WordPress, cujo
             # <lastmod> da a data mesmo quando o fetch da pagina falha.
             if real_title:
-                display_title = real_title
+                # T: "<headline> | <own source>( - <date>)" loses the suffix,
+                # and a title ending with the page's <h1> becomes the h1 (only
+                # when enrich read the page this scan).
+                page_ev = page_seen(resolved_url)
+                display_title = clean_title(
+                    real_title, source_name, page_ev.headlines if page_ev else ()
+                )
             else:
                 # Fallback: slug da URL. urldecode percent-escapes (%C3%A1 -> á)
                 # e capitaliza como sentence case — senao fica "projeto cine petrobras...".
@@ -971,10 +1314,11 @@ def run_search(
                 if c not in canon_match:
                     canon_match.append(c)
             final_match = canon_match
+            article_url = normalize_url(resolved_url)
             to_persist.append(Article(
-                url=normalize_url(resolved_url),
+                url=article_url,
                 domain=resolved_domain,
-                source_name=source_name_for(resolved_domain),
+                source_name=source_name,
                 title=display_title,
                 snippet=snippet,
                 published_at=published,
@@ -983,6 +1327,18 @@ def run_search(
                 published_is_approx=published_is_approx,
                 source_lang=it.source_lang,
             ))
+            origins.setdefault(article_url, _Origin(
+                feed_domain=it.feed_domain,
+                feed_date=None if published_is_approx else feed_date,
+                fetch_url=resolved_url,
+            ))
+
+        # --- Stage 4b: date credibility (added 2026-09-25) --------------------
+        # R3: never-seen items of a feed caught re-stamping are verified
+        # against their page or deferred. See _run_date_credibility.
+        to_persist = _run_date_credibility(
+            to_persist, origins, date_stats, hours=hours, now=now, errors=errors,
+        )
 
         # Always logged, zero included: a filter nobody can see the size of is
         # a filter nobody notices eating real articles.
@@ -1007,7 +1363,23 @@ def run_search(
         # Espelho do lede rescue para quem casou no TITULO: busca o corpo dos
         # aprovados que continuam sem snippet. Antes da traducao de proposito,
         # para que um item estrangeiro backfillado ja saia com snippet_en.
-        n_backfilled = _run_snippet_backfill(to_persist, errors)
+        backfill_redated: list[tuple[Article, datetime]] = []
+        n_backfilled = _run_snippet_backfill(to_persist, errors, backfill_redated)
+        # R2 on the backfill's own page fetches: an article whose page proved it
+        # older than its feed date takes the page date, and the window decides.
+        if backfill_redated:
+            late_drop: set[str] = set()
+            for a, page_date in backfill_redated:
+                date_stats.older(a.domain)
+                a.published_at = page_date
+                if not within_window(page_date, hours):
+                    late_drop.add(a.url)
+            if late_drop:
+                to_persist = [a for a in to_persist if a.url not in late_drop]
+
+        # Always logged, zero included: a date rule nobody can see the size of
+        # is a rule nobody notices eating real articles.
+        log.info(date_stats.log_line())
 
         # --- Stage 3c: translate the kept FOREIGN items to English (§3) ------
         # Runs on the final kept set, after enrich + lede — never the firehose.
@@ -1060,6 +1432,9 @@ def run_search(
         "translation_retried": n_retried,
         "excluded": sum(n_excluded.values()),
         "excluded_by_rule": dict(sorted(n_excluded.items())),
+        "date_page_older": date_stats.n_page_older,
+        "date_deferred": date_stats.n_deferred,
+        "date_restamp_domains": date_stats.flagged(),
     }
 
 
