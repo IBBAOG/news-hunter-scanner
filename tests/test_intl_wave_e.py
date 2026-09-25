@@ -59,21 +59,9 @@ WAVE_5E_GNEWS = (
 # from the README directory.
 WAVE_5E_REJECTED = ("naturalgasworld.com", "opisnet.com", "petrolplaza.com")
 
-# Registered by this wave, then PAUSED: the RSS_FEEDS entry is commented out
-# while the outlet stays tagged INTERNATIONAL in both forms (still checked below).
-# kpler.com, 2026-09-25: its Webflow feed re-stamps <pubDate> on every
-# re-publish -- see the comment on its RSS_FEEDS entry.
-WAVE_5E_PAUSED = frozenset({"kpler.com"})
-
 
 def test_every_rss_registration_has_its_feed():
     for apex, key in WAVE_5E_RSS.items():
-        if apex in WAVE_5E_PAUSED:
-            assert key not in RSS_FEEDS, (
-                f"{apex} is back in RSS_FEEDS: drop it from WAVE_5E_PAUSED here "
-                "and from _PAUSED_FEEDS in test_international_rss_source_lang.py"
-            )
-            continue
         assert key in RSS_FEEDS, f"{apex}: RSS_FEEDS entry missing"
         assert RSS_FEEDS[key], f"{apex}: registered with no feed url"
 
@@ -175,8 +163,6 @@ def test_every_wave_5e_feed_url_is_served_by_its_own_host():
     assertion proves nothing about the host).
     """
     for apex, key in WAVE_5E_RSS.items():
-        if apex in WAVE_5E_PAUSED:
-            continue
         for url in RSS_FEEDS[key]:
             netloc = urlparse(url).netloc.lower()
             assert netloc == apex or netloc.endswith("." + apex), (

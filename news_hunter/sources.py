@@ -1547,15 +1547,10 @@ RSS_FEEDS: dict[str, list[str]] = {
     # articles with bodies, so it is the better surface. One bounded false
     # positive inside the feed set: a US labour-market note matching on `Kpler`
     # alone. Feed and article links are www -> apex kpler.com.
-    # PAUSED 2026-09-25: this Webflow feed re-stamps <pubDate> on every
-    # re-publish (the real date is the page's JSON-LD datePublished), so Kpler
-    # re-publishing its back catalogue that day put 75 old posts into
-    # news_articles as new. Re-enable ONLY together with the date-credibility
-    # guard. kpler.com stays in INTERNATIONAL_RSS_DOMAINS, SOURCE_NAMES and
-    # EXTRACTORS on purpose.
-    # "www.kpler.com": [
-    #     "https://www.kpler.com/blog/rss.xml",
-    # ],
+    # Re-enabled 2026-09-25 with the date-credibility guard (Stage 4b; see README).
+    "www.kpler.com": [
+        "https://www.kpler.com/blog/rss.xml",
+    ],
     # US EIA -- Today in Energy (eia.gov). The 2026-08-18 waves LOST this feed to
     # the 4s FEED_TIMEOUT (it measured 9-13s then and was recorded as an error);
     # re-measured 2026-09-14 with feed_timeout=15 it is alive, dated and
