@@ -155,15 +155,37 @@ def test_empty_date_published_is_no_date_even_with_a_date_modified():
     assert dc.page_published_date(_soup(html)) is None
 
 
-def test_meta_article_published_time_comes_first():
+def test_two_page_dates_that_disagree_trust_none():
+    # One of them is wrong, and a wrong OLDER date would drop a new article.
     html = (
         '<html><head><meta property="article:published_time" content="2026-09-25T08:00:00Z"/>'
         '<script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-01-01"}</script>'
         "</head><body></body></html>"
     )
+    sig = dc.read_page_signals(_soup(html))
+    assert sig.published is None and sig.conflict
+    ev = dc.record_page("https://example.com/disagree", _soup(html))
+    assert ev.page_date is None and ev.conflict and ev.read
+
+
+def test_the_articles_own_date_comes_first_when_the_dates_agree():
+    html = (
+        '<html><head><meta property="article:published_time" content="2026-09-25T08:00:00Z"/>'
+        '<script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-09-25T07:58:00Z"}'
+        "</script></head><body></body></html>"
+    )
     p = dc.page_published_date(_soup(html))
-    assert p is not None and p.value == datetime(2026, 9, 25, 8, 0, tzinfo=UTC)
-    assert p.source == "meta:article:published_time"
+    assert p is not None and p.source == "jsonld:NewsArticle"
+    assert p.value == datetime(2026, 9, 25, 7, 58, tzinfo=UTC)
+
+
+def test_a_date_only_value_agrees_with_a_time_on_the_same_day():
+    day = dc.parse_date_value("Sep 24, 2026", now=NOW)
+    late = dc.parse_date_value("2026-09-24T23:30:00Z", now=NOW)
+    far = dc.parse_date_value("2026-09-27T00:00:01Z", now=NOW)
+    assert not dc.dates_disagree([day, late])
+    assert dc.dates_disagree([day, far])
+    assert not dc.dates_disagree([day])
 
 
 def test_itemprop_date_published_is_read():
@@ -218,11 +240,14 @@ def test_meta_name_date_is_read_after_the_specific_signals():
     html = '<html><head><meta name="date" content="2026-09-21"/></head><body><h1>x y z</h1></body></html>'
     p = dc.page_published_date(_soup(html))
     assert p is not None and p.value == datetime(2026, 9, 21, tzinfo=UTC) and p.source == "meta:date"
-    # an article-typed JSON-LD entity is more specific and wins
-    both = ('<html><head><meta name="date" content="2026-09-21"/>'
-            '<script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-09-24T08:00:00Z"}'
-            "</script></head></html>")
-    assert dc.page_published_date(_soup(both)).value == datetime(2026, 9, 24, 8, 0, tzinfo=UTC)
+    # an article-typed JSON-LD entity that agrees is more specific and wins...
+    agree = ('<html><head><meta name="date" content="2026-09-24"/>'
+             '<script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-09-24T08:00:00Z"}'
+             "</script></head></html>")
+    assert dc.page_published_date(_soup(agree)).source == "jsonld:NewsArticle"
+    # ...and one three days apart makes the page dateless.
+    apart = agree.replace('content="2026-09-24"', 'content="2026-09-21"')
+    assert dc.page_published_date(_soup(apart)) is None
 
 
 def test_a_bare_time_element_never_dates_a_page():
@@ -236,6 +261,53 @@ def test_itemprop_date_published_on_any_tag_is_read():
     html = '<html><body><span itemprop="datePublished" content="2026-09-25T06:00:00Z">Today</span></body></html>'
     p = dc.page_published_date(_soup(html))
     assert p is not None and p.value == datetime(2026, 9, 25, 6, 0, tzinfo=UTC)
+
+
+def test_itemprop_with_a_datetime_attribute_is_read():
+    # The common form: <time itemprop="datePublished" datetime="...">.
+    html = ('<html><body><article><h1>Hormuz transits recover</h1>'
+            '<time itemprop="datePublished" datetime="2026-09-25T09:15:00-03:00">25 Sep</time>'
+            "</article></body></html>")
+    p = dc.page_published_date(_soup(html))
+    assert p is not None and p.value == datetime(2026, 9, 25, 12, 15, tzinfo=UTC)
+    assert p.source == "itemprop:time"
+
+
+def test_only_the_main_articles_itemprop_counts():
+    # The headline's <article> owns its date; the related card, the comment and
+    # the sidebar each carry an older (or later) date of their own.
+    html = ('<html><body><article><h1>Hormuz transits recover</h1>'
+            '<time itemprop="datePublished" datetime="2026-09-25T08:00:00Z"></time>'
+            '<div itemscope itemtype="https://schema.org/Comment">'
+            '<time itemprop="datePublished" datetime="2026-09-26T08:00:00Z"></time></div>'
+            '<div class="related"><article><h2>Older story</h2>'
+            '<time itemprop="datePublished" datetime="2026-03-01T08:00:00Z"></time></article></div>'
+            "</article>"
+            '<aside><time itemprop="datePublished" datetime="2026-02-01T08:00:00Z"></time></aside>'
+            "</body></html>")
+    sig = dc.read_page_signals(_soup(html))
+    assert [d.value for d in sig.itemprop] == [datetime(2026, 9, 25, 8, 0, tzinfo=UTC)]
+    assert sig.published.value == datetime(2026, 9, 25, 8, 0, tzinfo=UTC)
+
+
+def test_a_lone_teaser_card_never_dates_the_page():
+    # Many sites mark teaser cards up as <article>: with the headline outside
+    # every article scope, no scope is the page's, so no itemprop is read.
+    html = ('<html><body><h1>Hormuz transits recover</h1>'
+            '<div class="more"><article><h3>Older story</h3>'
+            '<time itemprop="datePublished" datetime="2026-03-01T08:00:00Z"></time></article></div>'
+            "</body></html>")
+    assert dc.page_published_date(_soup(html)) is None
+
+
+def test_a_microdata_article_holding_the_headline_is_the_main_one():
+    html = ('<html><body><h1 class="logo">Site</h1>'
+            '<div itemscope itemtype="https://schema.org/NewsArticle"><h1>Main story</h1>'
+            '<meta itemprop="datePublished" content="2026-09-20T10:00:00Z"/></div>'
+            '<div itemscope itemtype="https://schema.org/NewsArticle"><h2>Card</h2>'
+            '<meta itemprop="datePublished" content="2026-01-20T10:00:00Z"/></div></body></html>')
+    p = dc.page_published_date(_soup(html))
+    assert p is not None and p.value == datetime(2026, 9, 20, 10, 0, tzinfo=UTC)
 
 
 def test_record_page_marks_reads_and_the_site_they_prove_readable():
@@ -260,7 +332,9 @@ def test_fetch_page_evidence_brings_the_snippet_along(monkeypatch):
     assert ev.read and ev.page_date is not None
     assert ev.snippet.startswith("Tanker rates on the Hormuz route")
     monkeypatch.setattr(enrich, "fetch_html", lambda url, timeout=6: (_ for _ in ()).throw(RuntimeError("403")))
-    assert enrich.fetch_page_evidence("https://example.com/news/other") is None
+    failed = enrich.fetch_page_evidence("https://example.com/news/other")
+    assert not failed.read and failed.status == 403
+    assert dc.page_seen("https://example.com/news/other") is None      # a failure is not recorded
 
 
 def test_page_headlines_reads_the_h1():
@@ -549,6 +623,16 @@ def test_rotate_budget_gives_the_head_its_half_and_rotates_the_rest():
     assert dc.rotate_budget(items[:3], 8, bucket=7) == (items[:3], [])
 
 
+def test_shared_page_date_needs_three_distinct_urls_on_one_value():
+    const = dc.parse_date_value("2020-01-01T00:00:00Z", now=NOW)
+    other = dc.parse_date_value("Mar 03, 2026", now=NOW)
+    assert dc.shared_page_date([("u1", const), ("u2", const)]) is None
+    assert dc.shared_page_date([("u1", const), ("u1", const), ("u2", const), ("u3", other)]) is None
+    got = dc.shared_page_date([("u1", const), ("u2", other), ("u3", const), ("u4", const)])
+    assert got is not None and got.value == datetime(2020, 1, 1, tzinfo=UTC)
+    assert dc.TEMPLATE_MIN == 3
+
+
 def test_stored_timestamps_parse_postgrest_iso_strings():
     assert dc.parse_stored_timestamp("2026-09-14T20:36:12.446198+00:00") == datetime(
         2026, 9, 14, 20, 36, 12, 446198, tzinfo=UTC
@@ -559,10 +643,11 @@ def test_stored_timestamps_parse_postgrest_iso_strings():
 
 
 class _Q:
-    """A PostgREST select stub: `fail(urls)` decides whether a query fails."""
+    """A PostgREST select stub: `fail(urls)` decides whether a query fails --
+    True raises a Cloudflare-style 400, an exception instance is raised as is."""
 
-    def __init__(self, rows, fail, calls):
-        self.rows, self.fail, self.calls = rows, fail, calls
+    def __init__(self, rows, fail, calls, delay=0.0):
+        self.rows, self.fail, self.calls, self.delay = rows, fail, calls, delay
 
     def select(self, cols):
         assert cols == "url, published_at, created_at"
@@ -573,18 +658,25 @@ class _Q:
         return self
 
     def execute(self):
+        import time as _time
+
         self.calls.append(len(self.urls))
-        if self.fail(self.urls):
+        if self.delay:
+            _time.sleep(self.delay)
+        verdict = self.fail(self.urls)
+        if isinstance(verdict, BaseException):
+            raise verdict
+        if verdict:
             raise RuntimeError("400 Bad Request (cloudflare)")
         return type("R", (), {"data": [r for r in self.rows if r["url"] in self.urls]})
 
 
-def _sink(rows, fail=lambda urls: False):
+def _sink(rows, fail=lambda urls: False, delay=0.0):
     from news_hunter import supabase_sync
 
     calls: list[int] = []
     s = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
-    s.client = type("C", (), {"table": lambda _self, _n: _Q(rows, fail, calls)})()
+    s.client = type("C", (), {"table": lambda _self, _n: _Q(rows, fail, calls, delay)})()
     s.table = "news_articles"
     return s, calls
 
@@ -601,17 +693,42 @@ def test_sink_lookup_returns_both_dates_per_url():
         2026, 9, 14, 20, 36, 12, 446198, tzinfo=UTC)
 
 
-def test_sink_lookup_retries_one_transient_failure():
-    state = {"n": 0}
+def test_a_transport_error_stops_the_lookup_at_once():
+    import httpx
 
-    def once(_urls):
-        state["n"] += 1
-        return state["n"] == 1        # the runner saw `ConnectionTerminated` once
+    urls = [f"https://example.com/a{n}" for n in range(250)]           # 3 chunks
+    s, calls = _sink([], lambda _q: httpx.RemoteProtocolError("ConnectionTerminated error_code:0"))
+    got = s._existing_dates(urls)
+    assert len(calls) == 1                     # no retry, no bisection, no further chunk
+    assert got.failed == set(urls) and not got.bad
+    assert "RemoteProtocolError" in got.unavailable
 
-    s, calls = _sink([ROW], once)
-    got = s._existing_dates(["https://kpler.com/blog/x"])
-    assert set(got.found) == {"https://kpler.com/blog/x"} and got.failed == set()
-    assert len(calls) == 2
+
+@pytest.mark.parametrize("error", ["timeout", "5xx", "statement_timeout"])
+def test_a_slow_or_failing_database_is_not_bisected(error):
+    import httpx
+    from postgrest.exceptions import APIError
+
+    exc = {"timeout": httpx.ReadTimeout("timed out"),
+           "5xx": APIError({"message": "JSON could not be generated", "code": 503}),
+           "statement_timeout": APIError({"message": "canceling statement", "code": "57014"})}[error]
+    urls = [f"https://example.com/a{n}" for n in range(250)]
+    s, calls = _sink([], lambda _q: exc)
+    got = s._existing_dates(urls)
+    assert len(calls) == 1 and got.failed == set(urls) and got.unavailable
+
+
+def test_a_lookup_stops_at_its_wall_clock_deadline(monkeypatch):
+    from news_hunter import supabase_sync
+
+    monkeypatch.setattr(supabase_sync, "LOOKUP_DEADLINE", 0.15)
+    urls = [f"https://example.com/a{n}" for n in range(1000)]          # 10 chunks
+    rows = [{"url": u, "published_at": ROW["published_at"], "created_at": ROW["created_at"]} for u in urls]
+    s, calls = _sink(rows, delay=0.1)
+    got = s._existing_dates(urls)
+    assert 1 <= len(calls) <= 3                # the rest is never asked
+    assert got.unavailable.startswith("deadline")
+    assert set(got.found) | got.failed == set(urls) and not set(got.found) & got.failed
 
 
 def test_one_bad_url_is_bisected_out_and_fails_alone():
@@ -626,14 +743,34 @@ def test_one_bad_url_is_bisected_out_and_fails_alone():
     assert len(calls) < 30
 
 
-def test_a_dead_database_costs_a_bounded_number_of_requests():
-    from news_hunter import supabase_sync
-
+def test_queries_refused_everywhere_cost_a_bounded_number_of_requests():
     urls = [f"https://example.com/a{n}" for n in range(450)]
-    s, calls = _sink([], lambda q: True)
+    s, calls = _sink([], lambda q: True)                 # every query answered 400
     got = s._existing_dates(urls)
     assert got.failed == set(urls) and not got.found
-    assert len(calls) <= supabase_sync.LOOKUP_FAILURE_BUDGET
+    assert 1 <= len(calls) <= 20                          # LOOKUP_FAILURE_BUDGET, as a literal
+    assert got.unavailable.startswith("budget")
+
+
+def test_lookups_use_a_client_of_their_own_with_a_short_timeout(monkeypatch):
+    import supabase
+
+    from news_hunter import supabase_sync
+
+    made = []
+
+    def _create(url, key, options=None):
+        made.append(options)
+        return "lookup-client"
+
+    monkeypatch.setattr(supabase, "create_client", _create)
+    s = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
+    s.client, s.lookup_client, s._url, s._key = "shared-client", None, "https://x.supabase.co", "k"
+    assert s._lookup_client() == "lookup-client"
+    assert made[0].postgrest_client_timeout == supabase_sync.LOOKUP_REQUEST_TIMEOUT == 4.0
+    bare = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
+    bare.client = "shared-client"
+    assert bare._lookup_client() == "shared-client"       # no credentials: the shared one
 
 
 def test_module_lookup_never_raises():
@@ -656,7 +793,7 @@ def test_module_lookup_never_raises():
 # R2 inside enrich_item: whenever the page is fetched, its date is read
 # ---------------------------------------------------------------------------
 
-def test_enrich_item_prefers_the_older_page_date(monkeypatch):
+def test_enrich_item_records_the_page_date_and_leaves_r2_to_the_pipeline(monkeypatch):
     from news_hunter import enrich
     from news_hunter.fetcher import RawItem
 
@@ -667,10 +804,10 @@ def test_enrich_item_prefers_the_older_page_date(monkeypatch):
     item = RawItem(url=url, title="How to build a risk tree", summary="", published_at=feed_date,
                    source_domain="kpler.com", feed_domain="www.kpler.com")
     _snippet, published, *_ = enrich.enrich_item(item, need_snippet=True)
-    assert published == datetime(2026, 4, 1, tzinfo=UTC)
-    # ...and the page was recorded for the rest of the scan.
+    assert published == feed_date            # R2 is decided once per scan, in Stage 4b
     ev = dc.page_seen(url)
-    assert ev is not None and ev.headlines == ("How to build a risk tree to assess shadow fleet exposure in your network",)
+    assert ev is not None and ev.page_date.value == datetime(2026, 4, 1, tzinfo=UTC)
+    assert ev.headlines == ("How to build a risk tree to assess shadow fleet exposure in your network",)
 
 
 def test_enrich_item_keeps_the_feed_date_when_the_page_has_none(monkeypatch):
@@ -684,6 +821,67 @@ def test_enrich_item_keeps_the_feed_date_when_the_page_has_none(monkeypatch):
                    summary="", published_at=feed_date, source_domain="kpler.com", feed_domain="www.kpler.com")
     _snippet, published, *_ = enrich.enrich_item(item, need_snippet=True)
     assert published == feed_date
+
+
+def test_an_item_without_a_feed_date_takes_the_first_time_element(monkeypatch):
+    # Brasil Energia's listings: no feed date, and the page prints its date
+    # only as <time datetime>. Allowed here, and only here.
+    from news_hunter import enrich
+    from news_hunter.fetcher import RawItem
+
+    html = ('<html><head><title>Petrobras amplia producao</title></head><body>'
+            '<h1>Petrobras amplia producao no pre-sal</h1>'
+            '<time datetime="2026-09-24T14:30:00-03:00">24/09/2026</time>'
+            "<p>A Petrobras ampliou a producao no pre-sal em setembro, segundo a companhia.</p>"
+            "</body></html>")
+    monkeypatch.setattr(enrich, "fetch_html", lambda u, timeout=6: html)
+    item = RawItem(url="https://brasilenergia.com.br/petroleoegas/petrobras-amplia", title="",
+                   summary="", published_at=None, source_domain="brasilenergia.com.br",
+                   feed_domain="brasilenergia.com.br")
+    _snippet, published, *_ = enrich.enrich_item(item, need_snippet=True)
+    assert published == datetime(2026, 9, 24, 17, 30, tzinfo=UTC)
+
+
+def test_an_item_without_a_feed_date_prefers_the_pages_own_date_to_a_time_element(monkeypatch):
+    from news_hunter import enrich
+    from news_hunter.fetcher import RawItem
+
+    html = ('<html><head><script type="application/ld+json">'
+            '{"@type":"NewsArticle","datePublished":"2026-09-23T10:00:00Z"}</script></head><body>'
+            '<h1>Petrobras amplia producao no pre-sal</h1>'
+            '<aside><time datetime="2026-01-02T10:00:00Z">02/01</time> outra materia</aside>'
+            "</body></html>")
+    monkeypatch.setattr(enrich, "fetch_html", lambda u, timeout=6: html)
+    item = RawItem(url="https://brasilenergia.com.br/petroleoegas/x", title="t", summary="",
+                   published_at=None, source_domain="brasilenergia.com.br",
+                   feed_domain="brasilenergia.com.br")
+    _snippet, published, *_ = enrich.enrich_item(item, need_snippet=True)
+    assert published == datetime(2026, 9, 23, 10, 0, tzinfo=UTC)
+
+
+def test_fetch_page_evidence_reports_how_a_fetch_failed(monkeypatch):
+    import requests
+
+    from news_hunter import enrich
+
+    class _Resp:
+        status_code = 403
+
+    def _forbidden(url, timeout=6):
+        e = requests.HTTPError("403 Client Error: Forbidden for url")
+        e.response = _Resp()
+        raise e
+
+    monkeypatch.setattr(enrich, "fetch_html", _forbidden)
+    ev = enrich.fetch_page_evidence("https://investing.com/news/x")
+    assert not ev.read and ev.status == 403 and ev.blocked
+    monkeypatch.setattr(enrich, "fetch_html", lambda u, timeout=6: (_ for _ in ()).throw(
+        requests.ConnectionError("Connection aborted")))
+    ev = enrich.fetch_page_evidence("https://investing.com/news/x")
+    assert not ev.read and ev.status is None and not ev.blocked and "ConnectionError" in ev.error
+    monkeypatch.setattr(enrich, "fetch_html", lambda u, timeout=6: (_ for _ in ()).throw(
+        RuntimeError("HTTP Error 503: ")))
+    assert not enrich.fetch_page_evidence("https://investing.com/news/x").blocked
 
 
 if __name__ == "__main__":

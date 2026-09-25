@@ -265,7 +265,8 @@ class _DateStats:
         else:
             self.lookup_failed_candidates += len(lk.failed)
         if lk.unavailable:
-            self.lookup_notes.add("deadline" if lk.unavailable.startswith("deadline") else "db_unavailable")
+            why = lk.unavailable.split(" ", 1)[0]
+            self.lookup_notes.add({"deadline": "deadline", "budget": "query_budget"}.get(why, "db_unavailable"))
         if lk.bad:
             self.lookup_notes.add("bad_url")
 
@@ -1141,8 +1142,8 @@ def _per_feed(fd: str, failed: dict[str, BaseException], fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except Exception as e:  # noqa: BLE001
         failed[fd] = e
-        log.error("date credibility: feed %s failed in %s; its never-seen items are "
-                  "deferred to the next scan", fd, getattr(fn, "__name__", fn), exc_info=True)
+        log.error("date-credibility check failed for feed %s in %s; its never-seen items "
+                  "are deferred to the next scan", fd, getattr(fn, "__name__", fn), exc_info=True)
         return None
 
 
@@ -1776,7 +1777,7 @@ def run_search(
         except Exception as e:  # noqa: BLE001
             # The guard must never stop the upsert: this scan persists as it
             # would have without Stage 4b, every source (Google News included).
-            log.error("date credibility: Stage 4b failed; this scan persists without it",
+            log.error("date-credibility check (Stage 4b) failed; this scan persists without it",
                       exc_info=True)
             date_stats.fail("stage", e)
             errors.append(f"date credibility: {e!s}")
@@ -1821,8 +1822,8 @@ def run_search(
                 to_persist = _apply_backfill_r2(to_persist, backfill_redated, origins,
                                                 date_stats, hours)
             except Exception as e:  # noqa: BLE001
-                log.error("date credibility: the backfill's R2 failed; its dates stay as they came",
-                          exc_info=True)
+                log.error("date-credibility check of the snippet backfill failed; its dates stay "
+                          "as they came", exc_info=True)
                 date_stats.fail("backfill", e)
 
         # Always logged, zero included: a date rule nobody can see the size of

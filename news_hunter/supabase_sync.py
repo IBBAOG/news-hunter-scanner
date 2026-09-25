@@ -216,8 +216,9 @@ class _SupabaseSink:
         caller treats those urls as never seen and checks their pages):
           * a 4xx is about the query -- the chunk is bisected (no retry: a 4xx
             repeats), so one url whose query keeps failing (a Cloudflare 400,
-            an over-long query) ends up alone in StoredLookup.bad; at most
-            LOOKUP_FAILURE_BUDGET failed requests are spent that way;
+            an over-long query) ends up alone in StoredLookup.bad; once
+            LOOKUP_FAILURE_BUDGET refused requests are spent, the rest is
+            failed without asking;
           * a timeout, a 5xx or a transport error is about the database -- the
             lookup stops at once and every url not answered yet is failed
             (StoredLookup.unavailable says why);
@@ -262,16 +263,21 @@ class _SupabaseSink:
                     _give_up(f"{type(e).__name__}: {e!s}"[:160], chunk)
                     break
                 budget -= 1
-                if len(chunk) > 1 and budget > 0:
+                if len(chunk) == 1:
+                    out.failed.update(chunk)
+                    out.bad.update(chunk)
+                    log.warning("lookup de datas gravadas: url recusada pela consulta (%s): %s",
+                                chunk[0][:120], e)
+                    if budget <= 0:
+                        _give_up(f"budget of {LOOKUP_FAILURE_BUDGET} refused queries spent", [])
+                        break
+                elif budget <= 0:
+                    _give_up(f"budget of {LOOKUP_FAILURE_BUDGET} refused queries spent", chunk)
+                    break
+                else:
                     mid = len(chunk) // 2
                     queue.appendleft(chunk[mid:])
                     queue.appendleft(chunk[:mid])
-                else:
-                    out.failed.update(chunk)
-                    if len(chunk) == 1:
-                        out.bad.update(chunk)
-                        log.warning("lookup de datas gravadas: url recusada pela consulta (%s): %s",
-                                    chunk[0][:120], e)
                 continue
             for r in res.data or []:
                 url = r.get("url")
