@@ -320,13 +320,18 @@ Stored rows are not this rule's concern: the database keeps
 included:
 
 ```
-date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.kpler.com(title=60)] verified=0 deferred=7 [www.kpler.com: no_page_date=7] checked=333 fetched=7 in 3.1s
+date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.cbsnews.com(db=1), www.investing.com(db=3), www.kpler.com(db=6,title=60)] verified=0 deferred=7 [www.kpler.com: no_page_date=7] checked=431 fetched=7 in 3.2s
 ```
 
 Measure before touching a threshold: `diagnose_date_credibility.yml` samples
 every registered feed's pages from the runner (R2 re-dates, template dates, R3
-flags), `-f dry_run=<feed url>` runs the real pipeline over one feed without
-writing. Regression tests: `tests/test_date_credibility*.py`.
+flags; `mode=feeds`), checks the title cleaner against every stored title
+(`mode=titles`), times Stage 4b off/on in a full scan without writes
+(`mode=full-scan`), and `-f dry_run=<feed url>` runs the real pipeline over one
+feed without writing. The stored-date lookup stays sequential: the same chunks
+sent from four threads over the client's shared HTTP/2 connection failed on the
+runner (`ConnectionTerminated`, Cloudflare 400), and a failed lookup defers
+every candidate. Regression tests: `tests/test_date_credibility*.py`.
 
 ## Translation: a 200-shaped success carrying an error page
 

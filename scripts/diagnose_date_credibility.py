@@ -27,12 +27,18 @@ Usage:
     python -m scripts.diagnose_date_credibility --feeds https://www.kpler.com/blog/rss.xml
     python -m scripts.diagnose_date_credibility --dry-run https://www.kpler.com/blog/rss.xml \
         --cleanup-after 2026-09-25T10:40:00Z
+    python -m scripts.diagnose_date_credibility --titles
+    python -m scripts.diagnose_date_credibility --full-scan [--no-date-credibility]
 
 --dry-run runs the REAL pipeline (run_search, fast mode, no Google News) over
 one feed with the upsert replaced by a capture, and prints what would be
 persisted, dropped as old and deferred. --cleanup-after treats rows created at
 or after that instant as never stored (what the database will look like once a
-burst of wrongly inserted rows is deleted).
+burst of wrongly inserted rows is deleted). --titles runs the title cleaner
+over every stored title containing "|" and prints what would change.
+--full-scan runs one complete scan (Google News included) with every write
+closed and prints its wall time and the Stage 4b cost; --no-date-credibility
+switches Stage 4b off for the A side of an A/B.
 
 Columns (feed mode):
     items    entries the fetcher returned        fresh  feed date inside --hours
@@ -57,7 +63,7 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
-from datetime import datetime, timezone
+from datetime import datetime
 from urllib.parse import urlparse
 
 from news_hunter import date_credibility as dc
@@ -229,7 +235,6 @@ def run_feeds(args) -> int:
         for it in items or []:
             slot["items"].setdefault(it.url, it)
 
-    now = datetime.now(timezone.utc)
     jobs: dict[str, str] = {}   # url -> feed domain, for page fetches
     rows: dict[str, dict] = {}
     for d, slot in sorted(per_dom.items()):
