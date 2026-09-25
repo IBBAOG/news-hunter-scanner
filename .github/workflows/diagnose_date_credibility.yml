@@ -98,8 +98,8 @@ jobs:
           BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
           BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
         run: |
+          python -m scripts.diagnose_date_credibility --full-scan
           python -m scripts.diagnose_date_credibility --pages 8 --hours 24
           python -m scripts.diagnose_date_credibility --full-scan
-          python -m scripts.diagnose_date_credibility --full-scan
           python -m scripts.diagnose_date_credibility --dry-run https://www.kpler.com/blog/rss.xml
-          python -m scripts.diagnose_date_credibility --titles
+          python -m scripts.diagnose_date_credibility --full-scan
