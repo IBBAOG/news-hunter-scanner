@@ -116,20 +116,9 @@ jobs:
           BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
         run: |
           set +e
-          pip install --no-cache-dir -q pytest
-          echo "=== SMALL-BURST REPLAY (pipeline tests) ==="
-          python -m pytest -q -p no:cacheprovider tests/test_date_credibility_pipeline.py -k "burst or spot_budget or spot_check" -rA 2>&1 | grep -E "PASSED|FAILED|passed|failed"
-          echo "=== KPLER dry-run (live table) ==="
-          python -m scripts.diagnose_date_credibility --dry-run https://www.kpler.com/blog/rss.xml
-          echo "=== INVESTING + CBS feed measurement ==="
-          python -m scripts.diagnose_date_credibility --feeds https://www.investing.com/rss/news_11.rss https://www.cbsnews.com/latest/rss/world --pages 10 --r3-pages 12 -v
-          echo "=== INVESTING dry-run, rows created since 2026-09-24 treated as never stored ==="
-          python -m scripts.diagnose_date_credibility --dry-run https://www.investing.com/rss/news_11.rss --cleanup-after 2026-09-24T00:00:00Z
-          echo "=== CBS dry-run, rows created since 2026-09-24 treated as never stored ==="
-          python -m scripts.diagnose_date_credibility --dry-run https://www.cbsnews.com/latest/rss/world --cleanup-after 2026-09-24T00:00:00Z
-          for i in 1 2 3; do
-            echo "=== A/B round $i: OFF ==="
-            python -m scripts.diagnose_date_credibility --full-scan --no-date-credibility
-            echo "=== A/B round $i: ON ==="
-            python -m scripts.diagnose_date_credibility --full-scan
+          for i in 1 2; do
+            echo "=== BACKFILL AUDIT round $i: OFF ==="
+            python -m scripts._tmp_backfill_audit --off 2>&1 | grep -E "BACKFILL AUDIT|SKIPPED|FILLED|snippet backfill|date credibility:|lede rescue"
+            echo "=== BACKFILL AUDIT round $i: ON ==="
+            python -m scripts._tmp_backfill_audit 2>&1 | grep -E "BACKFILL AUDIT|SKIPPED|FILLED|snippet backfill|date credibility:|lede rescue"
           done
