@@ -143,14 +143,6 @@ _ARTICLE_HOST_ALIASES: dict[str, str] = {
     "trend.az": "en.trend.az",
 }
 
-# Outlets whose RSS_FEEDS entry is PAUSED (commented out) while they stay in
-# INTERNATIONAL_RSS_DOMAINS on purpose, so their articles keep landing 'en' and
-# their Wave 5 item pin below stays live. apex -> the paused RSS_FEEDS key.
-# kpler.com, 2026-09-25: its Webflow feed re-stamps <pubDate> on every re-publish.
-_PAUSED_FEEDS: dict[str, str] = {
-    "kpler.com": "www.kpler.com",
-}
-
 
 def test_every_entry_maps_to_an_rss_feeds_registration():
     rss_norm = {_strip_www(k) for k in RSS_FEEDS}
@@ -160,9 +152,6 @@ def test_every_entry_maps_to_an_rss_feeds_registration():
             # An article host: its FEED must still be a registration.
             feed = _ARTICLE_HOST_ALIASES[apex]
             assert feed in RSS_FEEDS, f"{d} claims to be the article host of {feed}, which is not registered"
-            continue
-        if apex in _PAUSED_FEEDS:
-            assert _PAUSED_FEEDS[apex] not in RSS_FEEDS, f"{d}: feed is back, drop it from _PAUSED_FEEDS"
             continue
         assert apex in rss_norm, f"{d} is not a registered RSS feed"
 
@@ -317,9 +306,7 @@ def _wave5_rss_feed_keys() -> set[str]:
 
 
 def test_every_wave5_feed_has_a_pinned_item_url():
-    # A paused feed keeps its pin (still run by the 'en' test below) but is no
-    # longer a registration, so it is left out of the comparison.
-    pinned = {feed for feed, _ in _WAVE5_ITEM_URLS} - set(_PAUSED_FEEDS.values())
+    pinned = {feed for feed, _ in _WAVE5_ITEM_URLS}
     registered = _wave5_rss_feed_keys()
     assert registered, "wave-5 anchor parsing found no RSS_FEEDS keys"
     assert pinned == registered, (
