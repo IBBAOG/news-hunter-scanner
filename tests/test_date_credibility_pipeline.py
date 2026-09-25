@@ -150,7 +150,8 @@ def _drive(monkeypatch, items=None, *, stored=None, pages=None, feed=FEED, slow:
 
     A url missing from `pages` answers like a WAF: HTTP 403; a page given as
     an exception raises it (a timeout, a 5xx). A url in `fail_lookup` (or
-    every url, with fail_lookup="all") fails its lookup.
+    every url, with fail_lookup="all") fails its lookup; fail_lookup="down"
+    fails every url with the database unavailable.
     `feeds` = [(feed_domain, items), ...] to collect several feeds.
     """
     run = _Run()
@@ -180,9 +181,11 @@ def _drive(monkeypatch, items=None, *, stored=None, pages=None, feed=FEED, slow:
 
     def _existing_dates(urls):
         run.lookups.append(list(urls))
-        failed = set(urls) if fail_lookup == "all" else {u for u in urls if u in fail_lookup}
+        down = fail_lookup == "down"
+        failed = set(urls) if fail_lookup in ("all", "down") else {u for u in urls if u in fail_lookup}
         found = {u: s for u, s in (stored or {}).items() if u in urls and u not in failed}
-        return StoredLookup(found=found, failed=failed)
+        return StoredLookup(found=found, failed=failed,
+                            unavailable="ConnectTimeout: database down" if down else "")
 
     monkeypatch.setattr(pipeline, "existing_dates", _existing_dates)
 
@@ -664,6 +667,157 @@ def test_an_exception_outside_the_feeds_never_stops_the_upsert(monkeypatch, capl
 
 
 # ---------------------------------------------------------------------------
+# One malformed item never aborts the scan (QA round 3, HIGH 1)
+# ---------------------------------------------------------------------------
+
+def test_a_title_date_with_an_impossible_offset_is_no_date(monkeypatch, caplog):
+    """The QA probe: `+99:00` used to raise out of the collect loop -- 0 rows
+    saved, from every source."""
+    caplog.set_level(logging.INFO, logger="news_hunter.pipeline")
+    odd = _item("hormuz-crude-note", "Hormuz crude note | Kpler - 2026-09-25T10:00:00+99:00", age_h=0.3)
+    pages = {**PAGES, BLOG + "hormuz-crude-note": _page("Hormuz crude note", TODAY)}
+    run = _drive(monkeypatch, [odd, NEW], pages=pages)
+    assert {BLOG + "hormuz-crude-note", BLOG + NEW_SLUG} <= set(_by_url(run))
+    assert not [r for r in caplog.records if r.getMessage().startswith("Falha na busca")]
+    assert " error=0 [] " in _line(caplog, "date credibility:")
+
+
+def test_a_title_evidence_step_that_raises_skips_only_that_item(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="news_hunter.pipeline")
+    real = pipeline._title_date_evidence
+
+    def _boom(it):
+        if it.url == BLOG + NEW_SLUG:
+            raise ValueError("offset must be a timedelta strictly between ...")
+        return real(it)
+
+    monkeypatch.setattr(pipeline, "_title_date_evidence", _boom)
+    run = _drive(monkeypatch, [NEW, DATELESS])
+    assert {BLOG + NEW_SLUG, BLOG + DATELESS_SLUG} <= set(_by_url(run))      # the item goes on
+    errs = [r for r in caplog.records if r.levelname == "ERROR" and BLOG + NEW_SLUG in r.getMessage()]
+    assert errs and errs[0].exc_info is not None
+    assert " error=1 [item] " in _line(caplog, "date credibility:")
+
+
+def test_a_title_date_or_cleaning_that_raises_keeps_the_item_as_it_came(monkeypatch, caplog):
+    """Stage 4's title date and title cleaning, each guarded per item."""
+    caplog.set_level(logging.INFO, logger="news_hunter.pipeline")
+
+    def _boom(*_a, **_k):
+        raise ValueError("malformed title")
+
+    monkeypatch.setattr(pipeline, "split_source_suffix", _boom)    # title evidence + title date
+    monkeypatch.setattr(pipeline, "clean_display_title", _boom)    # stage 4 + Stage 4b cleaning
+    run = _drive(monkeypatch, [NEW])
+    got = _by_url(run)[BLOG + NEW_SLUG]
+    assert got.title == NEW.title                                   # uncleaned, but saved
+    line = _line(caplog, "date credibility:")
+    assert " error=4 [item=4] " in line                             # evidence, date, 2 cleanings
+
+
+# ---------------------------------------------------------------------------
+# The candidate lookup is down (QA round 3, MEDIUM 2)
+# ---------------------------------------------------------------------------
+
+def test_lookup_down_a_feed_with_evidence_defers_what_it_cannot_confirm(monkeypatch, caplog):
+    """P13b: the database is down during a burst. The stored posts it re-dates
+    look never-seen and their pages are dateless; one title contradiction is
+    the only evidence, below the batch. They are held back, not admitted."""
+    caplog.set_level(logging.INFO, logger="news_hunter.pipeline")
+    titled = _item("old-hormuz-note", "Old Hormuz crude note | Kpler - Jun 30, 2026", age_h=1.1)
+    run = _drive(monkeypatch, [*BATCH, titled, NEW], stored=BATCH_ROWS, fail_lookup="down")
+    assert run.stats.flagged() == [] and run.stats.cautious == {FEED}
+    assert set(_by_url(run)) == {BLOG + NEW_SLUG}
+    assert run.stats.deferred == {FEED: {"no_page_date": 3}}
+    assert f"cautious=[{FEED}]" in _line(caplog, "date credibility:")
+
+
+def test_lookup_down_unread_and_unchecked_items_are_held_back_too(monkeypatch):
+    """P13d: evidence below the batch (one title contradiction); a 403 and the
+    items beyond the spot budget are deferred instead of admitted."""
+    titled = _item("old-hormuz-note", "Old Hormuz crude note | Kpler - Jun 30, 2026", age_h=1.1)
+    more = [_item(f"hormuz-more-{n}", f"Hormuz crude more {n}", age_h=0.1 + n / 60) for n in range(5)]
+    pages = {**PAGES, **{BLOG + f"hormuz-more-{n}": _page(f"Hormuz crude more {n}", TODAY) for n in range(5)}}
+    run = _drive(monkeypatch, [titled, BLOCKED, *more], pages=pages, fail_lookup="down")
+    assert run.stats.cautious == {FEED} and run.stats.flagged() == []
+    outcomes = dict(run.stats.trace)
+    assert BLOG + BLOCKED_SLUG not in _by_url(run)
+    assert outcomes[BLOG + BLOCKED_SLUG] in ("deferred_unread", "deferred_over_budget")
+    assert run.stats.deferred[FEED].get("over_budget", 0) == 6 - pipeline.DATE_SPOT_CAP_DOMAIN
+    assert run.stats.n_unverified == 0
+    assert not [o for o in outcomes.values() if o in ("spot_unchecked", "spot_unread", "spot_dateless")]
+
+
+def test_lookup_down_a_feed_without_evidence_still_admits(monkeypatch):
+    """P13c, the control: no evidence at all, so the spot check admits as usual."""
+    run = _drive(monkeypatch, [DATELESS, BLOCKED, NEW], fail_lookup="down")
+    assert run.stats.cautious == set()
+    assert {BLOG + DATELESS_SLUG, BLOG + BLOCKED_SLUG, BLOG + NEW_SLUG} <= set(_by_url(run))
+    assert run.stats.n_deferred == 0
+
+
+def test_a_lookup_that_only_isolates_bad_urls_is_no_outage(monkeypatch):
+    titled = _item("old-hormuz-note", "Old Hormuz crude note | Kpler - Jun 30, 2026", age_h=1.1)
+    run = _drive(monkeypatch, [titled, DATELESS], fail_lookup={BLOG + DATELESS_SLUG})
+    assert run.stats.cautious == set()
+    assert BLOG + DATELESS_SLUG in _by_url(run)
+
+
+# ---------------------------------------------------------------------------
+# feed_fresh_spike: a bulk re-stamp read off the feed alone (QA P13e)
+# ---------------------------------------------------------------------------
+
+def _spike_feed(fresh: int, total: int, *, fresh_within_h: float, span_days: float,
+                host: str = "spike.example.com", dated_pages: bool = False):
+    """`fresh` items dated within `fresh_within_h` hours, the rest spread back
+    to `span_days` days. Never stored, no title date; pages dateless."""
+    feed = f"www.{host}"
+    items, pages = [], {}
+    for n in range(total):
+        if n < fresh:
+            age = 0.05 + (fresh_within_h - 0.1) * n / max(1, fresh - 1)
+        else:
+            age = 26.0 + (span_days * 24 - 26.0) * (n - fresh) / max(1, total - fresh - 1)
+        url = f"https://{host}/posts/crude-post-{n}"
+        items.append(_item(f"crude-post-{n}", f"Crude post number {n}", url=url, source=host,
+                           feed=feed, age_h=age))
+        pages[url] = _page(f"Crude post number {n}", TODAY if dated_pages else "")
+    return feed, items, pages
+
+
+def test_a_bulk_restamp_of_never_stored_posts_flags_the_feed(monkeypatch, caplog):
+    """P13e: 81 of 100 items dated within the hour in a feed spanning 26 days,
+    none stored, no title date, no page date. Flagged from the feed alone; the
+    undated never-seen items are deferred instead of saved in full."""
+    caplog.set_level(logging.INFO, logger="news_hunter.pipeline")
+    feed, items, pages = _spike_feed(81, 100, fresh_within_h=1.0, span_days=26)
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.flagged() == [feed]
+    assert run.stats.spike[feed].fresh == 81 and run.stats.spike[feed].total == 100
+    assert run.persisted == []
+    assert set(run.stats.deferred[feed]) <= {"no_page_date", "over_budget"}
+    assert f"{feed}(feed_fresh_spike=81/100,26d;batch=0)" in _line(caplog, "date credibility:")
+
+
+def test_a_high_volume_feed_is_not_a_spike(monkeypatch):
+    """50 items in the last 3 hours, spanning one day: dense, but not a re-stamp."""
+    feed, items, pages = _spike_feed(35, 50, fresh_within_h=2.0, span_days=1, dated_pages=True)
+    for it in items[35:]:
+        it.published_at = NOW - timedelta(hours=2.5)
+    items[-1].published_at = NOW - timedelta(days=1)
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.spike == {} and run.stats.flagged() == []
+    assert run.stats.n_deferred == 0 and len(run.persisted) > 0
+
+
+def test_a_quiet_feed_on_a_busy_day_is_not_a_spike(monkeypatch):
+    """A 12-item weekly-ish feed with 5 posts this morning: 42 % fresh."""
+    feed, items, pages = _spike_feed(5, 12, fresh_within_h=1.5, span_days=10, dated_pages=True)
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.spike == {} and run.stats.n_deferred == 0
+
+
+# ---------------------------------------------------------------------------
 # Budgets, caps and page reuse
 # ---------------------------------------------------------------------------
 
@@ -894,7 +1048,7 @@ def test_date_credibility_line_is_logged_with_zeros(monkeypatch, caplog):
     _drive(monkeypatch, [])
     assert _line(caplog, "date credibility:").startswith(
         "date credibility: page_older=0 [] (title_date=0) template_date=[] restamp_domains=[]"
-        " isolated=[] verified=0 spot=[] unverified_admitted=0 [] deferred=0 []"
+        " isolated=[] cautious=[] verified=0 spot=[] unverified_admitted=0 [] deferred=0 []"
         " pages=0+0reused looked_up=0 lookup=ok error=0 [] in "
     )
     assert _line(caplog, "own-name keywords:") == (

@@ -9,9 +9,11 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 
 from .date_credibility import (
+    FreshSpike,
     PageEvidence,
     ParsedDate,
     clean_display_title,
+    fresh_spike,
     is_batch,
     is_older,
     largest_batch,
@@ -211,6 +213,12 @@ class _DateStats:
     deferred: dict[str, dict[str, int]] = field(default_factory=dict)    # feed -> reason -> n
     unverified: dict[str, dict[str, int]] = field(default_factory=dict)  # feed -> reason -> n
     template: dict[str, str] = field(default_factory=dict)      # feed -> the page date its items shared
+    # feed -> its fetch read as a bulk re-stamp (date_credibility.fresh_spike):
+    # flags the feed on its own, no page and no database needed
+    spike: dict[str, FreshSpike] = field(default_factory=dict)
+    # feeds judged with caution while the candidate lookup was down: re-stamp
+    # evidence below the batch, and no stored dates to rule a burst out
+    cautious: set[str] = field(default_factory=set)
     looked_up: int = 0             # urls asked to news_articles
     lookup_failed_candidates: int = 0
     lookup_failed_evidence: int = 0
@@ -227,6 +235,14 @@ class _DateStats:
 
     def add_evidence(self, feed_domain: str, url: str, feed_date: datetime, kind: str) -> None:
         self.evidence.setdefault(feed_domain, {}).setdefault(url, (feed_date, kind))
+
+    def add_spike(self, feed_domain: str, spike: FreshSpike) -> None:
+        kept = self.spike.get(feed_domain)
+        if kept is None or spike.fresh > kept.fresh:
+            self.spike[feed_domain] = spike
+
+    def has_evidence(self, fd: str) -> bool:
+        return fd in self.spike or bool(self.evidence.get(fd))
 
     def drop_page_evidence(self, feed_domain: str) -> None:
         wit = self.evidence.get(feed_domain)
@@ -290,21 +306,24 @@ class _DateStats:
         return sum(self.page_older.values())
 
     def is_flagged(self, fd: str) -> bool:
-        """R3 batch rule over every kind of evidence the feed left this scan."""
-        return is_batch(d for d, _kind in self.evidence.get(fd, {}).values())
+        """R3: a batch over every kind of evidence the feed left this scan, or
+        its own fetch read as a bulk re-stamp (feed_fresh_spike)."""
+        return fd in self.spike or is_batch(d for d, _kind in self.evidence.get(fd, {}).values())
 
     def flagged(self) -> list[str]:
-        return sorted(fd for fd in self.evidence if self.is_flagged(fd))
+        return sorted(fd for fd in set(self.evidence) | set(self.spike) if self.is_flagged(fd))
 
     def isolated(self) -> list[str]:
         """Feeds with some re-stamp evidence, below the batch threshold (not flagged)."""
-        return sorted(fd for fd in self.evidence if not self.is_flagged(fd))
+        return sorted(fd for fd in self.evidence if self.evidence[fd] and not self.is_flagged(fd))
 
     def _evidence(self, fd: str) -> str:
-        # kind counts, then the largest 10-minute batch across all of them
-        wit = self.evidence[fd]
+        # kind counts, the fresh spike, then the largest 10-minute batch
+        wit = self.evidence.get(fd, {})
         parts = [f"{k}={n}" for k in _EVIDENCE_KINDS
                  if (n := sum(1 for _d, kind in wit.values() if kind == k))]
+        if fd in self.spike:
+            parts.append(f"feed_fresh_spike={self.spike[fd].label()}")
         batch = largest_batch(d for d, _kind in wit.values())
         return f"{fd}({','.join(parts)};batch={batch})"
 
@@ -335,6 +354,7 @@ class _DateStats:
             f" template_date=[{', '.join(f'{fd}({d})' for fd, d in sorted(self.template.items()))}]"
             f" restamp_domains=[{', '.join(self._evidence(fd) for fd in self.flagged())}]"
             f" isolated=[{', '.join(self._evidence(fd) for fd in self.isolated())}]"
+            f" cautious=[{', '.join(sorted(self.cautious))}]"
             f" verified={self.verified} spot=[{spot}]"
             f" unverified_admitted={self.n_unverified} [{_per_feed(self.unverified)}]"
             f" deferred={self.n_deferred} [{_per_feed(self.deferred)}]"
@@ -1069,8 +1089,8 @@ def _assess_feed(plan: _FeedPlan, outcome: dict[str, PageEvidence], stats: _Date
         stats.add_evidence(plan.fd, a.url, o.feed_date, "page")  # type: ignore[arg-type]
 
 
-def _feed_verdicts(plan: _FeedPlan, *, flagged: bool,
-                   outcome: dict[str, PageEvidence]) -> list[tuple[Article, _Origin, str, PageEvidence | None]]:
+def _feed_verdicts(plan: _FeedPlan, *, flagged: bool, outcome: dict[str, PageEvidence],
+                   cautious: bool = False) -> list[tuple[Article, _Origin, str, PageEvidence | None]]:
     """The verdict on every never-seen item of one feed. Pure: nothing changes yet.
 
       not checked (over the budget)      flagged: defer    else: spot unchecked
@@ -1086,28 +1106,34 @@ def _feed_verdicts(plan: _FeedPlan, *, flagged: bool,
     A template feed's page dates are ignored: its pages count as dateless.
     Accepted residual: a single completed 403 on the only page tried, with no
     other page of the site read this scan, is admitted as site_blocked.
+
+    `cautious` (the candidate lookup is down and the feed left SOME re-stamp
+    evidence, below the batch): with no stored dates to rule a burst out, the
+    items the spot check could not confirm -- dateless, unread, incomplete,
+    unchecked -- are deferred instead of admitted. A feed with no evidence at
+    all still admits them.
     """
     checked = plan.checked()
+    hold = flagged or cautious
     out: list[tuple[Article, _Origin, str, PageEvidence | None]] = []
     for a, o in plan.items:
         ev = outcome.get(a.url)
         if a.url not in checked:
-            verdict = "defer:over_budget" if flagged else "spot:unchecked"
+            verdict = "defer:over_budget" if hold else "spot:unchecked"
         elif ev is None:
-            verdict = "defer:incomplete" if flagged else "spot:incomplete"
+            verdict = "defer:incomplete" if hold else "spot:incomplete"
         elif not ev.read:
-            if not flagged:
-                verdict = "spot:unread"
-            elif ev.blocked and not site_was_read(o.fetch_url):
-                verdict = "admit:site_blocked"
+            if flagged:
+                blocked_site = ev.blocked and not site_was_read(o.fetch_url)
+                verdict = "admit:site_blocked" if blocked_site else "defer:unread"
             else:
-                verdict = "defer:unread"
+                verdict = "defer:unread" if cautious else "spot:unread"
         else:
             page_date = None if plan.template is not None else ev.page_date
             if is_older(page_date, o.feed_date):
                 verdict = "older"
             elif page_date is None:
-                verdict = "defer:no_page_date" if flagged else "spot:dateless"
+                verdict = "defer:no_page_date" if hold else "spot:dateless"
             else:
                 verdict = "verified" if flagged else "spot:ok"
         out.append((a, o, verdict, ev))
@@ -1265,9 +1291,17 @@ def _run_date_credibility(
         ex.shutdown(wait=False, cancel_futures=True)
 
     flagged = set(stats.flagged())
+    # The candidate lookup is down: no stored date can tell a burst of
+    # re-stamped stored posts from new ones, so a feed with any evidence at all
+    # holds back what its spot check could not confirm (_feed_verdicts).
+    lookup_down = bool(lk.unavailable)
     drop: set[str] = set()
     for fd in sorted(plans):
-        verdicts = _per_feed(fd, failed, _feed_verdicts, plans[fd], flagged=fd in flagged, outcome=outcome)
+        cautious = lookup_down and fd not in flagged and stats.has_evidence(fd)
+        if cautious:
+            stats.cautious.add(fd)
+        verdicts = _per_feed(fd, failed, _feed_verdicts, plans[fd], flagged=fd in flagged,
+                             outcome=outcome, cautious=cautious)
         if verdicts is not None:
             _per_feed(fd, failed, _apply_verdicts, verdicts, hours=hours, stats=stats, drop=drop)
     for fd, exc in sorted(failed.items()):
@@ -1439,6 +1473,16 @@ def run_search(
                     errors.append(err)
                 if not items:
                     continue
+                # R3 from the feed alone (no page, no database): most of this
+                # fetch dated "just now" while the feed spans weeks is a bulk
+                # re-stamp (date_credibility.fresh_spike).
+                if dom not in DATE_CHECK_EXEMPT_FEEDS:
+                    try:
+                        spike = fresh_spike((it.published_at for it in items), datetime.now(timezone.utc))
+                        if spike.tripped:
+                            date_stats.add_spike(dom, spike)
+                    except Exception as e:  # noqa: BLE001
+                        _item_failed(date_stats, "fresh spike", dom, e)
                 # Filtra items novos e aplica keyword match
                 batch_keys: list[str] = []
                 batch: list[tuple[RawItem, list[str], str]] = []

@@ -101,6 +101,20 @@ DAY_SPAN = timedelta(hours=24)
 RESTAMP_BATCH_MIN = 3
 RESTAMP_BATCH_SPAN = timedelta(minutes=10)
 
+#: Feed-intrinsic re-stamp signal, read off one fetched feed alone (no page, no
+#: database): MOST of the feed carries a date from the last SPIKE_WINDOW, yet
+#: the feed as a whole spans at least SPIKE_MIN_SPAN -- "everything is new right
+#: now" in a feed that normally holds weeks. That is the bulk re-stamp
+#: signature, and it catches a re-publish made only of posts we never stored
+#: (no stored date to contradict, no title date, no page date: Kpler had 32 of
+#: them on 2026-09-25). Kpler at 11:52 UTC that day: 81 of 100 items within
+#: 2 h, span 26 days. A high-volume news feed is dense in the last hours too,
+#: but spans a day or two; a quiet feed on a busy day does not reach half.
+SPIKE_MIN_ITEMS = 10
+SPIKE_FRESH_SHARE = 0.5
+SPIKE_WINDOW = timedelta(hours=2)
+SPIKE_MIN_SPAN = timedelta(days=7)
+
 #: Template guard: when this many never-seen items of one feed carry the SAME
 #: older page date in one scan, the date is a CMS constant, not theirs -- the
 #: feed's page dates are ignored for the scan (the items count as dateless)
@@ -661,6 +675,33 @@ def is_batch(dates: Iterable[datetime], *, minimum: int = RESTAMP_BATCH_MIN,
              span: timedelta = RESTAMP_BATCH_SPAN) -> bool:
     """R3: do these re-date times form a batch (a re-publication, not updates)?"""
     return largest_batch(dates, span) >= minimum
+
+
+@dataclass(frozen=True)
+class FreshSpike:
+    """How fresh one fetched feed looks as a whole (see SPIKE_* above)."""
+
+    fresh: int            # items dated within SPIKE_WINDOW of `now` (or later)
+    total: int            # every item of the fetch, dated or not
+    span: timedelta       # newest minus oldest item date
+
+    @property
+    def tripped(self) -> bool:
+        return (self.total >= SPIKE_MIN_ITEMS
+                and self.fresh >= SPIKE_FRESH_SHARE * self.total
+                and self.span >= SPIKE_MIN_SPAN)
+
+    def label(self) -> str:
+        return f"{self.fresh}/{self.total},{self.span.total_seconds() / 86400:.0f}d"
+
+
+def fresh_spike(dates: Iterable[datetime | None], now: datetime) -> FreshSpike:
+    """The feed-fresh-spike reading of one fetched feed's item dates."""
+    ds = list(dates)
+    dated = [d for d in ds if d is not None]
+    fresh = sum(1 for d in dated if d >= now - SPIKE_WINDOW)
+    span = (max(dated) - min(dated)) if dated else timedelta(0)
+    return FreshSpike(fresh=fresh, total=len(ds), span=span)
 
 
 def shared_page_date(dated: Iterable[tuple[str, ParsedDate]], *,

@@ -622,6 +622,52 @@ def test_rotate_budget_gives_the_head_its_half_and_rotates_the_rest():
     assert dc.rotate_budget(items[:3], 8, bucket=7) == (items[:3], [])
 
 
+@pytest.mark.parametrize("raw", ["2026-09-25T10:00:00+99:00", "2026-09-25T10:00:00+2400",
+                                 "Sep 25, 2026 10:00 UTC+30", "2026-09-25 10:00 -25:00"])
+def test_an_impossible_utc_offset_is_no_date(raw):
+    assert dc.parse_date_value(raw, now=NOW) is None
+
+
+def test_a_title_suffix_with_an_impossible_offset_is_left_alone():
+    title = "Hormuz crude note | Kpler - 2026-09-25T10:00:00+99:00"
+    assert dc.split_source_suffix(title, "Kpler") == (title, None)
+    assert dc.clean_display_title(title, "Kpler") == title
+
+
+def test_an_hour_without_seconds_is_a_time_not_a_whole_day():
+    # a.time() != b.time() once seconds are missing; only a missing HOUR makes
+    # a value date-only.
+    p = dc.parse_date_value("2026-09-25T10:00", now=NOW)
+    assert p is not None and not p.date_only and p.value == datetime(2026, 9, 25, 10, 0, tzinfo=UTC)
+    assert dc.parse_date_value("Sep 25, 2026", now=NOW).date_only
+
+
+@pytest.mark.parametrize("furniture", ["aside", "nav", "footer"])
+def test_a_page_furniture_date_never_dates_a_page_without_article_scopes(furniture):
+    html = (f"<html><body><h1>Hormuz transits recover</h1><{furniture}>"
+            '<time itemprop="datePublished" datetime="2026-03-01T08:00:00Z"></time>'
+            f"</{furniture}></body></html>")
+    sig = dc.read_page_signals(_soup(html))
+    assert sig.itemprop == [] and sig.published is None
+
+
+def test_fresh_spike_thresholds():
+    now = NOW
+    fresh = [now - timedelta(minutes=30)] * 5
+    old = [now - timedelta(days=7, hours=1)] + [now - timedelta(days=3)] * 4
+    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 7 d
+    assert not dc.fresh_spike(fresh[:4] + old, now).tripped               # 9 items
+    assert not dc.fresh_spike(fresh[:4] + old + [now - timedelta(days=2)], now).tripped   # 40 %
+    short = [now - timedelta(days=6, hours=23)] + [now - timedelta(days=3)] * 4   # 6 d 22.5 h
+    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 7 d
+    undated = dc.fresh_spike(fresh + [None] * 5 + [now - timedelta(days=8)], now)
+    assert undated.total == 11 and not undated.tripped                    # undated items count
+    spike = dc.fresh_spike(fresh + old, now)
+    assert (spike.fresh, spike.total, spike.label()) == (5, 10, "5/10,7d")
+    assert (dc.SPIKE_MIN_ITEMS, dc.SPIKE_FRESH_SHARE, dc.SPIKE_WINDOW, dc.SPIKE_MIN_SPAN) == (
+        10, 0.5, timedelta(hours=2), timedelta(days=7))
+
+
 def test_shared_page_date_needs_three_distinct_urls_on_one_value():
     const = dc.parse_date_value("2020-01-01T00:00:00Z", now=NOW)
     other = dc.parse_date_value("Mar 03, 2026", now=NOW)
