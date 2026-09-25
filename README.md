@@ -354,14 +354,15 @@ never for the scan: a failed chunk is retried once, then bisected, so a url
 whose query keeps failing (a Cloudflare 400, an over-long query) fails alone;
 a failed candidate url defers only its own item, a failed evidence-only url
 only loses that evidence (`lookup=PARTIAL`). Every scan logs one line, zero
-included:
+included -- here a full scan on the runner (2026-09-25, no writes, the Kpler
+feed still registered on the branch):
 
 ```
-date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.kpler.com(db=4,title=60,page=2;batch=16)] isolated=[www.cbsnews.com(db=1;batch=1)] verified=0 spot=[ok=6 dateless=1] unverified_admitted=0 [] deferred=14 [www.kpler.com: no_page_date=8 over_budget=6] pages=15+2reused looked_up=431 lookup=ok in 3.2s
+date credibility: page_older=14 [kpler.com=14] (title_date=14) restamp_domains=[www.kpler.com(db=3,title=60;batch=50)] isolated=[www.cbsnews.com(db=1;batch=1), www.investing.com(db=1;batch=1)] verified=0 spot=[ok=1] unverified_admitted=0 [] deferred=2 [www.kpler.com: no_page_date=2] pages=3+0reused looked_up=378 lookup=ok in 2.7s
 ```
 
-`db=4,title=60,page=2;batch=16` counts each kind of witness and the largest
-10-minute batch across all of them; `isolated` lists feeds with evidence below
+`db=3,title=60;batch=50` counts each kind of witness (a kind with none is left
+out; `page=` is the third) and the largest 10-minute batch across all of them; `isolated` lists feeds with evidence below
 the batch threshold; `spot` sums the checks of feeds that are not flagged;
 `pages=fetched+reused` are the pages the stage downloaded itself and those
 enrich had already read.

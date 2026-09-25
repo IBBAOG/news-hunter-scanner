@@ -19,10 +19,6 @@ name: Diagnose date credibility
 # SELECTs; the script closes every write path before a scan runs.
 
 on:
-  # TEMPORARY (QA round 1 measurement of fix/date-credibility): removed before handover.
-  push:
-    branches: [fix/date-credibility]
-    paths: [.github/workflows/diagnose_date_credibility.yml]
   workflow_dispatch:
     inputs:
       mode:
@@ -74,8 +70,7 @@ jobs:
       # Inputs travel through the environment, never inlined into the command
       # (a raw URL's `&` would background the rest of the line -- see
       # measure_source.yml).
-      - if: github.event_name == 'workflow_dispatch'   # TEMPORARY guard
-        env:
+      - env:
           MODE: ${{ inputs.mode }}
           FEEDS: ${{ inputs.feeds }}
           DRY_RUN: ${{ inputs.dry_run }}
@@ -107,18 +102,3 @@ jobs:
             fi
           fi
 
-      # TEMPORARY (push runs only): QA round 1 measurements.
-      - if: github.event_name == 'push'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
-          BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
-        run: |
-          set +e
-          for i in 1 2; do
-            echo "=== BACKFILL AUDIT round $i: OFF ==="
-            python -m scripts._tmp_backfill_audit --off 2>&1 | grep -E "BACKFILL AUDIT|SKIPPED|FILLED|snippet backfill|date credibility:|lede rescue"
-            echo "=== BACKFILL AUDIT round $i: ON ==="
-            python -m scripts._tmp_backfill_audit 2>&1 | grep -E "BACKFILL AUDIT|SKIPPED|FILLED|snippet backfill|date credibility:|lede rescue"
-          done
