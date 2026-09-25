@@ -12,26 +12,31 @@ Three rules, all generic (no source is special-cased here):
 
 R2  The earliest credible date wins. Whenever the article HTML is at hand, the
     page's own publication date is read -- `article:published_time`, JSON-LD
-    `datePublished`, `itemprop="datePublished"`; never `dateModified` -- and it
-    replaces the feed date when it is earlier by more than TOLERANCE. Stage 4's
-    window then drops the old item. A date printed at the end of the feed title
-    in the "<headline> | <Source> - Mon DD, YYYY" form is read the same way
-    (it needs no fetch; measured: only kpler.com carries it today).
+    `datePublished`, `itemprop="datePublished"`, `<meta name="date">`; never
+    `dateModified`, never a bare `<time>` -- and it replaces the feed date when
+    it is earlier by more than TOLERANCE. Stage 4's window then drops the old
+    item. A date printed at the end of the feed title in the
+    "<headline> | <Source> - Mon DD, YYYY" form is read the same way (it needs
+    no fetch; measured: only kpler.com carries it today). Every never-seen item
+    of a domain's own feed gets a budgeted page check (the spot check), so R2
+    runs even in fast mode, where no page used to be read.
 
 R3  Re-stamp evidence means verify or defer -- on BATCH evidence only. Legit
     news feeds re-date stored articles all the time (updates); a re-publication
-    shows as a batch: RESTAMP_BATCH_MIN re-dated URLs we already store (feed
-    date > min(stored published_at, created_at) + TOLERANCE), or as many items
-    whose printed title date contradicts the feed date, within
-    RESTAMP_BATCH_SPAN of one another. A flagged feed's dates are modification
-    times for the scan: each never-seen item must pass R2 with its page
-    fetched, inside a per-domain budget. A page that WAS fetched and hides its
-    date (Kpler's empty datePublished), or an exhausted budget, DEFERS the item
-    (not persisted, counted, retried next scan). A page we could NOT fetch
-    (transport error, HTTP >= 400, a WAF challenge) admits the item with the
-    feed date, counted as unverified: our own blocks must not become a zero.
-    The pipeline owns that phase (pipeline._run_date_credibility); this module
-    owns the pure pieces.
+    shows as a batch: RESTAMP_BATCH_MIN witnesses within RESTAMP_BATCH_SPAN of
+    one another, counting together stored URLs the feed re-dates (feed date >
+    min(stored published_at, created_at) + TOLERANCE), items whose printed
+    title date contradicts the feed date, and never-seen items whose page the
+    spot check proved older. A flagged feed's dates are modification times for
+    the scan: each never-seen item must pass R2 with its page read, inside a
+    per-domain budget. A page read without a date (Kpler's empty
+    datePublished), or an exhausted budget, DEFERS the item (not persisted,
+    counted, retried next scan; no age-out -- see the README). A page we could
+    NOT read defers too while another page of the same site was read this
+    scan; only a site that blocks us as a whole admits its items with the feed
+    date, counted as unverified: our own blocks must not become a zero. The
+    pipeline owns that phase (pipeline._run_date_credibility); this module owns
+    the pure pieces.
 
 T   Clean titles. "<headline> | <Source>( - <date>)?" loses the suffix of the
     item's OWN source name, and a title that ends with the page's <h1> (joined
@@ -66,9 +71,10 @@ DAY_SPAN = timedelta(hours=24)
 
 #: R3 flags a feed on a BATCH of re-dates, never on isolated ones: at least
 #: RESTAMP_BATCH_MIN distinct urls whose feed dates fall within
-#: RESTAMP_BATCH_SPAN of one another -- counted separately for stored urls the
-#: feed re-dated and for items whose printed title date is older than the feed
-#: date. Measured 2026-09-25 on news_articles_published_at_clamp_20260925_bak:
+#: RESTAMP_BATCH_SPAN of one another -- stored urls the feed re-dated, items
+#: whose printed title date is older than the feed date and never-seen items
+#: whose page proved them older, counted together. Measured 2026-09-25 on
+#: news_articles_published_at_clamp_20260925_bak:
 #:   * legit feeds re-date stored articles all the time (updates, not
 #:     re-publications). Last 30 days, urls re-dated > 24 h after first seen:
 #:     wsj 36 (22 of them > 72 h), estadao 14, theedgemalaysia 13, asharq 12,

@@ -70,14 +70,13 @@ jobs:
       # Inputs travel through the environment, never inlined into the command
       # (a raw URL's `&` would background the rest of the line -- see
       # measure_source.yml).
-      - if: github.event_name == 'workflow_dispatch'
-        env:
-          MODE: ${{ inputs.mode || 'feeds' }}
+      - env:
+          MODE: ${{ inputs.mode }}
           FEEDS: ${{ inputs.feeds }}
           DRY_RUN: ${{ inputs.dry_run }}
           CLEANUP_AFTER: ${{ inputs.cleanup_after }}
-          PAGES: ${{ inputs.pages || '8' }}
-          HOURS: ${{ inputs.hours || '24' }}
+          PAGES: ${{ inputs.pages }}
+          HOURS: ${{ inputs.hours }}
           VERBOSE: ${{ inputs.verbose && '-v' || '' }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

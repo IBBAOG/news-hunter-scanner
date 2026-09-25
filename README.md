@@ -300,50 +300,82 @@ fetched a page for an item that already had title, date and snippet. The rules
 
 1. **The earliest credible date wins (R2).** Whenever the page is fetched, its
    own date is read (`article:published_time`, JSON-LD `datePublished`,
-   `itemprop="datePublished"`; never `dateModified`) and replaces the feed date
-   when earlier by more than 24 h, so the window drops the item. A date-only
-   value ("Apr 01, 2026") counts as the end of its day. A date the feed prints
-   at the end of its own title (`"… | Kpler - Jun 30, 2026"`) is read the same
-   way, with no fetch.
-2. **Batch re-stamp evidence means verify or defer (R3).** News feeds re-date
+   `itemprop="datePublished"`, `<meta name="date">`; never `dateModified`, and
+   never a bare `<time datetime>` -- sidebars and related-article cards carry
+   those, and the first one would re-date a new article to an older neighbour)
+   and replaces the feed date when earlier by more than 24 h, so the window
+   drops the item. A date-only value ("Apr 01, 2026") counts as the end of its
+   day. A date the feed prints at the end of its own title
+   (`"… | Kpler - Jun 30, 2026"`) is read the same way, with no fetch.
+2. **Every never-seen item gets a spot check.** Production runs in fast mode,
+   where no page is read for a well-formed feed item -- which is how a small
+   re-publish in a feed with no stored history, or a brand-new source, got in
+   unchecked. Stage 4b now reads up to 4 pages per feed per scan of the items
+   `news_articles` does not hold yet (32 per scan in all, shared round-robin):
+   a page that proves the item older drops it and counts as re-stamp evidence;
+   a dateless or unreadable page admits it with the feed date. A spot check
+   never defers.
+3. **Batch re-stamp evidence means verify or defer (R3).** News feeds re-date
    stored articles all the time (updates); a re-publication shows as a
-   **batch**. A feed is flagged for the scan when at least 3 stored urls it
-   re-dates (feed date > `min(published_at, created_at) + 24h`), or at least 3
-   fresh items whose printed title date is older than the feed date, fall within
-   10 minutes of one another (`RESTAMP_BATCH_MIN` / `RESTAMP_BATCH_SPAN`,
-   measured: over 30 days only Kpler and investing.com's weekly "live levels"
-   batch qualify; "any one re-date" would have flagged estadao for 291 h). Each
-   never-seen item of a flagged feed must show its page date, fetched within 8
-   pages per feed per scan (half to the newest items, half rotating). A page
-   that was fetched and hides its date, or an exhausted budget, means
-   **deferred** (not persisted, counted, retried next scan). A page we could not
-   fetch (transport error, HTTP >= 400, a WAF challenge) is **admitted with the
-   feed date**, counted as `unverified_admitted`: our own blocks must not become
-   a zero. Google News is exempt: its dates are Google's.
-3. **Clean titles.** `"<headline> | <own source name>( - <date>)"` loses the
+   **batch**: at least 3 witnesses within 10 minutes of one another
+   (`RESTAMP_BATCH_MIN` / `RESTAMP_BATCH_SPAN`), counting together stored urls
+   the feed re-dates (feed date > `min(published_at, created_at) + 24h`),
+   fresh items whose printed title date is older, and never-seen items whose
+   page proved them older -- so a feed escalates inside the scan that shows the
+   burst. Measured over 30 days of the clamp backup, only Kpler and
+   investing.com's weekly "live levels" batch qualify; "any one re-date" would
+   have flagged estadao for 291 h. A flagged feed's never-seen items are
+   checked up to 8 pages per scan (half to the newest items, half rotating):
+   - page read and dated: verified, or dropped as older;
+   - page read and **dateless**: **deferred** (Kpler's empty `datePublished`);
+   - over the budget: **deferred**, next scan;
+   - page **not read** (transport error, HTTP >= 400, a timeout, our deadline,
+     a WAF challenge): **deferred** while another page of the same site was
+     read this scan -- a 403 on one old post must not publish it -- and
+     **admitted with the feed date**, counted as `unverified_admitted`, only when
+     the whole site blocks us (investing.com fails 8/8 from the runner): our own
+     block must not become a zero.
+
+   **Accepted cost (no age-out).** A dateless page stays deferred for as long
+   as its feed is flagged, i.e. until the burst's evidence leaves the 24 h
+   window. A genuinely new post that carries no date and appears during a
+   re-stamp episode can therefore be lost; it is counted in the log. Admitting
+   dateless items after N hours was rejected: it would let a burst's undated
+   old posts (Kpler had 32) land together N hours later. Kpler publishes about
+   one post a day. The daily-ops burst probe (P13) is the backstop for
+   re-stamps on sites that block the runner.
+4. **Clean titles.** `"<headline> | <own source name>( - <date>)"` loses the
    suffix, and a title ending with the page's `<h1>` after plain whitespace
    (Kpler's `"<SEO title> <headline>"`) becomes the `<h1>`.
 
 Stored rows are not this rule's concern: the database keeps
-`news_articles.published_at` monotone. Every scan logs one line, zero
+`news_articles.published_at` monotone. The stored-date lookup fails per url,
+never for the scan: a failed chunk is retried once, then bisected, so a url
+whose query keeps failing (a Cloudflare 400, an over-long query) fails alone;
+a failed candidate url defers only its own item, a failed evidence-only url
+only loses that evidence (`lookup=PARTIAL`). Every scan logs one line, zero
 included:
 
 ```
-date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.investing.com(db=3/3), www.kpler.com(db=6/6,title=60/12)] isolated=[www.cbsnews.com(db=1/1)] verified=0 unverified_admitted=0 [] deferred=7 [www.kpler.com: no_page_date=7] checked=431 fetched=7 in 3.2s
+date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.kpler.com(db=4,title=60,page=2;batch=16)] isolated=[www.cbsnews.com(db=1;batch=1)] verified=0 spot=[ok=6 dateless=1] unverified_admitted=0 [] deferred=14 [www.kpler.com: no_page_date=8 over_budget=6] pages=15+2reused looked_up=431 lookup=ok in 3.2s
 ```
 
-`db=6/6` reads "6 re-dated urls visible, 6 of them in one 10-minute batch";
-`isolated` lists feeds with re-date evidence below the batch threshold.
+`db=4,title=60,page=2;batch=16` counts each kind of witness and the largest
+10-minute batch across all of them; `isolated` lists feeds with evidence below
+the batch threshold; `spot` sums the checks of feeds that are not flagged;
+`pages=fetched+reused` are the pages the stage downloaded itself and those
+enrich had already read.
 
 Measure before touching a threshold: `diagnose_date_credibility.yml` samples
 every registered feed's pages from the runner (R2 re-dates, template dates, R3
 flags; `mode=feeds`), checks the title cleaner against every stored title
-(`mode=titles`), times Stage 4b off/on in a full scan without writes
-(`mode=full-scan`), and `-f dry_run=<feed url>` runs the real pipeline over one
-feed without writing. The stored-date lookup stays sequential: the same chunks
-sent from four threads over the client's shared HTTP/2 connection failed on the
-runner (`ConnectionTerminated`, Cloudflare 400), and a failed lookup defers
-every candidate. Regression tests: `tests/test_date_credibility*.py`.
+(`mode=titles`), times the whole date-credibility cost off/on in a full scan
+without writes -- Stage 4b, the spot checks and the page-evidence parsing
+(`mode=full-scan`) -- and `-f dry_run=<feed url>` runs the real pipeline over
+one feed without writing. The stored-date lookup stays sequential: the same
+chunks sent from four threads over the client's shared HTTP/2 connection failed
+on the runner (`ConnectionTerminated`, Cloudflare 400). Regression tests:
+`tests/test_date_credibility*.py`.
 
 ## Translation: a 200-shaped success carrying an error page
 
