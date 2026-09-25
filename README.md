@@ -287,6 +287,47 @@ the feed on 04/08 labelled "13m ago" (481 rows had been poisoned this way since
 
 Regression tests: `tests/test_stale_listing_items.py`.
 
+### A feed date can be a modification time (2026-09-25)
+
+Kpler's Webflow feed sets `<pubDate>` to the item's last **re-publish**. When
+Kpler re-published its back catalogue, 81 of 100 items were dated "today" while
+each page kept its own `datePublished` (Mar 31 to Sep 10); 75 old posts landed
+as new, because enrich read the page date only when the feed had none and never
+fetched a page for an item that already had title, date and snippet. The rules
+(`news_hunter/date_credibility.py`, Stage 4b in `pipeline.py`):
+
+1. **The earliest credible date wins (R2).** Whenever the page is fetched, its
+   own date is read (`article:published_time`, JSON-LD `datePublished`,
+   `itemprop="datePublished"`; never `dateModified`) and replaces the feed date
+   when earlier by more than 24 h, so the window drops the item. A date-only
+   value ("Apr 01, 2026") counts as the end of its day. A date the feed prints
+   at the end of its own title (`"… | Kpler - Jun 30, 2026"`) is read the same
+   way, with no fetch.
+2. **Re-stamp evidence means verify or defer (R3).** A feed that dates a url we
+   already store later than `min(published_at, created_at) + 24h` (or prints an
+   older date in the title of a fresh item) is flagged for the scan. Each
+   never-seen item of it must show its page date: fetched within 8 pages per
+   feed per scan, half to the newest items, half rotating through the rest. No
+   page date, a failed fetch or an exhausted budget means **deferred**: not
+   persisted, counted, retried next scan. Google News is exempt: its dates are
+   Google's, and its outlets are the ones that refuse the runner's fetches.
+3. **Clean titles.** `"<headline> | <own source name>( - <date>)"` loses the
+   suffix, and a title ending with the page's `<h1>` after plain whitespace
+   (Kpler's `"<SEO title> <headline>"`) becomes the `<h1>`.
+
+Stored rows are not this rule's concern: the database keeps
+`news_articles.published_at` monotone. Every scan logs one line, zero
+included:
+
+```
+date credibility: page_older=13 [kpler.com=13] (title_date=13) restamp_domains=[www.kpler.com(title=60)] verified=0 deferred=7 [www.kpler.com: no_page_date=7] checked=333 fetched=7 in 3.1s
+```
+
+Measure before touching a threshold: `diagnose_date_credibility.yml` samples
+every registered feed's pages from the runner (R2 re-dates, template dates, R3
+flags), `-f dry_run=<feed url>` runs the real pipeline over one feed without
+writing. Regression tests: `tests/test_date_credibility*.py`.
+
 ## Translation: a 200-shaped success carrying an error page
 
 `deep-translator` scrapes `translate.google.com` and parses whatever HTML comes
