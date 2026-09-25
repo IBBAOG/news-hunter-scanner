@@ -434,6 +434,22 @@ def test_sink_lookup_returns_both_dates_and_none_on_failure():
     assert got["https://kpler.com/blog/x"].reference == datetime(2026, 9, 14, 20, 36, 12, 446198, tzinfo=UTC)
     assert _sink([row], fail=True)._existing_dates(["https://kpler.com/blog/x"]) is None
 
+    # One transient failure (the runner saw `ConnectionTerminated`) is retried.
+    calls = {"n": 0}
+
+    class _Flaky(_Q):
+        def execute(self):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("ConnectionTerminated")
+            return super().execute()
+
+    flaky = supabase_sync._SupabaseSink.__new__(supabase_sync._SupabaseSink)
+    flaky.client = type("C", (), {"table": lambda _self, _n: _Flaky([row], False)})()
+    flaky.table = "news_articles"
+    assert set(flaky._existing_dates(["https://kpler.com/blog/x"])) == {"https://kpler.com/blog/x"}
+    assert calls["n"] == 2
+
 
 # ---------------------------------------------------------------------------
 # R2 inside enrich_item: whenever the page is fetched, its date is read

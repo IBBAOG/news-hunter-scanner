@@ -132,41 +132,43 @@ class _SupabaseSink:
         time of a row whose published_at an earlier re-stamp already pushed
         forward. {} when the client is not configured (local runs).
         """
-        from concurrent.futures import ThreadPoolExecutor
-
         from .date_credibility import StoredDates, parse_stored_timestamp
 
         if self.client is None or not urls:
             return {}
-
-        def _one(chunk: list[str]):
-            return (
-                self.client.table(self.table)
-                .select("url, published_at, created_at")
-                .in_("url", chunk)
-                .execute()
-            )
-
-        # The scan asks for ~450 urls (5-6 chunks): in parallel the lookup
-        # costs one round trip instead of six. Any failed chunk fails the whole
-        # lookup -- a partial answer would read "not stored" as "never seen".
-        chunks = _chunk_urls_for_query(urls)
+        # Sequential, on purpose. Measured on the runner 2026-09-25: the same
+        # chunks sent from 4 threads over the client's shared HTTP/2 connection
+        # failed with `ConnectionTerminated` and Cloudflare "400 Bad Request"
+        # pages, and every candidate of the scan was deferred. One retry per
+        # chunk absorbs a transient failure; any chunk failing twice fails the
+        # whole lookup -- a partial answer would read "not stored" as "never
+        # seen".
         out: dict[str, StoredDates] = {}
-        with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as ex:
-            futures = [(chunk, ex.submit(_one, chunk)) for chunk in chunks]
-            for chunk, fut in futures:
+        for chunk in _chunk_urls_for_query(urls):
+            res = None
+            for attempt in (1, 2):
                 try:
-                    res = fut.result()
+                    res = (
+                        self.client.table(self.table)
+                        .select("url, published_at, created_at")
+                        .in_("url", chunk)
+                        .execute()
+                    )
+                    break
                 except Exception as e:  # noqa: BLE001
-                    log.warning("lookup de datas gravadas falhou (%d urls): %s", len(chunk), e)
-                    return None
-                for r in res.data or []:
-                    url = r.get("url")
-                    if url:
-                        out[url] = StoredDates(
-                            published_at=parse_stored_timestamp(r.get("published_at")),
-                            created_at=parse_stored_timestamp(r.get("created_at")),
-                        )
+                    log.warning(
+                        "lookup de datas gravadas falhou (%d urls, tentativa %d): %s",
+                        len(chunk), attempt, e,
+                    )
+            if res is None:
+                return None
+            for r in res.data or []:
+                url = r.get("url")
+                if url:
+                    out[url] = StoredDates(
+                        published_at=parse_stored_timestamp(r.get("published_at")),
+                        created_at=parse_stored_timestamp(r.get("created_at")),
+                    )
         return out
 
     def _freeze_approx_dates(
