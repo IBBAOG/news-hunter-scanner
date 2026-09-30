@@ -1121,6 +1121,17 @@ def test_the_burst_shape_end_to_end(monkeypatch):
     assert run.stats.deferred == {FEED: {"no_page_date": 1, "unread": 1}}
 
 
+def test_a_stored_kpler_item_gets_its_headline_from_the_slug_without_a_fetch(monkeypatch):
+    """The live case of 2026-09-30: the title date is consistent, the row is
+    stored -- nothing reads the page -- yet the re-push carries the headline."""
+    slug = "latams-oil-trade-is-being-rerouted-by-the-middle-east-crisis"
+    latam = _item(slug, "Latam's Oil Trade Shifts Amid Middle East Crisis Latam's oil trade is being "
+                        f"rerouted by the Middle East crisis | Kpler - {TODAY}", age_h=0.5)
+    run = _drive(monkeypatch, [latam], stored=_stored([slug], days=0.02))
+    assert run.fetched == []
+    assert _by_url(run)[BLOG + slug].title == "Latam's oil trade is being rerouted by the Middle East crisis"
+
+
 def test_google_news_items_are_exempt(monkeypatch):
     gnews = [_item(s, BATCH[i].title, feed="news.google.com", age_h=1.2 + i / 100)
              for i, s in enumerate(BATCH_SLUGS)]

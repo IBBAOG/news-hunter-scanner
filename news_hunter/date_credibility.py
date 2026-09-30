@@ -637,7 +637,7 @@ def headline_from_slug(title: str, url: str) -> str | None:
         if any(_slug_tokens(rest, split_apostrophes=split) in wanted for split in (False, True)):
             if k == 0:
                 return None                    # already the headline
-            return html.unescape(rest).lstrip(_LABEL_SEPARATORS + " ") or None
+            return html.unescape(html.unescape(rest)).lstrip(_LABEL_SEPARATORS + " ") or None
     return None
 
 

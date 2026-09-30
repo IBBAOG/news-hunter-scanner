@@ -380,8 +380,16 @@ fetched a page for an item that already had title, date and snippet. The rules
    one post a day. The daily-ops burst probe (P13) is the backstop for
    re-stamps on sites that block the runner.
 5. **Clean titles.** `"<headline> | <own source name>( - <date>)"` loses the
-   suffix, and a title ending with the page's `<h1>` after plain whitespace
-   (Kpler's `"<SEO title> <headline>"`) becomes the `<h1>`.
+   suffix. Kpler's feed titles are `"<SEO title> <headline>"`: its url slug IS
+   the headline, so the headline starts at the word where the rest of the title
+   slugifies to the slug (apostrophes dropped or split, entities decoded, a
+   trailing `-2` / `-a738b` ignored) -- no page fetch, so stored rows are fixed
+   on their next push; when the headline was edited after the slug was made,
+   nothing matches and the title stays. Per-domain registry
+   (`keyword_senses.SLUG_IS_HEADLINE`, only kpler.com): other outlets' slugs
+   leave out labels such as "Exclusive:" that belong in the title. Elsewhere, a
+   title ending with the page's `<h1>` after plain whitespace becomes the
+   `<h1>` when the page was read.
 
 **While the stored-date lookup is down** nothing can tell a burst of
 re-stamped stored posts from new ones, so a feed that left ANY re-stamp
