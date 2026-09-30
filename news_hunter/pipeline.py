@@ -753,7 +753,7 @@ def _run_snippet_backfill(
                 redated.append((a, ev.page_date))  # type: ignore[arg-type]
             if ev.headlines:
                 try:
-                    a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+                    a.title = clean_display_title(a.title, a.source_name, ev.headlines, url=a.url)
                 except Exception as e:  # noqa: BLE001
                     if date_stats is not None:
                         _item_failed(date_stats, "title cleaning", a.url, e)
@@ -1165,7 +1165,7 @@ def _apply_verdicts(verdicts, *, hours: int, stats: _DateStats, drop: set[str]) 
         if ev is not None and ev.read:
             if ev.headlines:
                 try:
-                    a.title = clean_display_title(a.title, a.source_name, ev.headlines)
+                    a.title = clean_display_title(a.title, a.source_name, ev.headlines, url=a.url)
                 except Exception as e:  # noqa: BLE001
                     _item_failed(stats, "title cleaning", a.url, e)
             if ev.snippet and not (a.snippet or "").strip():
@@ -1758,7 +1758,8 @@ def run_search(
                 page_ev = page_seen(resolved_url)
                 try:
                     display_title = clean_display_title(
-                        real_title, source_name, page_ev.headlines if page_ev else ()
+                        real_title, source_name, page_ev.headlines if page_ev else (),
+                        url=resolved_url,
                     )
                 except Exception as e:  # noqa: BLE001
                     _item_failed(date_stats, "title cleaning", resolved_url, e)
