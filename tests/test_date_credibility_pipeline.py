@@ -799,6 +799,24 @@ def test_a_bulk_restamp_of_never_stored_posts_flags_the_feed(monkeypatch, caplog
     assert f"{feed}(feed_fresh_spike=81/100,26d;batch=0)" in _line(caplog, "date credibility:")
 
 
+def test_one_stale_item_in_a_busy_feed_holds_nothing_back(monkeypatch):
+    """QA F1: 11 new items with dateless pages and one post 6 days old. One old
+    item is no span: no spike, and the 11 new items are saved."""
+    feed, items, pages = _spike_feed(11, 12, fresh_within_h=1.0, span_days=6)
+    items[-1].published_at = NOW - timedelta(days=6)
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.spike == {} and run.stats.flagged() == []
+    assert len(run.persisted) == 11 and run.stats.n_deferred == 0
+
+
+def test_a_placeholder_date_holds_nothing_back(monkeypatch):
+    feed, items, pages = _spike_feed(11, 13, fresh_within_h=1.0, span_days=6)
+    for it in items[-2:]:
+        it.published_at = datetime(1970, 1, 1, tzinfo=UTC)          # the epoch placeholder
+    run = _drive(monkeypatch, feed=feed, items=items, pages=pages)
+    assert run.stats.spike == {} and len(run.persisted) == 11
+
+
 def test_a_high_volume_feed_is_not_a_spike(monkeypatch):
     """50 items in the last 3 hours, spanning one day: dense, but not a re-stamp."""
     feed, items, pages = _spike_feed(35, 50, fresh_within_h=2.0, span_days=1, dated_pages=True)
@@ -1101,6 +1119,17 @@ def test_the_burst_shape_end_to_end(monkeypatch):
     assert urls == {*(BLOG + s for s in BATCH_SLUGS), BLOG + NEW_SLUG}
     assert run.stats.verified == 1 and run.stats.n_page_older == 1
     assert run.stats.deferred == {FEED: {"no_page_date": 1, "unread": 1}}
+
+
+def test_a_stored_kpler_item_gets_its_headline_from_the_slug_without_a_fetch(monkeypatch):
+    """The live case of 2026-09-30: the title date is consistent, the row is
+    stored -- nothing reads the page -- yet the re-push carries the headline."""
+    slug = "latams-oil-trade-is-being-rerouted-by-the-middle-east-crisis"
+    latam = _item(slug, "Latam's Oil Trade Shifts Amid Middle East Crisis Latam's oil trade is being "
+                        f"rerouted by the Middle East crisis | Kpler - {TODAY}", age_h=0.5)
+    run = _drive(monkeypatch, [latam], stored=_stored([slug], days=0.02))
+    assert run.fetched == []
+    assert _by_url(run)[BLOG + slug].title == "Latam's oil trade is being rerouted by the Middle East crisis"
 
 
 def test_google_news_items_are_exempt(monkeypatch):

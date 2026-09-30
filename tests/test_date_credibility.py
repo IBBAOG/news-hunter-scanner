@@ -511,6 +511,115 @@ def test_h1_is_not_used_when_the_title_does_not_end_with_it():
 
 
 # ---------------------------------------------------------------------------
+# Kpler: the url slug is the headline (keyword_senses.SLUG_IS_HEADLINE)
+# ---------------------------------------------------------------------------
+
+KPLER_BLOG = "https://kpler.com/blog/"
+
+# Real feed items (www.kpler.com/blog/rss.xml, 2026-09-25 and 2026-09-30): the
+# slug, the feed title, what the reader should see. No page is read.
+KPLER_SLUG_TITLES = [
+    ("latams-oil-trade-is-being-rerouted-by-the-middle-east-crisis",
+     "Latam's Oil Trade Shifts Amid Middle East Crisis Latam's oil trade is being rerouted by the "
+     "Middle East crisis | Kpler - Sep 27, 2026",
+     "Latam's oil trade is being rerouted by the Middle East crisis"),
+    ("new-pipelines-bypassing-the-strait-of-hormuz-could-come-online-in-1-2-years",
+     "Gulf States Race to Build Hormuz Bypass Infrastructure New pipelines bypassing the Strait of "
+     "Hormuz could come online in 1-2 years | Kpler - Jul 09, 2026",
+     "New pipelines bypassing the Strait of Hormuz could come online in 1-2 years"),
+    # the SEO part is cut mid-word ("whe")
+    ("petroline-down-exports-pivoting-east-key-scenarios-and-where-the-differentials-go",
+     "Petroline down, exports pivoting east: key scenarios and whe Petroline down, exports pivoting "
+     "east: key scenarios and where the differentials go | Kpler -",
+     "Petroline down, exports pivoting east: key scenarios and where the differentials go"),
+    # an exact "X X" duplicate
+    ("washington-renews-iran-blockade",
+     "Washington renews Iran blockade Washington renews Iran blockade | Kpler -",
+     "Washington renews Iran blockade"),
+    # the CMS made the slug unique with "-2"
+    ("the-strategic-timing-of-chinas-crude-purchases-2",
+     "China's Crude Buying Delay Signals Energy Statecraft The strategic timing of China's crude "
+     "purchases | Kpler - Jul 27, 2026",
+     "The strategic timing of China's crude purchases"),
+    # the older slug convention splits on the apostrophe; the feed's own title
+    # carries a mojibake character there
+    ("india-s-coal-imports-to-pick-up-in-q4-26-as-stocks-tighten",
+     "India's coal imports set to rise in Q4 2026 India\ufffds coal imports to pick up in Q4 26 as "
+     "stocks tighten | Kpler - Sep 07, 2026",
+     "India\ufffds coal imports to pick up in Q4 26 as stocks tighten"),
+    # "-a738b" is ignored, but the headline was edited after the slug was made:
+    # no boundary matches, the (suffix-stripped) title stays as it is
+    ("india-s-coal-imports-to-pick-up-in-q4-26-as-stocks-tighten-a738b",
+     "India's Coal Imports to Rebound in Q4 2026 India's coal imports set to rebound in Q4 2026 as "
+     "power-plant stocks tighten | Kpler - Aug 31, 2026",
+     "India's Coal Imports to Rebound in Q4 2026 India's coal imports set to rebound in Q4 2026 as "
+     "power-plant stocks tighten"),
+]
+
+
+@pytest.mark.parametrize("slug,feed_title,expected", KPLER_SLUG_TITLES)
+def test_the_kpler_slug_says_where_the_headline_starts(slug, feed_title, expected):
+    assert dc.clean_display_title(feed_title, "Kpler", url=KPLER_BLOG + slug) == expected
+
+
+def test_apostrophe_entities_normalise_on_both_sides():
+    slug = "latams-oil-trade-is-being-rerouted-by-the-middle-east-crisis"
+    for apostrophe in ("&#39;", "&#x27;", "\u2019", "&amp;#39;"):
+        title = (f"Latam{apostrophe}s Oil Trade Shifts Amid Middle East Crisis Latam{apostrophe}s oil trade "
+                 "is being rerouted by the Middle East crisis | Kpler -")
+        got = dc.clean_display_title(title, "Kpler", url=KPLER_BLOG + slug)
+        assert got.endswith("s oil trade is being rerouted by the Middle East crisis"), apostrophe
+        assert got.startswith("Latam") and "&" not in got
+
+
+def test_the_slug_rule_is_for_registered_sources_only():
+    # Another outlet's label is part of its headline; its slug leaves it out.
+    title = "Exclusive: Oil majors weigh Hormuz exit"
+    reuters = "https://www.reuters.com/business/energy/oil-majors-weigh-hormuz-exit/"
+    assert dc.clean_display_title(title, "Reuters", url=reuters) == title
+    assert dc.headline_from_slug(title, reuters) is None
+    # ...which is exactly what the rule would drop on a registered domain.
+    assert dc.headline_from_slug(title, "https://www.kpler.com/blog/oil-majors-weigh-hormuz-exit") == (
+        "Oil majors weigh Hormuz exit")
+
+
+def test_a_slug_that_splits_on_the_apostrophe_still_matches():
+    # Kpler's older slugs split on the apostrophe ("india-s"), newer ones drop
+    # it ("latams"): a real apostrophe must match either way.
+    title = ("India's coal imports set to rise in Q4 2026 India's coal imports to pick up in Q4 26 as "
+             "stocks tighten | Kpler - Sep 07, 2026")
+    slug = "india-s-coal-imports-to-pick-up-in-q4-26-as-stocks-tighten"
+    assert dc.clean_display_title(title, "Kpler", url=KPLER_BLOG + slug) == (
+        "India's coal imports to pick up in Q4 26 as stocks tighten")
+
+
+def test_a_title_that_already_is_the_headline_or_a_short_slug_is_left_alone():
+    title = "The Fed joins the hiking camp"
+    assert dc.headline_from_slug(title, KPLER_BLOG + "the-fed-joins-the-hiking-camp") is None
+    assert dc.clean_display_title(title, "Kpler", url=KPLER_BLOG + "the-fed-joins-the-hiking-camp") == title
+    assert dc.headline_from_slug("Weekly note Oil prices", KPLER_BLOG + "oil-prices") is None
+
+
+def test_only_a_unique_suffix_is_ignored_on_the_slug():
+    seo = "Kpler Outlook"
+    # a trailing year is a real word of the headline: the full slug matches
+    assert dc.headline_from_slug(f"{seo} Oil outlook for 2026", KPLER_BLOG + "oil-outlook-for-2026") == (
+        "Oil outlook for 2026")
+    # hex letters without a digit are a word, never a hash
+    assert dc.headline_from_slug(f"{seo} Tankers add to the feed", KPLER_BLOG + "tankers-add-to-the-feed") == (
+        "Tankers add to the feed")
+    assert dc.headline_from_slug(f"{seo} Tankers add to the", KPLER_BLOG + "tankers-add-to-the-feed") is None
+
+
+def test_the_slug_registry_is_explicit_and_only_kpler():
+    from news_hunter.keyword_senses import SLUG_IS_HEADLINE, slug_is_headline
+
+    assert SLUG_IS_HEADLINE == frozenset({"kpler.com"})
+    assert slug_is_headline("www.kpler.com") and slug_is_headline("kpler.com")
+    assert not slug_is_headline("www.reuters.com") and not slug_is_headline("")
+
+
+# ---------------------------------------------------------------------------
 # R3 helpers
 # ---------------------------------------------------------------------------
 
@@ -669,18 +778,46 @@ def test_a_page_furniture_date_never_dates_a_page_without_article_scopes(furnitu
 def test_fresh_spike_thresholds():
     now = NOW
     fresh = [now - timedelta(minutes=30)] * 5
-    old = [now - timedelta(days=5, hours=1)] + [now - timedelta(days=3)] * 4
-    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 5 d
+    old = [now - timedelta(days=3)] * 2 + [now - timedelta(days=1)] * 3
+    assert dc.fresh_spike(fresh + old, now).tripped                      # 10 items, 50 %, 2 old
     assert not dc.fresh_spike(fresh[:4] + old, now).tripped               # 9 items
-    assert not dc.fresh_spike(fresh[:4] + old + [now - timedelta(days=2)], now).tripped   # 40 %
-    short = [now - timedelta(days=4, hours=23)] + [now - timedelta(days=3)] * 4   # 4 d 22.5 h
-    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 5 d
-    undated = dc.fresh_spike(fresh + [None] * 5 + [now - timedelta(days=8)], now)
-    assert undated.total == 11 and not undated.tripped                    # undated items count
+    assert not dc.fresh_spike(fresh[:4] + old + [now - timedelta(hours=5)], now).tripped   # 40 %
+    one_old = [now - timedelta(days=3)] + [now - timedelta(days=1)] * 4
+    assert not dc.fresh_spike(fresh + one_old, now).tripped               # one old item: no span
+    short = [now - timedelta(days=1, hours=23)] * 2 + [now - timedelta(days=1)] * 3
+    assert not dc.fresh_spike(fresh + short, now).tripped                 # span < 2 d
+    undated = dc.fresh_spike(fresh + [None] * 5 + [now - timedelta(days=8)] * 2, now)
+    assert undated.total == 12 and not undated.tripped                    # undated items count
     spike = dc.fresh_spike(fresh + old, now)
-    assert (spike.fresh, spike.total, spike.label()) == (5, 10, "5/10,5d")
-    assert (dc.SPIKE_MIN_ITEMS, dc.SPIKE_FRESH_SHARE, dc.SPIKE_WINDOW, dc.SPIKE_MIN_SPAN) == (
-        10, 0.5, timedelta(hours=2), timedelta(days=5))
+    assert (spike.fresh, spike.total, spike.old, spike.label()) == (5, 10, 2, "5/10,3d")
+    assert (dc.SPIKE_MIN_ITEMS, dc.SPIKE_FRESH_SHARE, dc.SPIKE_WINDOW, dc.SPIKE_MIN_SPAN,
+            dc.SPIKE_MIN_OLD_ITEMS) == (10, 0.5, timedelta(hours=2), timedelta(days=2), 2)
+
+
+def test_one_stale_item_does_not_make_a_busy_feed_a_spike():
+    """QA F1: 11 new items and one post 6 days old -- one item is no span."""
+    now = NOW
+    dates = [now - timedelta(minutes=5 * n) for n in range(11)] + [now - timedelta(days=6)]
+    spike = dc.fresh_spike(dates, now)
+    assert spike.fresh == 11 and spike.span >= timedelta(days=6) and spike.old == 1
+    assert not spike.tripped
+
+
+@pytest.mark.parametrize("placeholder", [
+    datetime(1970, 1, 1, tzinfo=UTC), datetime(1994, 12, 31, tzinfo=UTC), datetime(2099, 1, 1, tzinfo=UTC)])
+def test_placeholder_dates_never_count_for_the_spike(placeholder):
+    now = NOW
+    dates = [now - timedelta(minutes=5 * n) for n in range(11)] + [placeholder] * 3
+    spike = dc.fresh_spike(dates, now)
+    assert spike.old == 0 and spike.span < timedelta(hours=1) and not spike.tripped
+    assert spike.fresh == 11 and spike.total == 14      # counted as items, never as dates
+
+
+def test_a_naive_item_date_is_read_as_utc():
+    now = NOW
+    naive = [(now - timedelta(minutes=5 * n)).replace(tzinfo=None) for n in range(8)]
+    olds = [(now - timedelta(days=3)).replace(tzinfo=None)] * 2
+    assert dc.fresh_spike(naive + olds, now).tripped
 
 
 # Kpler's feed at 11:52 UTC on 2026-09-25, mid-burst (www.kpler.com/blog/rss.xml
@@ -698,7 +835,10 @@ def test_kpler_mid_burst_trips_the_fresh_spike():
     at = datetime(2026, 9, 25, 11, 52, tzinfo=UTC)
     spike = dc.fresh_spike([at - timedelta(minutes=m) for m in KPLER_1152_AGES_MIN], at)
     assert (spike.fresh, spike.total) == (91, 100)
-    assert timedelta(days=6, hours=22) < spike.span < timedelta(days=7)    # 7 d would miss it
+    assert timedelta(days=6, hours=22) < spike.span < timedelta(days=7)
+    # 6 items 2.9 days or more older than the newest; only 1 older than 5 days,
+    # so two corroborating items need SPIKE_MIN_SPAN below 2.9 days.
+    assert spike.old == 6
     assert spike.tripped
     # Two hours after the burst the feed no longer reads as one (from the same dates).
     assert not dc.fresh_spike([at - timedelta(minutes=m) for m in KPLER_1152_AGES_MIN],

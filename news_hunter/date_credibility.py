@@ -46,8 +46,10 @@ R3  Re-stamp evidence means verify or defer -- on BATCH evidence only. Legit
     phase (pipeline._run_date_credibility); this module owns the pure pieces.
 
 T   Clean titles. "<headline> | <Source>( - <date>)?" loses the suffix of the
-    item's OWN source name, and a title that ends with the page's <h1> (joined
-    by plain whitespace, as Kpler's "<SEO title> <headline>") becomes the h1.
+    item's OWN source name. For a source whose url slug is its headline
+    (keyword_senses.SLUG_IS_HEADLINE: Kpler), the slug says where the headline
+    starts in "<SEO title> <headline>", with no fetch; otherwise a title that
+    ends with the page's <h1> (joined by plain whitespace) becomes the h1.
 
 Tolerance: 24 h. It absorbs the timezone noise of naive local timestamps. A
 date-only value ("Apr 01, 2026") names a whole day in an unknown timezone, so it
@@ -59,15 +61,19 @@ news_articles.published_at monotone (an update can never move it later).
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from dateutil import parser as date_parser
+
+from .keyword_senses import slug_is_headline
 
 #: How much EARLIER than the feed date a page (or title) date must be before it
 #: overrides the feed date. Also the slack of the R3 re-stamp test.
@@ -109,18 +115,25 @@ RESTAMP_BATCH_SPAN = timedelta(minutes=10)
 #: (no stored date to contradict, no title date, no page date: Kpler had 32 of
 #: them on 2026-09-25). A high-volume news feed is dense in the last hours too,
 #: but its items span hours; a quiet feed on a busy day does not reach half.
+#: The span must be CORROBORATED: at least SPIKE_MIN_OLD_ITEMS plausible items
+#: (1995 .. now + 2 days, as for page dates) SPIKE_MIN_SPAN or more older than
+#: the newest. One stale item -- a forgotten post, a 1970 placeholder -- in a
+#: busy feed must not hold its new items back (QA F1: 11 new items + 1 item
+#: 6 days old tripped it, 0 of 11 saved while it lasted).
 #: Measured 2026-09-25:
 #:   * Kpler during its burst: 81/100 within 2 h over 26 days at 11:30 UTC, and
-#:     91/100 over 6.9 days at 11:52 -- the burst re-stamps the OLDEST items
-#:     first, so the span shrinks as it goes. SPIKE_MIN_SPAN is 5 days, not 7,
-#:     so the whole episode trips (7 would have let go of it by 11:52).
+#:     91/100 at 11:52, when the burst -- re-stamping the OLDEST items first --
+#:     had left only 9 old items: 6 of them 2.9 days or more older than the
+#:     newest, 1 older than 5 days. Two corroborating items therefore need a
+#:     span below 2.9 days: SPIKE_MIN_SPAN is 2 days.
 #:   * every registered feed at 19:26 UTC: none trips; the 15 feeds with >= 10
 #:     items and >= 50 % of them within 2 h span 0.4 days at most (g1, veja,
 #:     metropoles, estadao's news sitemap...).
 SPIKE_MIN_ITEMS = 10
 SPIKE_FRESH_SHARE = 0.5
 SPIKE_WINDOW = timedelta(hours=2)
-SPIKE_MIN_SPAN = timedelta(days=5)
+SPIKE_MIN_SPAN = timedelta(days=2)
+SPIKE_MIN_OLD_ITEMS = 2
 
 #: Template guard: when this many never-seen items of one feed carry the SAME
 #: older page date in one scan, the date is a CMS constant, not theirs -- the
@@ -578,14 +591,66 @@ def split_source_suffix(title: str, source_name: str) -> tuple[str, ParsedDate |
 
 _LABEL_SEPARATORS = "|:-–—·•»/"
 _MIN_HEADLINE_WORDS = 3
+# Apostrophes a slugifier drops ("latams") or splits on ("india-s").
+_APOSTROPHES = "'’‘`´"
+# What a CMS appends to keep a slug unique: "-2", or a short hash with a digit
+# in it ("-a738b"; a hex-letters word such as "-feed" is never taken for one).
+_SLUG_UNIQUE_SUFFIX_RE = re.compile(r"-(?:\d+|(?=[0-9a-f]*\d)[0-9a-f]{4,8})$")
 
 
-def clean_display_title(title: str, source_name: str, headlines: Iterable[str] = ()) -> str:
-    """Display title: suffix stripped, then the h1 if the title ends with it.
+def _slug_tokens(text: str, *, split_apostrophes: bool) -> list[str]:
+    """`text` the way a slugifier sees it: entities decoded, accents folded,
+    lowercase alphanumeric runs."""
+    t = html.unescape(html.unescape(text or ""))
+    t = "".join(ch for ch in unicodedata.normalize("NFKD", t) if not unicodedata.combining(ch))
+    t = re.sub(f"[{_APOSTROPHES}]", " " if split_apostrophes else "", t.lower())
+    return re.findall(r"[a-z0-9]+", t)
+
+
+def headline_from_slug(title: str, url: str) -> str | None:
+    """The headline part of a "<SEO title> <headline>" title, read off the url slug.
+
+    Only for a source registered in keyword_senses.SLUG_IS_HEADLINE (Kpler).
+    The headline starts at the word boundary k where slugify(title[k:]) equals
+    the slug -- apostrophes dropped ("latams") or split ("india-s"), HTML
+    entities decoded (the feed says &#39;, the page &#x27;), a trailing "-2" or
+    "-a738b" on the slug ignored. None when the title already is the headline,
+    or when no boundary matches (the headline was edited after the slug was
+    made): the caller keeps the title as it is.
+    """
+    if not title or not url:
+        return None
+    parsed = urlparse(url)
+    if not slug_is_headline(parsed.netloc):
+        return None
+    slug = unquote(parsed.path.rstrip("/").rsplit("/", 1)[-1]).lower()
+    tokens = [t for t in slug.split("-") if t]
+    if len(tokens) < _MIN_HEADLINE_WORDS:
+        return None
+    wanted = [tokens]
+    if _SLUG_UNIQUE_SUFFIX_RE.search(slug) and len(tokens) > _MIN_HEADLINE_WORDS:
+        wanted.append(tokens[:-1])
+    norm = _norm(title)
+    starts = [0] + [i + 1 for i, ch in enumerate(norm) if ch == " "]
+    for k in starts:
+        rest = norm[k:]
+        if any(_slug_tokens(rest, split_apostrophes=split) in wanted for split in (False, True)):
+            if k == 0:
+                return None                    # already the headline
+            return html.unescape(html.unescape(rest)).lstrip(_LABEL_SEPARATORS + " ") or None
+    return None
+
+
+def clean_display_title(title: str, source_name: str, headlines: Iterable[str] = (),
+                        url: str = "") -> str:
+    """Display title: suffix stripped, then the headline where it can be told.
 
     Not _clipinator_shim.clean_title, which strips ANY registered outlet name
     after "|", "-" or an en dash (and would cut a "- IEA" attribution): this one
     touches only the item's own source after the last "|".
+
+    For a source whose url slug is its headline (headline_from_slug: Kpler) the
+    slug decides, with no page needed.
 
     The h1 replaces the title only when (a) the title ends with it, joined by
     plain whitespace -- a prefix ending in a label separator ("Opinion | ",
@@ -597,6 +662,9 @@ def clean_display_title(title: str, source_name: str, headlines: Iterable[str] =
     if not title:
         return title
     stripped, _ = split_source_suffix(title, source_name)
+    from_slug = headline_from_slug(stripped, url)
+    if from_slug:
+        return from_slug
     norm = _norm(stripped)
     folded = norm.casefold()
     for h in headlines:
@@ -699,27 +767,47 @@ def is_batch(dates: Iterable[datetime], *, minimum: int = RESTAMP_BATCH_MIN,
 class FreshSpike:
     """How fresh one fetched feed looks as a whole (see SPIKE_* above)."""
 
-    fresh: int            # items dated within SPIKE_WINDOW of `now` (or later)
+    fresh: int            # plausible items dated within SPIKE_WINDOW of `now`
     total: int            # every item of the fetch, dated or not
-    span: timedelta       # newest minus oldest item date
+    span: timedelta       # newest minus oldest PLAUSIBLE item date
+    old: int = 0          # plausible items SPIKE_MIN_SPAN or more older than the newest
 
     @property
     def tripped(self) -> bool:
         return (self.total >= SPIKE_MIN_ITEMS
                 and self.fresh >= SPIKE_FRESH_SHARE * self.total
-                and self.span >= SPIKE_MIN_SPAN)
+                and self.span >= SPIKE_MIN_SPAN
+                and self.old >= SPIKE_MIN_OLD_ITEMS)
 
     def label(self) -> str:
         return f"{self.fresh}/{self.total},{self.span.total_seconds() / 86400:.0f}d"
 
 
+def _plausible_item_date(d: datetime | None, now: datetime) -> datetime | None:
+    """An item date the spike may use: aware, 1995 .. now + 2 days, else None."""
+    if d is None:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    if d.year < _MIN_YEAR or d > now + _MAX_FUTURE:
+        return None
+    return d
+
+
 def fresh_spike(dates: Iterable[datetime | None], now: datetime) -> FreshSpike:
-    """The feed-fresh-spike reading of one fetched feed's item dates."""
+    """The feed-fresh-spike reading of one fetched feed's item dates.
+
+    Only plausible dates count, for freshness and span alike: an epoch or
+    year-2099 placeholder says nothing about when the feed's items appeared.
+    """
     ds = list(dates)
-    dated = [d for d in ds if d is not None]
+    dated = [p for p in (_plausible_item_date(d, now) for d in ds) if p is not None]
     fresh = sum(1 for d in dated if d >= now - SPIKE_WINDOW)
-    span = (max(dated) - min(dated)) if dated else timedelta(0)
-    return FreshSpike(fresh=fresh, total=len(ds), span=span)
+    if not dated:
+        return FreshSpike(fresh=0, total=len(ds), span=timedelta(0))
+    newest = max(dated)
+    old = sum(1 for d in dated if newest - d >= SPIKE_MIN_SPAN)
+    return FreshSpike(fresh=fresh, total=len(ds), span=newest - min(dated), old=old)
 
 
 def shared_page_date(dated: Iterable[tuple[str, ParsedDate]], *,

@@ -296,6 +296,31 @@ def drop_own_name(labels: Iterable[str], domain: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# A source whose url slug IS the headline (added 2026-09-30)
+# ---------------------------------------------------------------------------
+# Kpler's feed titles are "<SEO title> <headline>" before the " | Kpler - <date>"
+# suffix: a second, shorter headline -- sometimes cut mid-word -- glued in front
+# of the real one ("Latam's Oil Trade Shifts Amid Middle East Crisis Latam's oil
+# trade is being rerouted by the Middle East crisis"). The article's url slug is
+# the headline itself, so the feed alone says where the headline starts
+# (date_credibility.headline_from_slug) -- no page fetch, so every item is
+# fixed, stored or new, on its next push.
+#
+# Explicit per domain, never global: other outlets put labels in front of
+# headlines whose slug leaves them out ("Exclusive:", "UPDATE 2-"), and a slug
+# match would silently drop those. Keys are hosts without "www.".
+SLUG_IS_HEADLINE: frozenset[str] = frozenset({"kpler.com"})
+
+
+def slug_is_headline(domain: str) -> bool:
+    """True when `domain`'s url slug is its articles' headline (SLUG_IS_HEADLINE)."""
+    host = (domain or "").strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host in SLUG_IS_HEADLINE
+
+
+# ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
 
