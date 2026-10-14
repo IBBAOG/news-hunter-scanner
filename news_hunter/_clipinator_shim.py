@@ -657,12 +657,29 @@ NOISE_CLASS_SUBSTRINGS = (
     "read-more", "mc-read-more", "recommend-theme",
     "box-seja-assinante", "seja-assinante", "assine-", "paywall-wrap",
     "subscription", "premium-content-wall",
+    # 2026-10-14 O Globo AMP barrier (mirror of src/lib/clipping): login CTAs,
+    # registration walls, AMP paywall chrome and the publication-date line.
+    # Do NOT add bare "paywall" or "paywall-section": they wrap REAL bodies
+    # (Globo `div.paywall`, Jornal do Comercio `section.paywall-carregando`).
+    "login", "signin", "sign-in", "regwall", "barreira", "paywall-amp",
+    "paywall-login", "paywall-cta", "paywall-message", "publication-data",
+)
+
+#: AMP subscription markup: the not-granted section, the action buttons and the
+#: dialog are the wall itself, never the article (the granted preview lives in
+#: `[subscriptions-section="content"]`, which is kept).
+SUBSCRIPTION_GATE_SELECTORS = (
+    '[subscriptions-section="content-not-granted"], '
+    '[subscriptions-actions], [subscriptions-dialog]'
 )
 
 
 def _strip_noise(container: Tag) -> None:
     for tag in container.find_all(["figure", "figcaption", "aside", "script", "style", "iframe", "form", "nav"]):
         tag.decompose()
+    for el in container.select(SUBSCRIPTION_GATE_SELECTORS):
+        if el.parent is not None:
+            el.decompose()
     for el in list(container.find_all(True)):
         if el.attrs is None or el.parent is None:
             continue
@@ -1657,12 +1674,71 @@ _NOISE_PATTERNS = [
     r"^\s*[\u00a9\u00ae]?\s*\d{4}\s+bloomberg\b",
     r"^\s*todos\s+os\s+direitos\s+reservados",
     r"^\s*[\wÀ-ÿ][\wÀ-ÿ\s&'-]{1,40}\s*\|\s*[\wÀ-ÿ][\wÀ-ÿ\s&'-]{1,40}\s*$",
+    # 2026-10-14 login / registration CTAs (shared contract with
+    # src/lib/clipping; O Globo AMP barrier). Anchored or end-anchored so that
+    # prose such as "Quem já possui conta no banco..." or "faça login com sua
+    # conta gov.br e siga..." survives.
+    r"^\s*j[aá]\s+(possui|tem)\s+(uma\s+)?conta\s*\?",
+    r"\bfa[cç]a\s+(o\s+|seu\s+)?login\s*[.!]?\s*$",
+    r"\blogin\s+aqui\s*[.!]?\s*$",
+    r"acessar\s+a\s+conta\s+da\s+sua\s+assinatura",
+    r"^\s*cadastre-se\b",
+    r"^\s*crie\s+(sua|uma)\s+conta\b",
+    r"^\s*esqueci\s+(a\s+|minha\s+)?senha\b",
+    r"^\s*(entrar|login|log\s*in|sign\s*in|iniciar\s+sess[aã]o)\s*[.!]?\s*$",
+    r"^\s*already\s+have\s+an\s+account\b",
+    r"^\s*create\s+(an|your|a\s+free)\s+account\b",
+    r"^\s*¿?\s*ya\s+tienes\s+(una\s+)?cuenta\b",
+    r"^\s*inicia(r)?\s+sesi[oó]n\b",
+    r"^\s*(conte[uú]do\s+)?exclusivo\s+para\s+assinantes\b",
 ]
 _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
+
+# Date-only paragraph test (shared contract with src/lib/clipping and
+# scripts/clipping/coverage_probe.py in the dashboard repo). A dateline such as
+# "13/10/2026 09h01 Atualizado 13/10/2026" is chrome, not the article.
+_DATE_TOKEN_RE = re.compile(
+    r"\b(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|\d{4}-\d{2}-\d{2}"
+    r"|\d{1,2}\s+de\s+[a-zç]+\s+de\s+\d{4}|\d{1,2}\s+[a-zç]{3,9}\.?\s+\d{4}"
+    r"|[a-z]{3,9}\.?\s+\d{1,2},?\s+\d{4})\b",
+    re.IGNORECASE,
+)
+_TIME_TOKEN_RE = re.compile(
+    r"\b\d{1,2}(?::|h)\d{2}(?:h|min|\s*[ap]\.?m\.?)?\b|\b\d{1,2}\s*h\b",
+    re.IGNORECASE,
+)
+_DATE_SEPARATORS_RE = re.compile(r"[\s,.;:|•·–—\-()\/]+")
+_DATE_WORDS = frozenset("""
+    publicado publicada atualizado atualizada publicação publicacao atualização
+    atualizacao updated update published modificado modificada modified last em
+    às as at on h hs hrs por de do da data date time hora horas min gmt utc brt
+    et est pt pst horário horario brasília brasilia segunda terça terca quarta
+    quinta sexta sábado sabado domingo feira monday tuesday wednesday thursday
+    friday saturday sunday lunes martes miércoles miercoles jueves viernes
+""".split())
+_DEDUPE_TRAIL_RE = re.compile(r"[\s.,;:!?…»\"”“'\-]+$")
+
+
+def is_date_only_paragraph(p: str) -> bool:
+    """True for a dateline/timestamp paragraph with no prose in it."""
+    text = p.strip()
+    if not text or len(text) > 80:
+        return False
+    if not (_DATE_TOKEN_RE.search(text) or _TIME_TOKEN_RE.search(text)):
+        return False
+    rest = _TIME_TOKEN_RE.sub(" ", _DATE_TOKEN_RE.sub(" ", text))
+    return all(
+        not tok or tok.lower() in _DATE_WORDS for tok in _DATE_SEPARATORS_RE.split(rest)
+    )
+
+
+def _dedupe_key(p: str) -> str:
+    return _DEDUPE_TRAIL_RE.sub("", re.sub(r"\s+", " ", p.lower())).strip()
 
 
 def clean_paragraphs(paragraphs: list[str]) -> list[str]:
     out: list[str] = []
+    seen: set[str] = set()
     for p in paragraphs:
         p = re.sub(r"\s+", " ", p).strip()
         p = re.sub(r"\s+([.,;:!?])", r"\1", p)
@@ -1670,12 +1746,16 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         if _NOISE_REGEX.search(p):
             continue
+        if is_date_only_paragraph(p):
+            continue
+        # Global keep-first dedupe: an AMP barrier repeats the same CTA pair
+        # 18 times, interleaved, which a consecutive-only check never catches.
+        key = _dedupe_key(p)
+        if key in seen:
+            continue
+        seen.add(key)
         out.append(p)
-    dedup: list[str] = []
-    for p in out:
-        if not dedup or dedup[-1] != p:
-            dedup.append(p)
-    return dedup
+    return out
 
 
 def _json_ld_article_body(soup: BeautifulSoup) -> list[str]:
