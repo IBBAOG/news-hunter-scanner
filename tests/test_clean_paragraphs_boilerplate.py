@@ -112,3 +112,88 @@ def test_date_only_positives(text: str) -> None:
 def test_date_only_negatives(text: str) -> None:
     assert not is_date_only_paragraph(text)
     assert clean_paragraphs([text]) == [text]
+
+
+# ── Each mechanism pinned on its own ─────────────────────────────────────────
+# The full page above trips three independent guards at once (gate selectors,
+# class substrings, date rule), so it would stay green if any two broke. Each
+# variant below removes the other signals and must still yield the preview.
+_BARRIER_ATTRS_ONLY = (
+    "<div subscriptions-actions>"
+    f"<p>{LOGIN_A}</p><p>{LOGIN_B}</p>"
+    "</div>"
+)
+_BARRIER_CLASSES_ONLY = (
+    '<div class="amp-barreira">'
+    f'<p class="paywall-amp-section2-login">{LOGIN_A}</p>'
+    f'<p class="paywall-amp-section2-login">{LOGIN_B}</p>'
+    "</div>"
+)
+# Without the gate or the CTA classes the login lines are also dropped by the
+# noise patterns; give the barrier lines a CTA-free text so only the structural
+# mechanism under test can remove them.
+_WALL_TEXT = "Texto da barreira que só um mecanismo estrutural pode remover daqui."
+
+
+def _page(article_inner: str) -> str:
+    return (
+        "<html amp><head>"
+        '<meta property="og:title" content="Lazard diminui participação na Vibra">'
+        f"</head><body><article>{article_inner}</article></body></html>"
+    )
+
+
+def test_gate_selectors_alone_strip_the_barrier() -> None:
+    barrier = f"<div subscriptions-actions><p>{_WALL_TEXT}</p></div>"
+    html = _page(
+        f'<section subscriptions-section="content"><p>{PREVIEW}</p></section>'
+        f'<section subscriptions-section="content-not-granted">{barrier}{barrier}</section>'
+        f"<div subscriptions-dialog><p>{_WALL_TEXT} Diálogo.</p></div>"
+        f"{_BARRIER_ATTRS_ONLY}"
+    )
+    assert _extract(html, "oglobo.globo.com")[1] == [PREVIEW]
+
+
+def test_class_substrings_alone_strip_the_barrier() -> None:
+    barrier = f'<div class="amp-barreira"><p>{_WALL_TEXT}</p></div>'
+    html = _page(
+        f"<section><p>{PREVIEW}</p></section>"
+        f"<section>{barrier}{_BARRIER_CLASSES_ONLY}</section>"
+        f'<div class="paywall-amp-section2"><p>{_WALL_TEXT} AMP.</p></div>'
+    )
+    assert _extract(html, "oglobo.globo.com")[1] == [PREVIEW]
+
+
+def test_date_rule_alone_drops_an_unclassed_date_line() -> None:
+    html = _page(
+        "<p>13/10/2026 09h01 Atualizado 13/10/2026</p>"
+        f'<section subscriptions-section="content"><p>{PREVIEW}</p></section>'
+    )
+    assert _extract(html, "oglobo.globo.com")[1] == [PREVIEW]
+
+
+# ── login / signin match at class-token start only ───────────────────────────
+_BODY = [
+    "Primeiro parágrafo real da matéria sobre a Vibra Energia e a Lazard.",
+    "Segundo parágrafo real da matéria sobre a participação acionária.",
+]
+
+
+def _wrapped(cls: str) -> str:
+    inner = "".join(f"<p>{p}</p>" for p in _BODY)
+    return _page(f'<div class="{cls}">{inner}</div>')
+
+
+def test_a_bloginfo_body_is_not_mistaken_for_a_login_widget() -> None:
+    assert _extract(_wrapped("bloginfo-body"), "oglobo.globo.com")[1] == _BODY
+
+
+def test_a_designing_wrapper_is_not_mistaken_for_a_signin_widget() -> None:
+    assert _extract(_wrapped("designing-wrap"), "oglobo.globo.com")[1] == _BODY
+
+
+@pytest.mark.parametrize("cls", ["menu-login", "login-profile", "loginbox", "header_signin"])
+def test_a_login_widget_class_is_stripped(cls: str) -> None:
+    keep = f"<p>{PREVIEW}</p>"
+    html = _page(keep + f'<div class="{cls}"><p>{_WALL_TEXT}</p></div>')
+    assert _extract(html, "oglobo.globo.com")[1] == [PREVIEW]

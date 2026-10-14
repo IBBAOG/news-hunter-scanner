@@ -661,8 +661,19 @@ NOISE_CLASS_SUBSTRINGS = (
     # registration walls, AMP paywall chrome and the publication-date line.
     # Do NOT add bare "paywall" or "paywall-section": they wrap REAL bodies
     # (Globo `div.paywall`, Jornal do Comercio `section.paywall-carregando`).
-    "login", "signin", "sign-in", "regwall", "barreira", "paywall-amp",
+    # "login" / "signin" are NOT substrings: see NOISE_CLASS_TOKEN_PREFIXES.
+    "sign-in", "regwall", "barreira", "paywall-amp",
     "paywall-login", "paywall-cta", "paywall-message", "publication-data",
+)
+
+#: Words that mark a login widget only when a class token STARTS with them
+#: (start of the string or after `-`, `_` or whitespace): `menu-login`,
+#: `login-profile`, `paywall-login`, `loginbox` match; `bloginfo`,
+#: `cataloginfo`, `designing` do not. As plain substrings they stripped real
+#: bodies. Shared contract with src/lib/clipping.
+NOISE_CLASS_TOKEN_PREFIXES = ["login", "signin"]
+_NOISE_CLASS_TOKEN_RE = re.compile(
+    r"(?:^|[-_\s])(?:" + "|".join(NOISE_CLASS_TOKEN_PREFIXES) + r")", re.IGNORECASE
 )
 
 #: AMP subscription markup: the not-granted section, the action buttons and the
@@ -686,7 +697,8 @@ def _strip_noise(container: Tag) -> None:
         classes = el.get("class") or []
         idv = el.get("id") or ""
         combined = " ".join(list(classes) + [idv]).lower()
-        if any(sub in combined for sub in NOISE_CLASS_SUBSTRINGS):
+        if (any(sub in combined for sub in NOISE_CLASS_SUBSTRINGS)
+                or _NOISE_CLASS_TOKEN_RE.search(combined)):
             el.decompose()
 
 
@@ -1697,6 +1709,9 @@ _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 # Date-only paragraph test (shared contract with src/lib/clipping and
 # scripts/clipping/coverage_probe.py in the dashboard repo). A dateline such as
 # "13/10/2026 09h01 Atualizado 13/10/2026" is chrome, not the article.
+# Python `re` \b/\d/\s are Unicode-aware while JS without the `u` flag is
+# ASCII-only; the two sides differ only on edge cases (e.g. `10há`), accepted.
+DATE_ONLY_MAX_CHARS = 80
 _DATE_TOKEN_RE = re.compile(
     r"\b(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|\d{4}-\d{2}-\d{2}"
     r"|\d{1,2}\s+de\s+[a-zç]+\s+de\s+\d{4}|\d{1,2}\s+[a-zç]{3,9}\.?\s+\d{4}"
@@ -1722,7 +1737,7 @@ _DEDUPE_TRAIL_RE = re.compile(r"[\s.,;:!?…»\"”“'\-]+$")
 def is_date_only_paragraph(p: str) -> bool:
     """True for a dateline/timestamp paragraph with no prose in it."""
     text = p.strip()
-    if not text or len(text) > 80:
+    if not text or len(text) > DATE_ONLY_MAX_CHARS:
         return False
     if not (_DATE_TOKEN_RE.search(text) or _TIME_TOKEN_RE.search(text)):
         return False
