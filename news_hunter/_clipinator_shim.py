@@ -791,7 +791,12 @@ ex_agenciainfra = _make_extractor([
     ".elementor-widget-theme-post-content .elementor-widget-container",
     "div.entry-content", "article .post-content", "article",
 ])
+# Brazil Journal (2026-10-15): site migrated to Nuxt; body in div.post-body with
+# <p><span>; never select on data-v-<hash> or Tailwind arbitrary classes. The
+# WordPress containers below are gone and `article` now matches related-post
+# teaser cards with no <p>; they stay only as fallbacks.
 ex_braziljournal = _make_extractor([
+    "div.post-body",
     "div.post-content-text", "section.post-content", "div.entry-content", "article",
 ])
 ex_eixos = _make_extractor([
