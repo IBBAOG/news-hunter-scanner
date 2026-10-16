@@ -664,6 +664,9 @@ NOISE_CLASS_SUBSTRINGS = (
     # "login" / "signin" are NOT substrings: see NOISE_CLASS_TOKEN_PREFIXES.
     "sign-in", "regwall", "barreira", "paywall-amp",
     "paywall-login", "paywall-cta", "paywall-message", "publication-data",
+    # 2026-10-16 Eixos: Google "preferred sources" banner
+    # (`div.preferred-source-text`), shipped as body.
+    "preferred-source",
 )
 
 #: Words that mark a login widget only when a class token STARTS with them
@@ -1708,6 +1711,20 @@ _NOISE_PATTERNS = [
     r"^\s*¿?\s*ya\s+tienes\s+(una\s+)?cuenta\b",
     r"^\s*inicia(r)?\s+sesi[oó]n\b",
     r"^\s*(conte[uú]do\s+)?exclusivo\s+para\s+assinantes\b",
+    # 2026-10-16 Eixos (shared contract with src/lib/clipping): Google
+    # "preferred sources" banner, newsletter-edition chrome and the
+    # AI-translation note. Anchored / label forms so that prose such as
+    # "O Google News mudou o algoritmo...", "Apresentado por executivos da
+    # Petrobras, o plano..." and "Nesta edição do relatório anual..." survives.
+    r"fontes?\s+preferidas?\s+(do|no)\s+google",
+    r"^\s*(coloque|adicione|salve|inclua)\s+(o|a)\s+\S+\s+(nas|entre)\s+(suas|as\s+suas)\s+fontes",
+    r"not[ií]cias\s+com\s+mais\s+destaque\s+nas\s+suas\s+buscas",
+    r"^\s*(siga|acompanhe|adicione)\b[^.]{0,80}\bgoogle\s+(news|not[ií]cias|discover)\b",
+    r"^\s*nesta\s+edi[cç][aã]o\s*[.:\-–—]",
+    r"^\s*edi[cç][aã]o\s+(apresentada|oferecida|patrocinada)\s+por\b",
+    r"^\s*(apresentad[oa]|oferecid[oa]|patrocinad[oa])\s+por\s*:?\s*\S{0,60}$",
+    r"^\s*\*?\s*conte[uú]do\s+traduzido\s+com\s+aux[ií]lio\s+de\s+intelig[eê]ncia\s+artificial",
+    r"^\s*comece\s+seu\s+dia\s*[.!:]?\s*$",
 ]
 _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 
