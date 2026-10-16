@@ -37,6 +37,9 @@ SHORT_POSITIVES = [
     "© 2026 CBS Interactive Inc. All Rights Reserved.",
     "(c) Copyright Thomson Reuters 2026.",
     "(c) 2026 Example Media",
+    "Sign up.",
+    "Sign up!",
+    "Published in São Paulo, October 16th, 2026.",
     "Ship & Bunker News Team To contact the editor responsible for this story email us at [email protected]",
     "Published in Dawn, October 16th, 2026",
     "Leave a comment",
@@ -75,6 +78,11 @@ LONG_POSITIVES = [
 ]
 
 NEGATIVES = [
+    "A disputa entre o Telegram e o STF continua.",
+    "O acordo entre a Meta e o WhatsApp foi fechado.",
+    "More info on the field will be released Friday.",
+    "Watch now as Brent crosses $100.",
+    "▶ Ele disse: “vamos rever.”",
     "Investors may subscribe to the offering until Friday.",
     "Brazil will become a member of OPEC+ in January.",
     "(c) a produção de 2025 será revista pela ANP.",
