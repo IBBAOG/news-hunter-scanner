@@ -36,6 +36,7 @@ SHORT_POSITIVES = [
     "Foto do destaque: Pedro França/Agência Senado",
     "© 2026 CBS Interactive Inc. All Rights Reserved.",
     "(c) Copyright Thomson Reuters 2026.",
+    "(c) 2026 Example Media",
     "Ship & Bunker News Team To contact the editor responsible for this story email us at [email protected]",
     "Published in Dawn, October 16th, 2026",
     "Leave a comment",
@@ -74,6 +75,15 @@ LONG_POSITIVES = [
 ]
 
 NEGATIVES = [
+    "Investors may subscribe to the offering until Friday.",
+    "Brazil will become a member of OPEC+ in January.",
+    "(c) a produção de 2025 será revista pela ANP.",
+    "Telegram foi bloqueado pelo STF.",
+    "A Meta, dona do WhatsApp, anunciou a mudança.",
+    "É preciso que o governo acompanhe o canal de Suez de perto.",
+    "Signup bonuses for drillers rose 10% in 2025.",
+    "Disclaimer of liability was rejected by the court.",
+    "▶ A Petrobras elevou o diesel em 5%.",
     "O governo publicou o decreto na sexta-feira (14).",
     "Resultado: a produção caiu 3% no trimestre, segundo a ANP, com o foco na manutenção.",
     "Por que a Petrobras mudou o plano?",

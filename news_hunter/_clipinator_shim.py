@@ -1804,27 +1804,31 @@ _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 # points on both sides (Python len() == TS Array.from(p).length).
 SHORT_NOISE_MAX_CHARS = 160
 _SHORT_NOISE_PATTERNS = [
-    r"\b(subscribe|sign\s*up|newsletters?|download\s+the\s+\S+(\s+\S+)?\s+app|gift\s+(this\s+)?articles?|gifted\s+to\s+you)\b",
-    r"\b(whatsapp|telegram)\b",
-    r"\b(receba|siga|acompanhe)\b.{0,40}\b(not[ií]cias|canal|newsletters?)\b",
+    r"\b(subscribe\s+(now|here|today|to\s+(continue|get|receive|read|unlock|gift|our\s+newsletter|the\s+newsletter))|sign\s*up(\s+(for|to|now|here|today)|\s*[.!…]?\s*$)|download\s+the\s+\S+(\s+\S+)?\s+app|gift\s+(this\s+)?articles?|gifted\s+to\s+you)\b",
+    r"\b(canal|grupo|channel|join|entre|siga|follow|receba|no\s+seu)\b.{0,40}\b(whatsapp|telegram)\b|\b(whatsapp|telegram)\b.{0,40}\b(canal|grupo|channel|clique|click|aqui|here)\b",
+    r"\b(receba|siga|acompanhe|assine|inscreva-se|cadastre-se)\b.{0,40}\b(not[ií]cias|newsletters?|boletim|nosso\s+canal|canal\s+(do|no|de)\s+(whatsapp|telegram|youtube))\b",
     r"\bfique\s+(por\s+dentro|informado)\b",
-    r"\b(stay\s+in\s+the\s+know|subscribe\s+here|join\s+now|become\s+a\s+member)\b",
+    r"\b(stay\s+in\s+the\s+know|subscribe\s+here)\b|^\s*(join\s+now|become\s+a\s+member)\b",
     r"\bfontes?\s+preferidas?\b|\bcoverage\s+in\s+your\s+search\s+results\b",
-    r"^\s*(what\s+i\s+cover|leave\s+a\s+comment|back\s+to\s+top(\s+button)?|fetching\s+latest|more\s+info|watch\s+now|more\s+top\s+reads|advt|advertisement|disclaimer)\b",
+    r"^\s*(what\s+i\s+cover|leave\s+a\s+comment|back\s+to\s+top(\s+button)?|fetching\s+latest|more\s+info|watch\s+now|more\s+top\s+reads|advt|advertisement)\b",
+    r"^\s*disclaimer\s*:?\s*$",
     r"\bto\s+contact\s+the\s+editor\b",
     r"^\s*\S+(\s+\S+)?\s*:\s*$",
     r"^\s*por\s*$",
     r"/autor/",
-    r"^\s*(©|\(c\)|copyright\b).{0,60}\b\d{4}\b|\ball\s+rights\s+reserved\b",
+    r"^\s*(©|copyright\b|\(c\)\s*copyright\b|\(c\)(?=\s*\d{4})).{0,60}\b\d{4}\b|\ball\s+rights\s+reserved\b",
     r"^\s*published\s+in\s+[A-Z][\w&' ]{1,40},\s+\w+\s+\d{1,2}(st|nd|rd|th)?,?\s+\d{4}\s*\.?\s*$",
     r"^\s*\(?\s*(foto|photo|image|imagem)(\s+do\s+destaque)?\s*:",
 ]
 _SHORT_NOISE_REGEX = re.compile("|".join(_SHORT_NOISE_PATTERNS), re.IGNORECASE)
 
 #: A short line led by a pictograph / dingbat / geometric glyph ("🔷 Canal 562
-#: ClaroTV+", "▶ Assista ao vídeo") is a promo or channel list, not prose.
+#: ClaroTV+", "▶ Assista ao vídeo") is a promo or channel list, not prose -
+#: unless it ends like a sentence: a punctuated bullet (glyph + "A Petrobras
+#: elevou o diesel em 5%.") is kept. Escapes only, no literal glyphs.
 GLYPH_LED_MAX_CHARS = 120
-_GLYPH_LED_RE = re.compile(r"^\s*[\U0001F300-\U0001FAFF☀-➿■-◿]")
+_GLYPH_LED_RE = re.compile(r"^\s*[\U0001F300-\U0001FAFF\u2600-\u27BF\u25A0-\u25FF]")
+_SENTENCE_END_RE = re.compile(r"[.!?\u2026]$")
 
 # Date-only paragraph test (shared contract with src/lib/clipping and
 # scripts/clipping/coverage_probe.py in the dashboard repo). A dateline such as
@@ -1883,7 +1887,8 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         if len(p) < SHORT_NOISE_MAX_CHARS and _SHORT_NOISE_REGEX.search(p):
             continue
-        if len(p) < GLYPH_LED_MAX_CHARS and _GLYPH_LED_RE.search(p):
+        if (len(p) < GLYPH_LED_MAX_CHARS and _GLYPH_LED_RE.search(p)
+                and not _SENTENCE_END_RE.search(p.strip())):
             continue
         if is_date_only_paragraph(p):
             continue
