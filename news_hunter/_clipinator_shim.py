@@ -671,6 +671,18 @@ NOISE_CLASS_SUBSTRINGS = (
     # (`div.wp-block-seox-content-feeds > article.feed > p.feed-hat`) leaked
     # their kicker ("comece seu dia", "diálogos da transição") into the body.
     "content-feeds",
+    # 2026-10-16 full-registry sweep (r7, 42 domains with boilerplate; shared
+    # contract with src/lib/clipping): author bios, "more reads" rails,
+    # back-to-top buttons, comment widgets, consent banners, video/embed
+    # placeholders, copyright footers and eyebrow labels.
+    # Do NOT add bare "comment" (`commentary`, `comment-analysis` wrap real
+    # opinion bodies), "teaser" / "kicker" (lede wrappers on several CMSs) or
+    # bare "author" (`author-name` sits inside article headers that also hold
+    # the standfirst).
+    "author-bio", "about-the-author", "author-info", "author-card",
+    "contributor-bio", "more-reads", "top-reads", "back-to-top", "disqus",
+    "comment-form", "comment-policy", "consent", "video-placeholder",
+    "embed-placeholder", "copyright", "eyebrow",
 )
 
 #: Words that mark a login widget only when a class token STARTS with them
@@ -1770,8 +1782,44 @@ _NOISE_PATTERNS = [
     r"^\s*(apresentad[oa]|oferecid[oa]|patrocinad[oa])\s+por\s*:?\s*\S{0,60}$",
     r"^\s*\*?\s*conte[uú]do\s+traduzido\s+com\s+aux[ií]lio\s+de\s+intelig[eê]ncia\s+artificial",
     r"^\s*comece\s+seu\s+dia\s*[.!:]?\s*$",
+    # 2026-10-16 full-registry sweep (shared contract with src/lib/clipping):
+    # chrome long enough to escape the short-paragraph list below - the AI
+    # translation note (theagribiz), the UOL comment disclaimer, the france24
+    # ad-tracking video placeholder and the Opera Mundi "follow us" line.
+    r"translated\s+.{0,60}with\s+the\s+(assistance|help)\s+of\s+artificial\s+intelligence",
+    r"respons[aá]vel\s+pelo\s+coment[aá]rio",
+    r"you\s+must\s+enable\s+advertisement\s+tracking|blocking\s+the\s+video\s+player"
+    r"|to\s+display\s+this\s+content\s+from",
+    r"^\s*(a\s+)?cobertura\s+no\s+google,\s+no\s+e-?mail\s+e\s+nas\s+redes",
 ]
 _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
+
+#: Short CTA / widget / label lines (2026-10-16 full-registry sweep; shared
+#: contract with src/lib/clipping). Tested ONLY on paragraphs under
+#: SHORT_NOISE_MAX_CHARS: a short "Subscribe here" is chrome, a long sentence
+#: that mentions subscribers is prose.
+SHORT_NOISE_MAX_CHARS = 160
+_SHORT_NOISE_PATTERNS = [
+    r"\b(subscribe|sign\s*up|newsletters?|download\s+the\s+\S+(\s+\S+)?\s+app|gift\s+(this\s+)?articles?|gifted\s+to\s+you)\b",
+    r"\b(whatsapp|telegram)\b",
+    r"\b(receba|siga|acompanhe)\b.{0,40}\b(not[ií]cias|canal|newsletters?)\b",
+    r"\bfique\s+(por\s+dentro|informado)\b",
+    r"\b(stay\s+in\s+the\s+know|subscribe\s+here|join\s+now|become\s+a\s+member)\b",
+    r"\bfontes?\s+preferidas?\b|\bcoverage\s+in\s+your\s+search\s+results\b",
+    r"^\s*(what\s+i\s+cover|to\s+contact\s+the\s+editor|leave\s+a\s+comment|back\s+to\s+top(\s+button)?|fetching\s+latest|more\s+info|watch\s+now|more\s+top\s+reads|advt|advertisement|disclaimer)\b",
+    r"^\s*\S+(\s+\S+)?\s*:\s*$",
+    r"^\s*por\s*$",
+    r"/autor/",
+    r"^\s*(©|\(c\)|copyright)\s*(copyright\s*)?\d{4}\b|\ball\s+rights\s+reserved\b",
+    r"^\s*published\s+in\s+[A-Z][\w&' ]{1,40},\s+\w+\s+\d{1,2}(st|nd|rd|th)?,?\s+\d{4}\s*\.?\s*$",
+    r"^\s*\(?\s*(foto|photo|image|imagem)(\s+do\s+destaque)?\s*:",
+]
+_SHORT_NOISE_REGEX = re.compile("|".join(_SHORT_NOISE_PATTERNS), re.IGNORECASE)
+
+#: A short line led by a pictograph / dingbat / geometric glyph ("🔷 Canal 562
+#: ClaroTV+", "▶ Assista ao vídeo") is a promo or channel list, not prose.
+GLYPH_LED_MAX_CHARS = 120
+_GLYPH_LED_RE = re.compile(r"^\s*[\U0001F300-\U0001FAFF☀-➿■-◿]")
 
 # Date-only paragraph test (shared contract with src/lib/clipping and
 # scripts/clipping/coverage_probe.py in the dashboard repo). A dateline such as
@@ -1827,6 +1875,10 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
         if not p:
             continue
         if _NOISE_REGEX.search(p):
+            continue
+        if len(p) < SHORT_NOISE_MAX_CHARS and _SHORT_NOISE_REGEX.search(p):
+            continue
+        if len(p) < GLYPH_LED_MAX_CHARS and _GLYPH_LED_RE.search(p):
             continue
         if is_date_only_paragraph(p):
             continue
