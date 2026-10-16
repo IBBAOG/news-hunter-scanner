@@ -10,7 +10,9 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 from news_hunter._clipinator_shim import (
+    INDEX_GROUP_MAX_P,
     INDEX_TEASER_MAX_CHARS,
+    _collapsed_text,
     NOISE_CLASS_SUBSTRINGS,
     _paragraphs_from,
 )
@@ -74,4 +76,41 @@ def test_content_feed_cards_are_stripped() -> None:
         '<p class="feed-hat">diálogos da transição</p>'
         "<p>Título de outra matéria do portal</p></article></div>"
     )
+    assert paragraphs == [REAL]
+
+
+def _group(*inner: str) -> str:
+    return '<div class="wp-block-group">' + "".join(inner) + "</div>" + f"<p>{REAL}</p>"
+
+
+def test_a_wrapper_with_too_many_direct_paragraphs_loses_only_the_label() -> None:
+    teasers = [f"<p>Teaser {i}.</p>" for i in range(INDEX_GROUP_MAX_P)]
+    assert 1 + len(teasers) > INDEX_GROUP_MAX_P
+    paragraphs = _body(_group(f"<p>{LABEL}</p>", *teasers))
+    assert LABEL not in paragraphs
+    assert "Teaser 0." in paragraphs and REAL in paragraphs
+
+
+def test_eight_direct_paragraphs_is_still_a_group() -> None:
+    teasers = [f"<p>Teaser {i}.</p>" for i in range(INDEX_GROUP_MAX_P - 1)]
+    assert _body(_group(f"<p>{LABEL}</p>", *teasers)) == [REAL]
+
+
+def test_a_long_nested_paragraph_keeps_the_group() -> None:
+    paragraphs = _body(_group(f"<p>{LABEL}</p>", "<p>Teaser um.</p>", "<p>Teaser dois.</p>",
+                              f"<div><p>{LONG_SIBLING}</p></div>"))
+    assert LABEL not in paragraphs
+    assert LONG_SIBLING in paragraphs and "Teaser um." in paragraphs
+
+
+def test_label_plus_one_teaser_loses_only_the_label() -> None:
+    paragraphs = _body(_group(f"<p>{LABEL}</p>", "<p>Teaser um.</p>"))
+    assert paragraphs == ["Teaser um.", REAL]
+
+
+def test_a_label_split_across_inline_tags_still_matches() -> None:
+    soup = BeautifulSoup("<p><strong>NESTA EDI</strong>ÇÃO. Resumo</p>", "html.parser")
+    assert _collapsed_text(soup.p) == "NESTA EDIÇÃO. Resumo"
+    paragraphs = _body(_group("<p><strong>NESTA EDI</strong>ÇÃO. Resumo</p>",
+                              "<p>Teaser um.</p>", "<p>Teaser dois.</p>"))
     assert paragraphs == [REAL]

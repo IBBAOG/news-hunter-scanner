@@ -698,19 +698,24 @@ SUBSCRIPTION_GATE_SELECTORS = (
 #: the article.
 INDEX_LABEL_RE = re.compile(r"^\s*nesta\s+edi[cç][aã]o\s*[.:\-–—]", re.IGNORECASE)
 INDEX_TEASER_MAX_CHARS = 120
+#: Upper bound on the DIRECT `<p>` children of a removable group (label + 2-7
+#: teasers); a wrapper with more is a body, not an edition index.
+INDEX_GROUP_MAX_P = 8
 
 
 def _collapsed_text(tag: Tag) -> str:
-    return re.sub(r"\s+", " ", tag.get_text(" ")).strip()
+    # No separator: cheerio `.text()` inserts none at inline-tag boundaries,
+    # so both sides measure the same string (`<strong>NESTA EDI</strong>ÇÃO.`).
+    return re.sub(r"\s+", " ", tag.get_text()).strip()
 
 
 def _strip_index_groups(container: Tag) -> None:
     """Drop a label-led index group: the label `<p>` and its short teasers.
 
     For each `<p>` whose collapsed text matches INDEX_LABEL_RE: when its
-    parent is not the container itself, has >= 2 `<p>` children and every
-    OTHER `<p>` child is under INDEX_TEASER_MAX_CHARS, the whole parent goes
-    (label + teasers); otherwise only the label `<p>` goes.
+    parent is not the container itself, has 3..INDEX_GROUP_MAX_P DIRECT `<p>`
+    children and every OTHER `<p>` DESCENDANT is under INDEX_TEASER_MAX_CHARS,
+    the whole parent goes (label + teasers); otherwise only the label `<p>`.
     """
     for p in list(container.find_all("p")):
         if p.attrs is None or p.parent is None:
@@ -718,9 +723,9 @@ def _strip_index_groups(container: Tag) -> None:
         if not INDEX_LABEL_RE.search(_collapsed_text(p)):
             continue
         parent = p.parent
-        siblings = parent.find_all("p", recursive=False)
-        others = [q for q in siblings if q is not p]
-        if (parent is not container and len(siblings) >= 2
+        direct = parent.find_all("p", recursive=False)
+        others = [q for q in parent.find_all("p") if q is not p]
+        if (parent is not container and 3 <= len(direct) <= INDEX_GROUP_MAX_P
                 and all(len(_collapsed_text(q)) < INDEX_TEASER_MAX_CHARS for q in others)):
             parent.decompose()
         else:
