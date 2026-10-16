@@ -1798,6 +1798,10 @@ _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 #: contract with src/lib/clipping). Tested ONLY on paragraphs under
 #: SHORT_NOISE_MAX_CHARS: a short "Subscribe here" is chrome, a long sentence
 #: that mentions subscribers is prose.
+# DELIBERATE DIVERGENCE: src/lib/clipping exempts lines carrying a PAYWALL_MARKERS phrase
+# (a dropped gate CTA turned a paywall shell into `partial` there); the shim has no marker
+# list and feeds only bodies/snippets, so dropping a gate CTA is harmless. Lengths are code
+# points on both sides (Python len() == TS Array.from(p).length).
 SHORT_NOISE_MAX_CHARS = 160
 _SHORT_NOISE_PATTERNS = [
     r"\b(subscribe|sign\s*up|newsletters?|download\s+the\s+\S+(\s+\S+)?\s+app|gift\s+(this\s+)?articles?|gifted\s+to\s+you)\b",
