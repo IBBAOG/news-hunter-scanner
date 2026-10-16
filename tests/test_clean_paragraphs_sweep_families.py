@@ -35,6 +35,8 @@ SHORT_POSITIVES = [
     "(Foto: Reprodução)",
     "Foto do destaque: Pedro França/Agência Senado",
     "© 2026 CBS Interactive Inc. All Rights Reserved.",
+    "(c) Copyright Thomson Reuters 2026.",
+    "Ship & Bunker News Team To contact the editor responsible for this story email us at [email protected]",
     "Published in Dawn, October 16th, 2026",
     "Leave a comment",
     "Back to top button",
