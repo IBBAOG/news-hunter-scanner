@@ -667,6 +667,10 @@ NOISE_CLASS_SUBSTRINGS = (
     # 2026-10-16 Eixos: Google "preferred sources" banner
     # (`div.preferred-source-text`), shipped as body.
     "preferred-source",
+    # 2026-10-16 Eixos: embedded "you read here" cards of OTHER articles
+    # (`div.wp-block-seox-content-feeds > article.feed > p.feed-hat`) leaked
+    # their kicker ("comece seu dia", "diálogos da transição") into the body.
+    "content-feeds",
 )
 
 #: Words that mark a login widget only when a class token STARTS with them
@@ -688,6 +692,41 @@ SUBSCRIPTION_GATE_SELECTORS = (
 )
 
 
+#: Label-led index group (2026-10-16 Eixos newsletter edition pages; shared
+#: contract with src/lib/clipping): a "NESTA EDIÇÃO." label paragraph followed
+#: by short teaser paragraphs in the same wrapper is the edition index, not
+#: the article.
+INDEX_LABEL_RE = re.compile(r"^\s*nesta\s+edi[cç][aã]o\s*[.:\-–—]", re.IGNORECASE)
+INDEX_TEASER_MAX_CHARS = 120
+
+
+def _collapsed_text(tag: Tag) -> str:
+    return re.sub(r"\s+", " ", tag.get_text(" ")).strip()
+
+
+def _strip_index_groups(container: Tag) -> None:
+    """Drop a label-led index group: the label `<p>` and its short teasers.
+
+    For each `<p>` whose collapsed text matches INDEX_LABEL_RE: when its
+    parent is not the container itself, has >= 2 `<p>` children and every
+    OTHER `<p>` child is under INDEX_TEASER_MAX_CHARS, the whole parent goes
+    (label + teasers); otherwise only the label `<p>` goes.
+    """
+    for p in list(container.find_all("p")):
+        if p.attrs is None or p.parent is None:
+            continue  # already removed with a decomposed group
+        if not INDEX_LABEL_RE.search(_collapsed_text(p)):
+            continue
+        parent = p.parent
+        siblings = parent.find_all("p", recursive=False)
+        others = [q for q in siblings if q is not p]
+        if (parent is not container and len(siblings) >= 2
+                and all(len(_collapsed_text(q)) < INDEX_TEASER_MAX_CHARS for q in others)):
+            parent.decompose()
+        else:
+            p.decompose()
+
+
 def _strip_noise(container: Tag) -> None:
     for tag in container.find_all(["figure", "figcaption", "aside", "script", "style", "iframe", "form", "nav"]):
         tag.decompose()
@@ -703,6 +742,7 @@ def _strip_noise(container: Tag) -> None:
         if (any(sub in combined for sub in NOISE_CLASS_SUBSTRINGS)
                 or _NOISE_CLASS_TOKEN_RE.search(combined)):
             el.decompose()
+    _strip_index_groups(container)
 
 
 def _title_from_meta(soup: BeautifulSoup) -> str:
