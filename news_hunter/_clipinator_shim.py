@@ -1825,6 +1825,8 @@ _SHORT_NOISE_PATTERNS = [
     r"\bfique\s+(por\s+dentro|informado)\b",
     r"\b(stay\s+in\s+the\s+know|subscribe\s+here)\b|^\s*(join\s+now|become\s+a\s+member)\b",
     r"\bfontes?\s+preferidas?\b|\bcoverage\s+in\s+your\s+search\s+results\b",
+    # 2026-10-19: Google preferred-source CTA (City AM: SVG text in an unnamed <a>, no class to catch).
+    r"\badd\s+(us\s+)?as\s+a\s+preferred\s+source\b|\bpreferred\s+source\s+on\s+google\b",
     r"^\s*(leave\s+a\s+comment|back\s+to\s+top(\s+button)?|fetching\s+latest(\s+articles)?|more\s+info|watch\s+now|more\s+top\s+reads(\s+from\s+\S+)?|advt|advertisement)\s*[.!]?\s*$|^\s*what\s+i\s+cover\b",
     r"^\s*disclaimer\s*:?\s*$",
     r"\bto\s+contact\s+the\s+editor\b",
