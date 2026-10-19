@@ -1875,7 +1875,12 @@ NO_RSS_DOMAINS: list[str] = [
     # RSS descontinuado ou bloqueado — cobertura via Google News site:
     "www.brasil247.com",
     "brasil247.com",
-    "observatorio.firjan.com.br",
+    # observatorio.firjan.com.br REMOVED 2026-10-19: registered since the
+    # first commit (2026-04-24) and never produced a single news_articles row
+    # (all-time query by domain, 2026-10-19). Google indexes 3 static pages of
+    # the host in total (bare `site:` query, no window): report landing pages,
+    # not news. Zero yield in six months; the query only spent a PT GNews slot.
+    # "observatorio.firjan.com.br",
     "agenciainfra.com",
     "noticias.r7.com",           # removeu feed RSS publico
     "agencia.petrobras.com.br",  # CMS Liferay sem feed publico
