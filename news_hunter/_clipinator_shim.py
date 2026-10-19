@@ -683,6 +683,10 @@ NOISE_CLASS_SUBSTRINGS = (
     "contributor-bio", "more-reads", "top-reads", "back-to-top", "disqus",
     "comment-form", "comment-policy", "consent", "video-placeholder",
     "embed-placeholder", "copyright", "eyebrow",
+    # 2026-10-19 Energy News Bulletin: research-report promos
+    # (`div.research-block`). The TS side strips them so a paywall teaser is
+    # not mistaken for a 3-paragraph body; lists stay byte-identical.
+    "research-block",
 )
 
 #: Words that mark a login widget only when a class token STARTS with them
