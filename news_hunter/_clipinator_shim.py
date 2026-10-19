@@ -1927,14 +1927,103 @@ def _dedupe_key(p: str) -> str:
     return _DEDUPE_TRAIL_RE.sub("", re.sub(r"\s+", " ", p.lower())).strip()
 
 
+# Age-run labels (2026-10-16 c, round 8 family 4; byte-identical spec with
+# ageRunLabelIndexes in src/lib/clipping/clean.ts). A "latest news" rail
+# flattened into the body (globalenergynetwork, Readability path): bare tags
+# ("Middle East", "North America") between relative-age lines ("3 months ago").
+# No region/category word list: the rule is structural.
+# Input: the paragraph list AFTER normalisation (empties removed) and BEFORE
+# any drop.
+#   AGE line   = matches _RELATIVE_AGE_RE (case-insensitive).
+#   LABEL line = not an AGE line, 1..AGE_RUN_LABEL_MAX_WORDS (3) whitespace-
+#                separated words, under AGE_RUN_LABEL_MAX_CHARS (40) code
+#                points, and NOT ending in _SENTENCE_END_RE.
+# Every maximal run of consecutive AGE/LABEL lines that holds at least
+# AGE_RUN_MIN_AGE_LINES (2) AGE lines has each of its LABEL lines dropped; the
+# AGE lines go through _NOISE_REGEX anyway. A byline next to ONE age line
+# ("Dipali Banka" / "2 hours ago") is not a run.
+AGE_RUN_LABEL_MAX_WORDS = 3
+AGE_RUN_LABEL_MAX_CHARS = 40
+AGE_RUN_MIN_AGE_LINES = 2
+_RELATIVE_AGE_RE = re.compile(RELATIVE_AGE_PATTERN, re.IGNORECASE)
+_WORD_SPLIT_RE = re.compile(r"\s+")
+
+
+def _words(p: str) -> list[str]:
+    return [w for w in _WORD_SPLIT_RE.split(p) if w]
+
+
+def _age_run_label_indexes(paragraphs: list[str]) -> set[int]:
+    """Indexes (into `paragraphs`) of the LABEL lines that sit in an age run."""
+    drop: set[int] = set()
+    run_labels: list[int] = []
+    run_ages = 0
+    for i, p in enumerate(paragraphs):
+        if _RELATIVE_AGE_RE.search(p):
+            run_ages += 1
+            continue
+        words = len(_words(p))
+        if (1 <= words <= AGE_RUN_LABEL_MAX_WORDS
+                and len(p) < AGE_RUN_LABEL_MAX_CHARS
+                and not _SENTENCE_END_RE.search(p)):
+            run_labels.append(i)
+            continue
+        if run_ages >= AGE_RUN_MIN_AGE_LINES:
+            drop.update(run_labels)
+        run_labels, run_ages = [], 0
+    if run_ages >= AGE_RUN_MIN_AGE_LINES:
+        drop.update(run_labels)
+    return drop
+
+
+# Section-label first paragraph (2026-10-16 c, round 8 family 6; byte-identical
+# spec with isSectionLabelParagraph in src/lib/clipping/clean.ts): "In-brief
+# analysis" (eia.gov), "Summary" (livemint), "EUA" (diariodopoder) opening a
+# Readability body. Applied ONCE, after the per-paragraph tests and before the
+# global dedupe, to the FIRST surviving paragraph, and only when at least one
+# other paragraph survives (a lone paragraph is never dropped). It is dropped
+# when it has 1..SECTION_LABEL_MAX_WORDS (3) whitespace-separated words, does
+# NOT end in _SENTENCE_END_RE, and is NOT name-shaped. Name-shaped = 2+ words
+# that ALL start with an uppercase character (c != c.lower()): a bare byline
+# ("Luan Carlos", "By Tsvetana Paraskova", "Da Redação") stays. Known cost: a
+# Title Case label ("Oil Markets") is name-shaped and stays too.
+SECTION_LABEL_MAX_WORDS = 3
+
+
+def _starts_uppercase(word: str) -> bool:
+    c = word[0]
+    return c != c.lower()
+
+
+def is_section_label_paragraph(p: str) -> bool:
+    """True when a (first) paragraph is a bare section label (see above)."""
+    words = _words(p)
+    if not 1 <= len(words) <= SECTION_LABEL_MAX_WORDS:
+        return False
+    if _SENTENCE_END_RE.search(p.strip()):
+        return False
+    name_shaped = len(words) >= 2 and all(_starts_uppercase(w) for w in words)
+    return not name_shaped
+
+
 def clean_paragraphs(paragraphs: list[str]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
+    # Same order as cleanParagraphs in src/lib/clipping/clean.ts (2026-10-16 c).
+    # Pass 1 - normalise every paragraph (whitespace collapse, punctuation fix;
+    # empties removed). The age-run rule reads the whole normalised sequence
+    # before anything is dropped. (The TS side also strips zero-width
+    # characters and splits inline "Leia também" markers here; the shim never
+    # did either.)
+    normalised: list[str] = []
     for p in paragraphs:
         p = re.sub(r"\s+", " ", p).strip()
         p = re.sub(r"\s+([.,;:!?])", r"\1", p)
-        if not p:
-            continue
+        if p:
+            normalised.append(p)
+    age_run_labels = _age_run_label_indexes(normalised)
+
+    # Pass 2 - per-paragraph tests, in order.
+    out: list[str] = []
+    for index, p in enumerate(normalised):
         if _NOISE_REGEX.search(p):
             continue
         if len(p) < SHORT_NOISE_MAX_CHARS and _SHORT_NOISE_REGEX.search(p):
@@ -1944,14 +2033,23 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         if is_date_only_paragraph(p):
             continue
-        # Global keep-first dedupe: an AMP barrier repeats the same CTA pair
-        # 18 times, interleaved, which a consecutive-only check never catches.
+        if index in age_run_labels:
+            continue
+        out.append(p)
+    # Section-label first paragraph (2026-10-16 c): once, on the first survivor.
+    if len(out) >= 2 and is_section_label_paragraph(out[0]):
+        out.pop(0)
+    # Global keep-first dedupe: an AMP barrier repeats the same CTA pair
+    # 18 times, interleaved, which a consecutive-only check never catches.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for p in out:
         key = _dedupe_key(p)
         if key in seen:
             continue
         seen.add(key)
-        out.append(p)
-    return out
+        deduped.append(p)
+    return deduped
 
 
 def _json_ld_article_body(soup: BeautifulSoup) -> list[str]:

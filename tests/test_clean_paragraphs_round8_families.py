@@ -251,7 +251,10 @@ def test_family8_negative_controls_survive() -> None:
 # spaces (one "word"), Arabic has no case (never name-shaped). These tests pin
 # what the shim does today, identical to the TS rules; the revisor is checking
 # the TS side for the same question. If the rule changes there, flip them here.
-ZH_FULLWIDTH_PAREN = "中国石油天然气集团公司周五表示第三季度原油产量同比增长百分之三（新华社）"
+ZH_FULLWIDTH_PAREN = (
+    "中国石油天然气集团公司周五表示，受国内需求回升和新油田投产推动，"
+    "第三季度原油产量同比增长百分之三（新华社）"
+)
 ZH_DIGIT = "中国海油表示今年前三季度油气净产量同比增长7"
 ZH_FULL_STOP = "中国石油天然气集团公司周五表示第三季度原油产量同比增长百分之三。"
 AR_THREE_WORDS = "أسعار النفط ترتفع"
