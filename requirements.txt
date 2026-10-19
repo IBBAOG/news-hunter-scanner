@@ -1,12 +1,23 @@
-requests>=2.31
-beautifulsoup4>=4.12
-lxml>=5.0
-curl_cffi>=0.7
-feedparser>=6.0
-python-dateutil>=2.8
-googlenewsdecoder>=0.1.7
-supabase>=2.4
-python-dotenv>=1.0
+# Exact pins (2026-10-19 incident): an unpinned `googlenewsdecoder>=0.1.7` let
+# the runner pick up 0.2.x on 2026-09-20, whose result dict renamed `status` to
+# `success`; every Google News resolve then failed silently (ok=0) for 4 weeks.
+# selectolax 1.0 (2026-10-03) also removed the Modest backend that
+# googlenewsdecoder 0.1.7 imports, so it is pinned below 1.0 as well.
+# Versions are the ones the scan runner installed on 2026-10-19 (green), with
+# googlenewsdecoder pinned to the last release with the `status` contract.
+# Bump deliberately, one package at a time, and watch `resolve=N(ok=M)`.
+requests==2.34.2
+beautifulsoup4==4.15.0
+lxml==6.1.3
+curl_cffi==0.16.3
+feedparser==6.0.14
+python-dateutil==2.9.0.post0
+googlenewsdecoder==0.1.7
+# Transitive deps of googlenewsdecoder 0.1.7, pinned: selectolax>=1.0 breaks its import.
+selectolax==0.4.13
+PySocks==1.7.1
+supabase==2.33.0
+python-dotenv==1.2.4
 # Multilingual News Hunter (Wave B1) — free, no-key Google Translate backend for
 # Stage 3c (foreign headline/snippet -> English). Pinned: the runner installs
 # requirements.txt every scan, and 1.9.1 is the version the datacenter-IP
@@ -14,4 +25,4 @@ python-dotenv>=1.0
 deep-translator==1.9.1
 # Test-only: tests/test_purge_keyword_sense_exclusions.py parses the purge workflow.
 # This repo has no separate dev requirements file, so it is declared here.
-PyYAML>=6.0
+PyYAML==6.0.3

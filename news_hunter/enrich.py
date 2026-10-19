@@ -235,7 +235,13 @@ def _resolve_google_news_url(url: str) -> tuple[str, str]:
     except Exception as e:  # noqa: BLE001
         log.debug("gnewsdecoder falhou em %s: %s", url, e)
         return url, urlparse(url).netloc.lower()
-    if isinstance(res, dict) and res.get("status") and res.get("decoded_url"):
+    # googlenewsdecoder <=0.1.7 reports `status`; 0.2.x renamed it `success`.
+    # Accept both so a version bump can never zero the resolve stage again.
+    if (
+        isinstance(res, dict)
+        and (res.get("status") or res.get("success"))
+        and res.get("decoded_url")
+    ):
         real = res["decoded_url"]
         return real, urlparse(real).netloc.lower()
     return url, urlparse(url).netloc.lower()
