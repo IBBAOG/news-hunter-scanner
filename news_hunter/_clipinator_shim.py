@@ -748,6 +748,77 @@ def _strip_index_groups(container: Tag) -> None:
             p.decompose()
 
 
+#: Related headline (2026-10-16 c, round 8 family 3; byte-identical contract
+#: with stripRelatedHeadlines in src/lib/clipping/extract.ts): a `<p>` in the
+#: container that IS the text of a link, i.e. another article's headline
+#: shipped as a paragraph (moneytimes `ul.single_videos` video teaser; Estadão
+#: E-Investidor "Leia mais" list, `<a><div><p class="li-title">`).
+#: Runs as the LAST step of _strip_noise (after _strip_index_groups), over the
+#: document as it stands then.
+#:   LINK KEYS: for every `<a>` in the WHOLE document whose `href` attribute is
+#:     present and does not start with "#" (an in-page TOC link names this
+#:     article's own intertitle), _dedupe_key(collapsed text) and
+#:     _dedupe_key(`title` attribute); empty keys are ignored.
+#:   CANDIDATE: a `<p>` in the container whose collapsed text is non-empty and
+#:     at most RELATED_HEADLINE_MAX_CHARS (120) code points, whose _dedupe_key
+#:     equals the LINK KEY of (i) an ANCESTOR `<a>` of the `<p>` (the card
+#:     shape; any final punctuation), or (ii) an `<a>` that is neither ancestor
+#:     nor descendant of the `<p>` (a teaser repeated elsewhere on the page),
+#:     AND the `<p>` does NOT end in _SENTENCE_END_RE. A descendant `<a>` never
+#:     counts (the all-links `<p>` skip in _paragraphs_from owns that case).
+#:   BOUND: the candidates are removed only when at least
+#:     RELATED_HEADLINE_MIN_KEEP (2) non-empty `<p>` of the container are NOT
+#:     candidates; otherwise nothing is removed. A short real body is never
+#:     emptied.
+RELATED_HEADLINE_MAX_CHARS = 120
+RELATED_HEADLINE_MIN_KEEP = 2
+
+
+def _strip_related_headlines(container: Tag) -> None:
+    root = container
+    while root.parent is not None:
+        root = root.parent
+    links_by_key: dict[str, list[Tag]] = {}
+    for a in root.find_all("a"):
+        href = a.get("href")
+        if href is None or href.startswith("#"):
+            continue
+        for key in (_dedupe_key(_collapsed_text(a)), _dedupe_key(a.get("title") or "")):
+            if key:
+                links_by_key.setdefault(key, []).append(a)
+    if not links_by_key:
+        return
+
+    candidates: list[Tag] = []
+    kept = 0
+    for p in container.find_all("p"):
+        text = _collapsed_text(p)
+        if not text:
+            continue
+        links = links_by_key.get(_dedupe_key(text))
+        is_candidate = False
+        if links and len(text) <= RELATED_HEADLINE_MAX_CHARS:
+            # Identity, not ==: bs4 compares Tags by markup.
+            ancestors = {id(t) for t in p.parents}
+            in_card = any(id(a) in ancestors for a in links)
+            elsewhere = any(
+                id(a) not in ancestors and not any(t is p for t in a.parents)
+                for a in links
+            )
+            is_candidate = in_card or (elsewhere and not _SENTENCE_END_RE.search(text))
+        if is_candidate:
+            candidates.append(p)
+        else:
+            kept += 1
+    if not candidates or kept < RELATED_HEADLINE_MIN_KEEP:
+        return
+    removed = {id(p) for p in candidates}
+    for p in candidates:
+        # A candidate nested in another candidate goes with it.
+        if not any(id(t) in removed for t in p.parents):
+            p.decompose()
+
+
 def _strip_noise(container: Tag) -> None:
     for tag in container.find_all(["figure", "figcaption", "aside", "script", "style", "iframe", "form", "nav"]):
         tag.decompose()
@@ -763,7 +834,11 @@ def _strip_noise(container: Tag) -> None:
         if (any(sub in combined for sub in NOISE_CLASS_SUBSTRINGS)
                 or _NOISE_CLASS_TOKEN_RE.search(combined)):
             el.decompose()
+    # Runs last so that nodes removed above do not count as teasers.
     _strip_index_groups(container)
+    # 2026-10-16 c: after the index groups, over what is left (see
+    # _strip_related_headlines).
+    _strip_related_headlines(container)
 
 
 def _title_from_meta(soup: BeautifulSoup) -> str:
