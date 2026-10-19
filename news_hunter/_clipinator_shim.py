@@ -812,6 +812,16 @@ def _visible_collapsed_text(node: Tag) -> str:
 
 
 def _strip_related_headlines(container: Tag) -> None:
+    # Key of each ancestor <a>, computed once per pass (TS memoises it too): a
+    # body wrapped in a single <a> must not be re-walked for every <p>. Nothing
+    # is removed until after the scan, so the cached keys stay valid.
+    anchor_keys: dict[int, str] = {}
+
+    def anchor_key(a: Tag) -> str:
+        if id(a) not in anchor_keys:
+            anchor_keys[id(a)] = _dedupe_key(_visible_collapsed_text(a))
+        return anchor_keys[id(a)]
+
     candidates: list[Tag] = []
     kept = 0
     for p in container.find_all("p"):
@@ -824,8 +834,7 @@ def _strip_related_headlines(container: Tag) -> None:
             and len(text) <= RELATED_HEADLINE_MAX_CHARS
             and any(
                 _has_usable_href(a)
-                and (_dedupe_key(_visible_collapsed_text(a)) == key
-                     or _dedupe_key(a.get("title") or "") == key)
+                and (anchor_key(a) == key or _dedupe_key(a.get("title") or "") == key)
                 for a in p.find_parents("a")
             )
         )
@@ -837,6 +846,7 @@ def _strip_related_headlines(container: Tag) -> None:
         return
     for p in candidates:
         p.decompose()
+
 
 def _strip_noise(container: Tag) -> None:
     for tag in container.find_all(["figure", "figcaption", "aside", "script", "style", "iframe", "form", "nav"]):
@@ -2153,12 +2163,22 @@ def is_section_label_paragraph(p: str) -> bool:
 #    "3 months ago", B] keeps the pipe line here (TS: [A, B]), and labels
 #    around it in a rail survive here; a pipe-list FIRST paragraph also hides
 #    a following "Summary" from the section label here, while TS drops it.
+#  - Whitespace class: Python `\s` and str.strip() include U+001C-U+001F and
+#    U+0085 and exclude U+FEFF (BOM); JS `\s` and trim() the opposite. So
+#    "x" + U+0085 + "y z" is 3 words here and 2 in TS (pass 1 folds U+0085 to a
+#    space here only), and a card `<a href="/x">` + U+FEFF + `<p>O risco
+#    escondido na economia dos EUA</p></a>` keeps its headline here (the BOM
+#    stays in the card key) while TS trims it and removes the headline.
+#  - No zero-width strip: TS pass 1 removes zero-width characters first, the
+#    shim does not, so "3 months" + U+200B + " ago" is no age line here (kept)
+#    while TS drops it.
 #  - The all-links `<p>` skip in _paragraphs_from (TS isMostlyLinks): see the
 #    related-headline note.
-#  - Execution context: TS also runs the noise strip (related-headline rule
-#    included) inside preStripForFallbacks over a whole <body> clone before
-#    its Readability / p_density fallbacks (2026-10-19). The shim has no such
-#    path and does not add one.
+#  - Execution context: TS runs a fallback pre-strip (preStripForFallbacks,
+#    2026-10-19) that calls its noise strip over a whole <body> clone; since
+#    TS 63a9ffd95 that call runs WITHOUT the related-headline rule
+#    (StripNoiseOptions.relatedHeadlines=false). The shim has no pre-strip and
+#    does not add one.
 def clean_paragraphs(paragraphs: list[str]) -> list[str]:
     # Same order as cleanParagraphs in src/lib/clipping/clean.ts (2026-10-16 c).
     # Pass 1 - normalise every paragraph (whitespace collapse, punctuation fix;
@@ -2204,6 +2224,7 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
     if len(deduped) >= 2 and is_section_label_paragraph(deduped[0]):
         deduped.pop(0)
     return deduped
+
 
 def _json_ld_article_body(soup: BeautifulSoup) -> list[str]:
     """Paragraphs from a schema.org `articleBody`, if the page publishes one.

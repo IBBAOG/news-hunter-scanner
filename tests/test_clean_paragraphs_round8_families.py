@@ -165,6 +165,9 @@ def test_the_age_run_reads_the_sequence_before_any_drop() -> None:
 def test_an_empty_entry_neither_counts_nor_ends_a_run() -> None:
     drops_to([A, "1 month ago", "", "Europe", "3 months ago", B], [A, B])
     drops_to([A, "1 month ago", "   ", "Europe", "3 months ago", B], [A, B])
+    # clean_paragraphs removes empties first, so call the rule directly too
+    # (TS hands it the inline-split remnants as "").
+    assert shim._age_run_label_indexes(["1 month ago", "", "Europe", "2 months ago"]) == {2}
 
 
 def test_a_40_code_point_label_is_not_a_label() -> None:
@@ -172,6 +175,20 @@ def test_a_40_code_point_label_is_not_a_label() -> None:
     assert len(label) == shim.AGE_RUN_LABEL_MAX_CHARS == 40
     drops_to([A, "1 month ago", label, "3 months ago", B], [A, label, B])
     drops_to([A, "1 month ago", label[:-1], "3 months ago", B], [A, B])
+
+
+def test_the_label_bound_counts_code_points_not_utf16_units() -> None:
+    # TS clean.test.ts delta QA (b), 63a9ffd95: 39 code points / 40 UTF-16
+    # units (U+1D400 is astral) is under the bound and goes.
+    label = "Abcdefghijkl Nopqrstuvwxyzab Cdefghijk\U0001D400"
+    assert len(label) == 39
+    assert len(label.encode("utf-16-le")) // 2 == 40
+    drops_to([A, "1 month ago", label, "3 months ago", B], [A, B])
+
+
+def test_accepted_cost_a_short_list_right_after_two_age_lines_goes() -> None:
+    # TS clean.test.ts, 63a9ffd95: by spec, labels after the first age line go.
+    drops_to([A, "2 days ago", "3 days ago", "Key figures", "Brent: $90", "WTI: $86", B], [A, B])
 
 
 def test_a_real_list_just_before_the_rail_survives() -> None:
@@ -437,6 +454,22 @@ def test_the_card_needs_a_usable_href(anchor: str) -> None:
     assert _body(f"<p>{R1}</p><p>{R2}</p>{anchor}<p>{H}</p></a>") == [R1, R2, H]
 
 
+def test_accepted_cost_a_full_url_fragment_link_still_counts_as_a_card() -> None:
+    # TS extract.test.ts (c3), 63a9ffd95.
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="https://site.com/article#production-outlook">'
+        f'<p>Production outlook</p></a>'
+    ) == [R1, R2]
+
+
+def test_a_noscript_inside_the_card_paragraph_is_skipped_on_the_p_side_too() -> None:
+    # TS extract.test.ts (i2), 63a9ffd95: bound satisfied by 2 other <p>.
+    t = "O risco escondido na economia dos EUA"
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="/x"><p><noscript><img src="a.png"></noscript>{t}</p></a>'
+    ) == [R1, R2]
+
+
 def test_a_question_headline_inside_its_own_card_goes_too() -> None:
     q = "Quem ganha e quem perde com a entrada em vigor do Acordo União Europeia-Mercosul?"
     assert _body(
@@ -511,6 +544,26 @@ def test_divergence_no_inline_split_a_pipe_list_ends_an_age_run() -> None:
     pipes = "Mercados | Energia | Petróleo | Gás"
     drops_to([A, "1 month ago", pipes, "3 months ago", B], [A, pipes, B])  # TS: [A, B]
     drops_to([pipes, "Summary", A], [pipes, "Summary", A])  # TS: [A]
+    # TS clean.test.ts delta QA (a), 63a9ffd95: the split leaves "" there.
+    crumbs = "Home | Markets | Oil prices"
+    drops_to([A, "1 month ago", crumbs, "Europe", "3 months ago", B],
+             [A, crumbs, "Europe", B])  # TS: [A, B]
+
+
+def test_divergence_python_whitespace_class() -> None:
+    # Python \s / str.strip include U+001C-U+001F and U+0085 and exclude
+    # U+FEFF; JS \s / trim the opposite.
+    first = "a\u0085b c d"  # 4 words here after pass 1, 3 words (a label) in TS
+    drops_to([first, A, B], ["a b c d", A, B])  # TS: [A, B]
+    t = "O risco escondido na economia dos EUA"
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="/x">﻿<p>{t}</p></a>'
+    ) == [R1, R2, t]  # TS removes the headline (trim drops the BOM)
+
+
+def test_divergence_no_zero_width_strip() -> None:
+    age = "3 months​ ago"
+    drops_to([A, age], [A, age])  # TS strips U+200B first and drops the age line
 
 
 def test_divergence_a_span_wrapped_link_paragraph_survives() -> None:
