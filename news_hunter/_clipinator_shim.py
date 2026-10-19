@@ -2005,30 +2005,54 @@ def _dedupe_key(p: str) -> str:
     return _DEDUPE_TRAIL_RE.sub("", re.sub(r"\s+", " ", p.lower())).strip()
 
 
-# Age-run labels (2026-10-16 c, round 8 family 4; byte-identical spec with
-# ageRunLabelIndexes in src/lib/clipping/clean.ts). A "latest news" rail
-# flattened into the body (globalenergynetwork, Readability path): bare tags
-# ("Middle East", "North America") between relative-age lines ("3 months ago").
-# No region/category word list: the rule is structural.
-# Input: the paragraph list AFTER normalisation (empties removed) and BEFORE
-# any drop.
-#   AGE line   = matches _RELATIVE_AGE_RE (case-insensitive).
-#   LABEL line = not an AGE line, 1..AGE_RUN_LABEL_MAX_WORDS (3) whitespace-
-#                separated words, under AGE_RUN_LABEL_MAX_CHARS (40) code
-#                points, and NOT ending in _SENTENCE_END_RE.
-# Every maximal run of consecutive AGE/LABEL lines that holds at least
-# AGE_RUN_MIN_AGE_LINES (2) AGE lines has each of its LABEL lines dropped; the
-# AGE lines go through _NOISE_REGEX anyway. A byline next to ONE age line
-# ("Dipali Banka" / "2 hours ago") is not a run.
-AGE_RUN_LABEL_MAX_WORDS = 3
-AGE_RUN_LABEL_MAX_CHARS = 40
-AGE_RUN_MIN_AGE_LINES = 2
-_RELATIVE_AGE_RE = re.compile(RELATIVE_AGE_PATTERN, re.IGNORECASE)
+# Shared by the two structural rules below (2026-10-16 c, round 8; same spec
+# as src/lib/clipping/clean.ts). Words = the paragraph split on r"\s+" with
+# empty strings dropped (NOT str.split()).
+# CASELESS_SCRIPT_PATTERN (QA 2026-10-16 c): a paragraph holding ANY character
+# of a caseless script is never a section label and never an age-run label.
+# Unspaced Chinese/Japanese is one "word", and Arabic/Hebrew have no case, so
+# neither the word count nor the name shape can tell a label from a lead or a
+# byline there (an unspaced Chinese lead ending in a fullwidth bracket or a
+# digit, a 3-word Arabic byline, a 2-word Hebrew name). Accepted cost: a
+# caseless label (a 2-character Chinese "summary") stays. BMP-only class in
+# \uXXXX escapes, byte-identical with the TS string: U+0590-U+0EFF (Hebrew,
+# Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic, Arabic Extended, the Indic
+# blocks Devanagari..Sinhala, Thai, Lao), Hiragana/Katakana, CJK Extension A,
+# CJK Unified, Hangul syllables, CJK Compatibility, Hebrew + Arabic
+# presentation forms (U+FEFF, the BOM, left out).
+CASELESS_SCRIPT_PATTERN = r"[\u0590-\u0EFF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFB1D-\uFDFF\uFE70-\uFEFE]"
+_CASELESS_SCRIPT_RE = re.compile(CASELESS_SCRIPT_PATTERN)
 _WORD_SPLIT_RE = re.compile(r"\s+")
 
 
 def _words(p: str) -> list[str]:
     return [w for w in _WORD_SPLIT_RE.split(p) if w]
+
+
+# Age-run labels (2026-10-16 c, round 8 family 4; byte-identical spec with
+# ageRunLabelIndexes in src/lib/clipping/clean.ts). A "latest news" rail
+# flattened into the body (globalenergynetwork, Readability path): bare tags
+# ("Middle East", "North America") between relative-age lines ("3 months ago").
+# No region/category word list: the rule is structural.
+# Input: the paragraph list AFTER normalisation and BEFORE any drop. An empty
+# entry neither counts nor ends a run (the TS inline split can leave one; the
+# shim removes empties in pass 1).
+#   AGE line   = matches _RELATIVE_AGE_RE (case-insensitive).
+#   LABEL line = not an AGE line, 1..AGE_RUN_LABEL_MAX_WORDS (3) words, under
+#                AGE_RUN_LABEL_MAX_CHARS (40) code points, NOT ending in
+#                _SENTENCE_END_RE, and holding no _CASELESS_SCRIPT_RE character.
+#   Any other line ends the run.
+# In every maximal run of consecutive AGE/LABEL lines, the LABEL lines that
+# come AFTER the run's first AGE line are dropped when the run holds at least
+# AGE_RUN_MIN_AGE_LINES (2) AGE lines; the AGE lines go through _NOISE_REGEX
+# anyway. Labels BEFORE the first AGE line stay (QA: a real list just above
+# the rail, "The consortium includes:" / "Petrobras" / "Shell"); a trailing
+# tag after the last AGE line ("Asia") still goes. A byline next to ONE age
+# line ("Dipali Banka" / "2 hours ago") is not a run.
+AGE_RUN_LABEL_MAX_WORDS = 3
+AGE_RUN_LABEL_MAX_CHARS = 40
+AGE_RUN_MIN_AGE_LINES = 2
+_RELATIVE_AGE_RE = re.compile(RELATIVE_AGE_PATTERN, re.IGNORECASE)
 
 
 def _age_run_label_indexes(paragraphs: list[str]) -> set[int]:
@@ -2037,14 +2061,18 @@ def _age_run_label_indexes(paragraphs: list[str]) -> set[int]:
     run_labels: list[int] = []
     run_ages = 0
     for i, p in enumerate(paragraphs):
+        if not p:
+            continue
         if _RELATIVE_AGE_RE.search(p):
             run_ages += 1
             continue
         words = len(_words(p))
         if (1 <= words <= AGE_RUN_LABEL_MAX_WORDS
                 and len(p) < AGE_RUN_LABEL_MAX_CHARS
-                and not _SENTENCE_END_RE.search(p)):
-            run_labels.append(i)
+                and not _SENTENCE_END_RE.search(p)
+                and not _CASELESS_SCRIPT_RE.search(p)):
+            if run_ages > 0:
+                run_labels.append(i)
             continue
         if run_ages >= AGE_RUN_MIN_AGE_LINES:
             drop.update(run_labels)
@@ -2057,14 +2085,17 @@ def _age_run_label_indexes(paragraphs: list[str]) -> set[int]:
 # Section-label first paragraph (2026-10-16 c, round 8 family 6; byte-identical
 # spec with isSectionLabelParagraph in src/lib/clipping/clean.ts): "In-brief
 # analysis" (eia.gov), "Summary" (livemint), "EUA" (diariodopoder) opening a
-# Readability body. Applied ONCE, after the per-paragraph tests and before the
-# global dedupe, to the FIRST surviving paragraph, and only when at least one
-# other paragraph survives (a lone paragraph is never dropped). It is dropped
-# when it has 1..SECTION_LABEL_MAX_WORDS (3) whitespace-separated words, does
-# NOT end in _SENTENCE_END_RE, and is NOT name-shaped. Name-shaped = 2+ words
-# that ALL start with an uppercase character (c != c.lower()): a bare byline
+# Readability body. Applied ONCE, as the LAST step of clean_paragraphs (after
+# the global dedupe), to the first paragraph of the deduped list, and only when
+# that list holds at least 2 paragraphs (a lone paragraph is never dropped). It
+# is dropped when it has 1..SECTION_LABEL_MAX_WORDS (3) words, does NOT end in
+# _SENTENCE_END_RE, holds no _CASELESS_SCRIPT_RE character, and is NOT
+# name-shaped. Name-shaped = 2+ words that ALL start with an uppercase
+# character: the word's first CODE POINT c with c != c.lower(). A bare byline
 # ("Luan Carlos", "By Tsvetana Paraskova", "Da Redação") stays. Known cost: a
 # Title Case label ("Oil Markets") is name-shaped and stays too.
+# NOT idempotent: cleaning already-cleaned output can drop a second label, so a
+# caller must never re-clean cleaned paragraphs.
 SECTION_LABEL_MAX_WORDS = 3
 
 
@@ -2078,19 +2109,44 @@ def is_section_label_paragraph(p: str) -> bool:
     words = _words(p)
     if not 1 <= len(words) <= SECTION_LABEL_MAX_WORDS:
         return False
-    if _SENTENCE_END_RE.search(p.strip()):
+    if _SENTENCE_END_RE.search(p):
+        return False
+    if _CASELESS_SCRIPT_RE.search(p):
         return False
     name_shaped = len(words) >= 2 and all(_starts_uppercase(w) for w in words)
     return not name_shaped
 
 
+# DECLARED DIVERGENCES from src/lib/clipping (round-8 QA). The pattern strings
+# stay byte-identical; `(?a:...)` is deliberately NOT used. What still differs:
+#  - `[a-z]` under re.IGNORECASE also matches 4 non-ASCII letters (U+0130
+#    dotted I, U+0131 dotless i, U+017F long s, U+212A Kelvin sign); JS `/i`
+#    without `u` does not. So "[" + U+017F + "hortcode]" is a shortcode line
+#    (dropped) here only, and a role line spelled with those letters drops
+#    here only.
+#  - Python `\d` is Unicode: "3 months ago" written with an Arabic-Indic or a
+#    fullwidth digit is an age line (dropped, and counted in an age run) here
+#    only.
+#  - The TS pass 1 also splits inline markers (" | ", " \u2022 ", " \u203a ")
+#    out of a paragraph; a paragraph it empties is skipped by the structural
+#    rules. The shim has no inline split, so such a line stays and ENDS an age
+#    run: [A, "1 month ago", "Mercados | Energia | Petróleo | Gás",
+#    "3 months ago", B] keeps the pipe line here (TS: [A, B]), and labels
+#    around it in a rail survive here; a pipe-list FIRST paragraph also hides
+#    a following "Summary" from the section label here, while TS drops it.
+#  - The all-links `<p>` skip in _paragraphs_from (TS isMostlyLinks): see the
+#    related-headline note.
+#  - Execution context: TS also runs the noise strip (related-headline rule
+#    included) inside preStripForFallbacks over a whole <body> clone before
+#    its Readability / p_density fallbacks (2026-10-19). The shim has no such
+#    path and does not add one.
 def clean_paragraphs(paragraphs: list[str]) -> list[str]:
     # Same order as cleanParagraphs in src/lib/clipping/clean.ts (2026-10-16 c).
     # Pass 1 - normalise every paragraph (whitespace collapse, punctuation fix;
     # empties removed). The age-run rule reads the whole normalised sequence
     # before anything is dropped. (The TS side also strips zero-width
-    # characters and splits inline "Leia também" markers here; the shim never
-    # did either.)
+    # characters and splits inline markers here; the shim never did either -
+    # see the declared divergences above.)
     normalised: list[str] = []
     for p in paragraphs:
         p = re.sub(r"\s+", " ", p).strip()
@@ -2114,9 +2170,6 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
         if index in age_run_labels:
             continue
         out.append(p)
-    # Section-label first paragraph (2026-10-16 c): once, on the first survivor.
-    if len(out) >= 2 and is_section_label_paragraph(out[0]):
-        out.pop(0)
     # Global keep-first dedupe: an AMP barrier repeats the same CTA pair
     # 18 times, interleaved, which a consecutive-only check never catches.
     seen: set[str] = set()
@@ -2127,8 +2180,11 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         seen.add(key)
         deduped.append(p)
+    # Section-label first paragraph (2026-10-16 c): once, LAST, after the dedupe
+    # (so ["Summary", "Summary", A] ships [A]). Not idempotent: see above.
+    if len(deduped) >= 2 and is_section_label_paragraph(deduped[0]):
+        deduped.pop(0)
     return deduped
-
 
 def _json_ld_article_body(soup: BeautifulSoup) -> list[str]:
     """Paragraphs from a schema.org `articleBody`, if the page publishes one.
