@@ -859,6 +859,17 @@ ex_braziljournal = _make_extractor([
     "div.post-body",
     "div.post-content-text", "section.post-content", "div.entry-content", "article",
 ])
+# OilPrice.com (2026-10-19): body <p> live only in div#news-content
+# (= div.wysiwyg.clear); byline, author box, ticker tooltip and share/related/
+# comment blocks are outside it. Rejected: singleArticle__content (adds the
+# byline + "Join the discussion"), singleArticle__wrapper (adds the author box),
+# tableGrid__column--articleContent (adds share/related/comment), inner_content
+# (holds no body). Known residual: the "By <Name> for Oilprice.com" sign-off is
+# a bare <p> inside the container. Mirrors src/lib/clipping/sources.ts.
+ex_oilprice = _make_extractor([
+    "div#news-content",
+    "div.singleArticle__content div.wysiwyg",
+])
 ex_eixos = _make_extractor([
     "div.entry-content", "div.post-content", "article .tdb-block-inner", "article",
 ])
@@ -1154,8 +1165,8 @@ EXTRACTORS: dict[str, Extractor] = {
     # only powers the lede rescue (body fetch of a near-miss). World Oil is the
     # exception that always fetches (its feed has no <pubDate>, so enrich_item
     # fetches the article page to read article:published_time).
-    "oilprice.com": ex_auto,
-    "www.oilprice.com": ex_auto,
+    "oilprice.com": ex_oilprice,
+    "www.oilprice.com": ex_oilprice,
     "gcaptain.com": ex_auto,
     "www.gcaptain.com": ex_auto,
     "hellenicshippingnews.com": ex_auto,
