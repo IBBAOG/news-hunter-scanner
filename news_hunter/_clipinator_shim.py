@@ -1726,6 +1726,12 @@ def clean_title(titulo: str) -> str:
     return t
 
 
+# 2026-10-16 c (round 8): family 4, a relative-age line ("3 months ago", "1
+# month ago", "an hour ago"). Listed in _NOISE_PATTERNS below AND read by the
+# age-run rule (_RELATIVE_AGE_RE). Byte-identical with RELATIVE_AGE_PATTERN in
+# src/lib/clipping/clean.ts (dashboard repo).
+RELATIVE_AGE_PATTERN = r"^\s*(\d+|an?)\s+(seconds?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\s+ago\s*$"
+
 _NOISE_PATTERNS = [
     r"^\s*leia\s+(tamb[eé]m|mais|tudo\s+sobre)\b",
     r"^\s*leia\s+a\s+(reportagem|mat[eé]ria)\s+completa\b",
@@ -1806,6 +1812,16 @@ _NOISE_PATTERNS = [
     r"you\s+must\s+enable\s+advertisement\s+tracking|blocking\s+the\s+video\s+player"
     r"|to\s+display\s+this\s+content\s+from",
     r"^\s*(a\s+)?cobertura\s+no\s+google,\s+no\s+e-?mail\s+e\s+nas\s+redes",
+    # 2026-10-16 c (round 8): family 4 (globalenergynetwork "latest news" rail;
+    # shared contract with src/lib/clipping, same order). An unrendered
+    # WordPress shortcode line ("[mc4wp_form id=2073]", "[/vc_row]",
+    # '[contact-form-7 id="123"]') and the relative-age line
+    # (RELATIVE_AGE_PATTERN above). Any-length list on purpose: both are
+    # anchored at ^ AND $ over a closed shape. The shortcode is an identifier
+    # plus optional key=value attributes, so bracketed prose ("[The company
+    # declined to comment.]") survives.
+    r"^\s*\[\/?[a-z][a-z0-9_\-]*(\s+[a-z0-9_\-]+\s*=[^\]]*)?\]\s*$",
+    RELATIVE_AGE_PATTERN,
 ]
 _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 
@@ -1834,6 +1850,26 @@ _SHORT_NOISE_PATTERNS = [
     r"^\s*(©|copyright\b|\(c\)\s*copyright\b|\(c\)(?=\s*\d{4})).{0,60}\b\d{4}\b|\ball\s+rights\s+reserved\b",
     r"^\s*published\s+in\s+[A-Z][^,]{1,40},\s+\w+\s+\d{1,2}(st|nd|rd|th)?,?\s+\d{4}\s*\.?\s*$",
     r"^\s*\(?\s*(foto|photo|image|imagem)(\s+do\s+destaque)?\s*:",
+    # 2026-10-16 c (round 8; shared contract with src/lib/clipping, same
+    # order). Family 1, newsletter/social/podcast pitch lines (astanatimes
+    # "... stories sent directly to you! ...", 148 code points; cityam "Three
+    # daily briefings with ..."; energymonitor "make sure to subscribe",
+    # "wherever you get your podcasts"). "daily briefings" is COUNT-led only:
+    # "The White House held daily briefings" survives.
+    r"\b(stories|news|articles|updates|headlines)\s+sent\s+directly\s+to\s+(you|your\s+inbox)\b|\bmake\s+sure\s+to\s+subscribe\b|\bsubscribe\s+to\s+our\s+(x|facebook|instagram|youtube|podcasts?|channel)\b|\bwherever\s+you\s+get\s+your\s+podcasts\b|^\s*(one|two|three|four|five|\d+)\s+daily\s+briefings?\b",
+    # Family 2, advertiser/house promo (GlobalData "... editorial excellence to
+    # reach engaged professionals across 36 leading media platforms."); "reach
+    # 5,000 professionals across Brazil" is prose and survives.
+    r"\b(editorial\s+excellence\s+to\s+reach|reach\s+engaged\s+professionals|across\s+\d+\s+leading\s+media\s+platforms)\b",
+    # Family 8, a photo credit at the END of a caption ("... - (Foto: Daniel
+    # Torok/Official White House).") and the "Photo credit: X" label.
+    r"\(\s*(foto|photo|imagem|image)\s*:[^)]{1,80}\)\s*\.?\s*$|^\s*(photo|foto|image|imagem)\s+(credits?|cr[eé]ditos?)\s*:",
+    # Family 7, a bare role line of the author box ("Middle East correspondent").
+    # Letters and spaces only, so "John Smith, Middle East correspondent"
+    # survives; the (?!\s*by\s) guard keeps "By Gary Dixon Middle East
+    # correspondent". Python \w is Unicode-aware, JS \w is ASCII: a role line
+    # with an accented letter before the role word drops here only.
+    r"^(?!\s*by\s)\s*[\w\s]{0,40}\b(correspondent|editor|reporter|columnist)\s*$",
 ]
 _SHORT_NOISE_REGEX = re.compile("|".join(_SHORT_NOISE_PATTERNS), re.IGNORECASE)
 
