@@ -26,11 +26,11 @@ def test_preferred_source_cta_is_dropped(text: str) -> None:
     assert clean_paragraphs([PROSE, text]) == [PROSE]
 
 
-def test_preferred_source_on_google_scholar_is_a_known_cost() -> None:
-    # Known cost: `preferred source on Google` also matches a short prose line
-    # about Google Scholar. Accepted - the phrase is rare outside the CTA.
+def test_preferred_source_on_google_scholar_survives() -> None:
+    # The `preferred source on Google` alternative is end-anchored: a sentence
+    # that keeps going after "Google" is prose.
     text = "A preferred source on Google Scholar lists the 2026 study."
-    assert clean_paragraphs([text]) == []
+    assert clean_paragraphs([text]) == [text]
 
 
 def test_prose_about_google_survives() -> None:
