@@ -22,7 +22,8 @@ from typing import Callable
 from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4.element import PreformattedString
 from curl_cffi import requests as cffi_requests
 
 
@@ -750,74 +751,91 @@ def _strip_index_groups(container: Tag) -> None:
 
 #: Related headline (2026-10-16 c, round 8 family 3; byte-identical contract
 #: with stripRelatedHeadlines in src/lib/clipping/extract.ts): a `<p>` in the
-#: container that IS the text of a link, i.e. another article's headline
-#: shipped as a paragraph (moneytimes `ul.single_videos` video teaser; Estadão
-#: E-Investidor "Leia mais" list, `<a><div><p class="li-title">`).
+#: container that IS the text of the link CARD it sits in, i.e. another
+#: article's headline shipped as a paragraph (moneytimes `ul.single_videos`
+#: video teaser; Estadão E-Investidor "Leia mais" list,
+#: `<a><div><p class="li-title">`).
 #: Runs as the LAST step of _strip_noise (after _strip_index_groups), over the
-#: document as it stands then.
-#:   LINK KEYS: for every `<a>` in the WHOLE document whose `href` attribute is
-#:     present and does not start with "#" (an in-page TOC link names this
-#:     article's own intertitle), _dedupe_key(collapsed text) and
-#:     _dedupe_key(`title` attribute); empty keys are ignored.
-#:   CANDIDATE: a `<p>` in the container whose collapsed text is non-empty and
-#:     at most RELATED_HEADLINE_MAX_CHARS (120) code points, whose _dedupe_key
-#:     equals the LINK KEY of (i) an ANCESTOR `<a>` of the `<p>` (the card
-#:     shape; any final punctuation), or (ii) an `<a>` that is neither ancestor
-#:     nor descendant of the `<p>` (a teaser repeated elsewhere on the page),
-#:     AND the `<p>` does NOT end in _SENTENCE_END_RE. A descendant `<a>` never
-#:     counts (the all-links `<p>` skip in _paragraphs_from owns that case).
+#: container as it stands then.
+#:   CANDIDATE: a `<p>` in the container whose visible text (below) is
+#:     non-empty, at most RELATED_HEADLINE_MAX_CHARS (120) code points, and
+#:     whose _dedupe_key K is non-empty and equals _dedupe_key(visible text)
+#:     OR _dedupe_key(raw `title` attribute) of some ANCESTOR `<a>` of the
+#:     `<p>` (anywhere up the document) with a USABLE href: present and,
+#:     stripped, non-empty and not starting with "#" (an in-page anchor
+#:     wrapping an intertitle is not a card). Punctuation does not matter
+#:     ("... Mercosul?" goes).
+#:   VISIBLE TEXT (both the `<p>` and the `<a>`) = the text nodes in document
+#:     order, SKIPPING every CARD_TEXT_SKIP_TAGS subtree (noscript, template,
+#:     script, style; tag name lowercased), joined with "", whitespace runs
+#:     folded to one space, trimmed; comments are not text. A WordPress
+#:     lazy-load card carries a `<noscript><img></noscript>` copy of its image
+#:     (cheerio reads it as text, bs4+lxml does not); both sides skip the
+#:     subtrees explicitly rather than rely on the parser.
 #:   BOUND: the candidates are removed only when at least
 #:     RELATED_HEADLINE_MIN_KEEP (2) non-empty `<p>` of the container are NOT
 #:     candidates; otherwise nothing is removed. A short real body is never
 #:     emptied.
+#: CARD CASE ONLY (QA 2026-10-16 c): a link ELSEWHERE on the page with the same
+#: text is not evidence (it removed real intertitles and decks: a TOC link
+#: written as a full URL with a #fragment, an href="", a share link whose
+#: title= is the deck, a one-word intertitle equal to a /tag/ link).
+#: A `<p>` whose own child link carries the text is the all-links `<p>` skip in
+#: _paragraphs_from (TS isMostlyLinks). DECLARED DIVERGENCE (pre-existing): the
+#: shim skip requires EVERY DIRECT child of the `<p>` to be an `<a>`, so
+#: `<p><span><a>H</a></span></p>` survives here while TS isMostlyLinks drops it.
 RELATED_HEADLINE_MAX_CHARS = 120
 RELATED_HEADLINE_MIN_KEEP = 2
+CARD_TEXT_SKIP_TAGS = frozenset({"noscript", "template", "script", "style"})
+
+
+def _has_usable_href(a: Tag) -> bool:
+    href = (a.get("href") or "").strip()
+    return href != "" and not href.startswith("#")
+
+
+def _visible_collapsed_text(node: Tag) -> str:
+    """Text nodes in document order, minus CARD_TEXT_SKIP_TAGS subtrees (see above)."""
+    parts: list[str] = []
+    stack = list(reversed(node.contents))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, Tag):
+            if (child.name or "").lower() not in CARD_TEXT_SKIP_TAGS:
+                stack.extend(reversed(child.contents))
+        elif isinstance(child, NavigableString) and not isinstance(child, PreformattedString):
+            # PreformattedString = Comment, CData, Doctype, Declaration,
+            # ProcessingInstruction: not text.
+            parts.append(str(child))
+    return re.sub(r"\s+", " ", "".join(parts)).strip()
 
 
 def _strip_related_headlines(container: Tag) -> None:
-    root = container
-    while root.parent is not None:
-        root = root.parent
-    links_by_key: dict[str, list[Tag]] = {}
-    for a in root.find_all("a"):
-        href = a.get("href")
-        if href is None or href.startswith("#"):
-            continue
-        for key in (_dedupe_key(_collapsed_text(a)), _dedupe_key(a.get("title") or "")):
-            if key:
-                links_by_key.setdefault(key, []).append(a)
-    if not links_by_key:
-        return
-
     candidates: list[Tag] = []
     kept = 0
     for p in container.find_all("p"):
-        text = _collapsed_text(p)
+        text = _visible_collapsed_text(p)
         if not text:
             continue
-        links = links_by_key.get(_dedupe_key(text))
-        is_candidate = False
-        if links and len(text) <= RELATED_HEADLINE_MAX_CHARS:
-            # Identity, not ==: bs4 compares Tags by markup.
-            ancestors = {id(t) for t in p.parents}
-            in_card = any(id(a) in ancestors for a in links)
-            elsewhere = any(
-                id(a) not in ancestors and not any(t is p for t in a.parents)
-                for a in links
+        key = _dedupe_key(text)
+        is_candidate = (
+            key != ""
+            and len(text) <= RELATED_HEADLINE_MAX_CHARS
+            and any(
+                _has_usable_href(a)
+                and (_dedupe_key(_visible_collapsed_text(a)) == key
+                     or _dedupe_key(a.get("title") or "") == key)
+                for a in p.find_parents("a")
             )
-            is_candidate = in_card or (elsewhere and not _SENTENCE_END_RE.search(text))
+        )
         if is_candidate:
             candidates.append(p)
         else:
             kept += 1
     if not candidates or kept < RELATED_HEADLINE_MIN_KEEP:
         return
-    removed = {id(p) for p in candidates}
     for p in candidates:
-        # A candidate nested in another candidate goes with it.
-        if not any(id(t) in removed for t in p.parents):
-            p.decompose()
-
+        p.decompose()
 
 def _strip_noise(container: Tag) -> None:
     for tag in container.find_all(["figure", "figcaption", "aside", "script", "style", "iframe", "form", "nav"]):
