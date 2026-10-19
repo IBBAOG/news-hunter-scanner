@@ -54,8 +54,19 @@ RESOLVE_WORKERS = 6
 # Deadline de enrich sobre URLs ja resolvidas (fetch_html = 6s/item max).
 ENRICH_DEADLINE = 18.0
 # Deadline adicional para aguardar resolucoes pendentes apos collect.
-# 56 itens / 6 workers * 1.75s/item ≈ 16s para cobrir quase tudo.
-RESOLVE_EXTRA = 16.0
+# Was 16s, sized for 56 items. Since Wave 5 (2026-09-14) a scan submits
+# 250-400 wrappers, and the 16s wait expired on most scans: Candidatos is logged
+# exactly 16.0s after the feed summary (2026-09-17 14:05/14:10/14:15 and
+# 2026-10-19 19:00), with the unfinished tail cancelled. The tail is not random:
+# it is the domains whose site: query returns last, i.e. the END of each EN
+# cohort (zawya, aljazeera, mees, interfax in cohort 1; barrons; timesofisrael,
+# aa.com.tr/en; icis), which then sit at zero for whole scans while their
+# measured 24h query passes 20 items (zawya, measure_source 39307905049).
+# Observed throughput is ~9-10 decodes/s across the 6 workers, so 400 wrappers
+# need ~40s from the start of collect; with collect taking 13-22s, 36s of extra
+# wait covers the worst scan seen. Cost: up to +20s per scan on a ~75s job that
+# runs every 5 min (timeout-minutes 8).
+RESOLVE_EXTRA = 36.0
 
 # --- Lede rescue (added 2026-06-09) -----------------------------------------
 # Em fast_mode (o unico modo do scanner cloud) so casavamos keyword contra
@@ -1635,9 +1646,10 @@ def run_search(
                 "ok": n_decoded, "total": len(pending_resolve),
             }
             log.info(
-                "Candidatos: %d (brutos %d) | cache_hit=%d resolve=%d(ok=%d) decoded=%d enrich=%d",
+                "Candidatos: %d (brutos %d) | cache_hit=%d resolve=%d(ok=%d) decoded=%d "
+                "resolve_cancelled=%d enrich=%d",
                 n_cand, n_raw, n_cache, len(pending_resolve), n_resolved_ok,
-                n_decoded, len(pending),
+                n_decoded, len(nd_resolve), len(pending),
             )
 
             # --- Fase 3: aguarda enrich ---

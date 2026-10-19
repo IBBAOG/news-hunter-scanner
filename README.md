@@ -42,7 +42,8 @@ Dependencies in `requirements.txt` are pinned to exact versions. An unpinned
 `googlenewsdecoder>=0.1.7` picked up 0.2.x on 2026-09-20, whose result dict
 renamed `status` to `success`; every Google News url stayed undecoded for four
 weeks while the scan stayed green (`resolve=400(ok=0)`). Bump one package at a
-time and watch the `resolve=N(ok=M) decoded=D` line of the next scan.
+time and watch the `resolve=N(ok=M) decoded=D resolve_cancelled=C` line of the
+next scan.
 
 ## Zero-yield guard (whole stage producing nothing)
 
