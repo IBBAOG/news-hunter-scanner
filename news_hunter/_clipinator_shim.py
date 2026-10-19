@@ -770,8 +770,9 @@ def _strip_index_groups(container: Tag) -> None:
 #:     script, style; tag name lowercased), joined with "", whitespace runs
 #:     folded to one space, trimmed; comments are not text. A WordPress
 #:     lazy-load card carries a `<noscript><img></noscript>` copy of its image
-#:     (cheerio reads it as text, bs4+lxml does not); both sides skip the
-#:     subtrees explicitly rather than rely on the parser.
+#:     (cheerio reads that markup as text; bs4 parses it but keeps any
+#:     noscript TEXT in get_text()); both sides skip the subtrees explicitly
+#:     rather than rely on the parser.
 #:   BOUND: the candidates are removed only when at least
 #:     RELATED_HEADLINE_MIN_KEEP (2) non-empty `<p>` of the container are NOT
 #:     candidates; otherwise nothing is removed. A short real body is never
