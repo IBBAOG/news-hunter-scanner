@@ -162,6 +162,36 @@ def test_the_age_run_reads_the_sequence_before_any_drop() -> None:
     )
 
 
+def test_an_empty_entry_neither_counts_nor_ends_a_run() -> None:
+    drops_to([A, "1 month ago", "", "Europe", "3 months ago", B], [A, B])
+    drops_to([A, "1 month ago", "   ", "Europe", "3 months ago", B], [A, B])
+
+
+def test_a_40_code_point_label_is_not_a_label() -> None:
+    label = "Abcdefghijklm Nopqrstuvwxyzab Cdefghijkl"
+    assert len(label) == shim.AGE_RUN_LABEL_MAX_CHARS == 40
+    drops_to([A, "1 month ago", label, "3 months ago", B], [A, label, B])
+    drops_to([A, "1 month ago", label[:-1], "3 months ago", B], [A, B])
+
+
+def test_a_real_list_just_before_the_rail_survives() -> None:
+    # QA (TS f69ab1ce8): labels count only AFTER the run's first age line.
+    drops_to(
+        [A, "The consortium includes:", "Petrobras", "Shell", "TotalEnergies",
+         "3 months ago", "Middle East", "4 months ago"],
+        [A, "The consortium includes:", "Petrobras", "Shell", "TotalEnergies"],
+    )
+    drops_to(
+        [A, "Key figures", "Brent: $90", "WTI: $86", "2 days ago", "3 days ago", B],
+        [A, "Key figures", "Brent: $90", "WTI: $86", B],
+    )
+
+
+def test_a_caseless_script_line_is_never_an_age_run_label() -> None:
+    zh, ar = "中东", "الشرق الأوسط"
+    drops_to([A, "1 month ago", zh, "3 months ago", ar, "5 months ago", B], [A, zh, ar, B])
+
+
 # ── Family 6: section-label first paragraph (structural) ────────────────────
 def test_a_short_unpunctuated_first_paragraph_is_dropped() -> None:
     drops_to(["In-brief analysis", A, B], [A, B])
@@ -195,10 +225,18 @@ def test_bylines_are_untouched_by_every_round8_rule() -> None:
              [A, "By Tsvetana Paraskova for Oilprice.com"])
 
 
-def test_the_section_label_runs_before_the_dedupe() -> None:
-    # TS order: drop the first survivor, THEN keep-first dedupe; a later copy of
-    # the label is therefore the one that stays.
-    drops_to(["Summary", A, "Summary"], [A, "Summary"])
+def test_the_section_label_runs_after_the_dedupe() -> None:
+    # QA (TS f69ab1ce8): the section label is the LAST step, after the dedupe,
+    # so a repeated label does not survive as the new first line.
+    drops_to(["Summary", "Summary", A], [A])
+    drops_to(["Summary", A, "Summary"], [A])
+
+
+def test_name_shape_reads_the_first_code_point() -> None:
+    # Deseret capitals are astral (outside the BMP): same answer as TS, which
+    # reads Array.from(word)[0].
+    deseret = "\U00010414\U0001042f\U00010445 \U00010406\U0001042e"
+    drops_to([deseret, A], [deseret, A])
 
 
 # ── Family 7: bare role lines (short list) ──────────────────────────────────
@@ -215,6 +253,9 @@ def test_family7_negative_controls_survive() -> None:
         "By Gary Dixon, Middle East correspondent",
         "By Gary Dixon Middle East correspondent",
         "A Reuters correspondent in Beirut said the strike hit a fuel depot.",
+        # QA: ASCII letters only (`[a-z\s]`, not `\w`), same answer as TS
+        "São Paulo correspondent",
+        "G20 correspondent",
     ]
     drops_to([A, *keep], [A, *keep])
 
@@ -245,12 +286,12 @@ def test_family8_negative_controls_survive() -> None:
     drops_to([A, *keep], [A, *keep])
 
 
-# ── CJK / RTL controls (behaviour PINNED for TS parity, not endorsed) ───────
-# Both structural rules count whitespace-separated words and read the terminal
-# class of _SENTENCE_END_RE (no fullwidth `）`, no digits). Chinese prose has no
-# spaces (one "word"), Arabic has no case (never name-shaped). These tests pin
-# what the shim does today, identical to the TS rules; the revisor is checking
-# the TS side for the same question. If the rule changes there, flip them here.
+# ── CJK / RTL controls (QA 2026-10-16 c: the caseless-script guard) ─────────
+# Unspaced Chinese is one "word" and Arabic/Hebrew have no case, so neither the
+# word count nor the name shape can tell a label from a lead or a byline there.
+# Both structural rules skip any paragraph holding a caseless-script character
+# (CASELESS_SCRIPT_PATTERN, byte-identical with TS f69ab1ce8). Accepted cost:
+# a caseless label stays.
 ZH_FULLWIDTH_PAREN = (
     "中国石油天然气集团公司周五表示，受国内需求回升和新油田投产推动，"
     "第三季度原油产量同比增长百分之三（新华社）"
@@ -260,25 +301,34 @@ ZH_FULL_STOP = "中国石油天然气集团公司周五表示第三季度原油�
 AR_THREE_WORDS = "أسعار النفط ترتفع"
 
 
-@pytest.mark.parametrize("first", [ZH_FULLWIDTH_PAREN, ZH_DIGIT])
-def test_cjk_first_paragraph_without_spaces_is_taken_for_a_section_label(first: str) -> None:
-    assert len(first.split()) == 1
-    drops_to([first, A, B], [A, B])
+@pytest.mark.parametrize("first", [ZH_FULLWIDTH_PAREN, ZH_DIGIT, ZH_FULL_STOP, AR_THREE_WORDS])
+def test_a_cjk_or_arabic_first_paragraph_is_never_a_section_label(first: str) -> None:
+    drops_to([first, A, B], [first, A, B])
 
 
-def test_cjk_first_paragraph_ending_in_a_cjk_full_stop_is_kept() -> None:
-    drops_to([ZH_FULL_STOP, A, B], [ZH_FULL_STOP, A, B])
-
-
-def test_arabic_three_word_first_paragraph_is_taken_for_a_section_label() -> None:
-    assert len(AR_THREE_WORDS.split()) == 3
-    drops_to([AR_THREE_WORDS, A, B], [A, B])
+@pytest.mark.parametrize("first", [
+    # the TS QA list (clean.test.ts, f69ab1ce8)
+    "前三季度原油产量同比增长3.2%，天然气产量增长6.1%",
+    "国际油价16日收于每桶90.5美元",
+    "中国石油发布公告称：",
+    "新华社北京10月16日电（记者张三）",
+    "他表示，这是‘历史性的一步’",
+    "国际油价连续三日上涨——",
+    "布伦特原油上涨2%；",
+    "原油価格が上昇",
+    "هل ترتفع الأسعار؟",
+    "דני זקן",
+    "بقلم أحمد علي",
+    "摘要",  # accepted cost: a Chinese section label stays
+])
+def test_the_ts_caseless_first_paragraphs_are_kept(first: str) -> None:
+    drops_to([first, A, B], [first, A, B])
 
 
 @pytest.mark.parametrize("line", [ZH_DIGIT, AR_THREE_WORDS])
-def test_cjk_and_arabic_short_lines_inside_an_age_run_are_taken_for_labels(line: str) -> None:
+def test_cjk_and_arabic_short_lines_inside_an_age_run_are_kept(line: str) -> None:
     assert len(line) < shim.AGE_RUN_LABEL_MAX_CHARS
-    drops_to([A, "1 month ago", line, "3 months ago", B], [A, B])
+    drops_to([A, "1 month ago", line, "3 months ago", B], [A, line, B])
 
 
 def test_a_cjk_line_over_the_label_cap_inside_an_age_run_is_kept() -> None:
@@ -287,7 +337,7 @@ def test_a_cjk_line_over_the_label_cap_inside_an_age_run_is_kept() -> None:
              [A, ZH_FULLWIDTH_PAREN, B])
 
 
-# ── Family 3: related headline, a <p> that IS the text of a link (DOM) ──────
+# ── Family 3: related headline, a <p> that IS the text of its link card ─────
 # Inline pages, container = the <article> (as the TS extract.test.ts cases).
 H = "O risco escondido na economia dos EUA que começa a preocupar Wall Street"
 R1 = ("O Dow Jones hoje teve baixa, assim como as demais bolsas de Nova York nesta "
@@ -311,16 +361,62 @@ def test_a_card_headline_inside_its_ancestor_link_is_removed() -> None:
     ) == [R1, R2]
 
 
-def test_a_headline_linked_elsewhere_on_the_page_is_removed() -> None:
-    assert _body(f"<p>{R1}</p><p>{H}</p><p>{R2}</p>",
-                 f'<aside><a href="/x">{H}</a></aside>') == [R1, R2]
-
-
-def test_the_link_title_attribute_matches_too_normalised() -> None:
+def test_a_wordpress_lazy_load_card_is_removed() -> None:
+    # <noscript><img></noscript> copy of the card image (TS: the card key
+    # ignores noscript/template/script/style text).
+    h = "O risco escondido na economia dos EUA"
     assert _body(
-        f'<p>{R1}</p><p>{R2}</p><div><a href="/v" title="{H.upper()}  ">'
-        f'<img src="v.png"></a><p>{H}</p></div>'
+        f'<p>{R1}</p><p>{R2}</p><ul><li><a href="/x"><img data-src="a.png">'
+        f'<noscript><img src="a.png"></noscript><p>{h}</p></a></li></ul>'
     ) == [R1, R2]
+
+
+def test_noscript_template_script_style_text_is_not_card_text() -> None:
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="/x"><noscript>Ative o JavaScript</noscript>'
+        f'<template>tpl</template><script>var x = 1;</script><style>.a{{}}</style>'
+        f'<p>{H}</p></a>'
+    ) == [R1, R2]
+
+
+def test_the_card_text_is_the_collapsed_text_without_skipped_tags() -> None:
+    soup = BeautifulSoup(f'<a href="/x"><span> 12:30 </span>\n<b>{H}</b></a>', "lxml")
+    a = soup.find("a")
+    assert shim._card_text(a) == shim._collapsed_text(a)
+
+
+@pytest.mark.parametrize("line, outside", [
+    # in-page TOC link written as a full URL with a fragment
+    ("Production outlook",
+     '<nav><a href="https://site.com/article#production-outlook">Production outlook</a></nav>'),
+    # empty href
+    (H, f'<aside><a href="">{H}</a></aside>'),
+    # share link whose title= is the deck
+    ("Investidores avaliam a manutenção dos juros pelo Fed e a alta do petróleo",
+     '<div><a href="https://twitter.com/intent/tweet?url=x" title="Investidores avaliam a '
+     'manutenção dos juros pelo Fed e a alta do petróleo"><img src="t.png"></a></div>'),
+    # one-word intertitle equal to a tag link
+    ("Petrobras", '<div class="tags"><a href="/tag/petrobras">Petrobras</a></div>'),
+    # the plain sidebar case of the first draft
+    (H, f'<aside><a href="/x">{H}</a></aside>'),
+    (f"{H}.", f'<aside><a href="/x">{H}.</a></aside>'),
+])
+def test_a_link_elsewhere_with_the_same_text_is_not_a_card(line: str, outside: str) -> None:
+    assert _body(f"<p>{R1}</p><p>{line}</p><p>{R2}</p>", outside) == [R1, line, R2]
+
+
+def test_the_card_title_attribute_is_a_key_too_normalised() -> None:
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="/v" title="{H.upper()}  "><img src="v.png">'
+        f'<span>12:30</span><p>{H}</p></a>'
+    ) == [R1, R2]
+
+
+@pytest.mark.parametrize("anchor", [
+    '<a href="#production-outlook">', '<a href="">', '<a href="  ">', '<a name="x">',
+])
+def test_the_card_needs_a_usable_href(anchor: str) -> None:
+    assert _body(f"<p>{R1}</p><p>{R2}</p>{anchor}<p>{H}</p></a>") == [R1, R2, H]
 
 
 def test_a_question_headline_inside_its_own_card_goes_too() -> None:
@@ -331,18 +427,11 @@ def test_a_question_headline_inside_its_own_card_goes_too() -> None:
     ) == [R1, R2]
 
 
-def test_a_punctuated_headline_linked_elsewhere_is_prose_and_kept() -> None:
-    punct = f"{H}."
-    assert _body(f"<p>{R1}</p><p>{punct}</p><p>{R2}</p>",
-                 f'<aside><a href="/x">{punct}</a></aside>') == [R1, punct, R2]
-
-
-def test_a_link_equal_paragraph_over_120_code_points_is_kept() -> None:
+def test_a_card_paragraph_over_120_code_points_is_kept() -> None:
     long = (f"{H} e o que isso significa para os juros, o dólar e as bolsas nas próximas "
             "semanas segundo analistas")
     assert len(long) > shim.RELATED_HEADLINE_MAX_CHARS
-    assert _body(f"<p>{R1}</p><p>{long}</p><p>{R2}</p>",
-                 f'<aside><a href="/x">{long}</a></aside>') == [R1, long, R2]
+    assert _body(f'<p>{R1}</p><p>{R2}</p><a href="/x"><p>{long}</p></a>') == [R1, R2, long]
 
 
 def test_a_descendant_link_is_not_this_rule() -> None:
@@ -365,9 +454,43 @@ def test_a_short_real_line_that_matches_no_link_is_kept() -> None:
                  '<nav><a href="/">Home</a></nav>') == [R1, "Oil production and export trends", R2]
 
 
-@pytest.mark.parametrize("href", ["#section-2", None])
-def test_an_in_page_or_hrefless_link_never_counts(href: str | None) -> None:
-    attr = f' href="{href}"' if href is not None else ""
+LABEL = "NESTA EDIÇÃO. Resumo da semana"
+
+
+def test_an_index_group_whose_teaser_is_a_card_goes_as_a_group() -> None:
     assert _body(
-        f'<p>{R1}</p><p>{R2}</p><a{attr}><p>{H}</p></a>'
-    ) == [R1, R2, H]
+        f'<div class="wp-block-group"><p>{LABEL}</p><p>Teaser um.</p><p>Teaser dois.</p>'
+        f'<a href="/t3"><p>Teaser três</p></a></div><p>{R1}</p><p>{R2}</p>'
+    ) == [R1, R2]
+
+
+def test_related_headlines_run_after_the_index_groups() -> None:
+    # The bound counts what is left AFTER the index group went: one real <p>
+    # stays, so the card is kept. Run first, the group's 3 <p> would have
+    # counted and the card would have gone.
+    assert _body(
+        f'<p>{R1}</p><div class="wp-block-group"><p>{LABEL}</p><p>Teaser um.</p>'
+        f'<p>Teaser dois.</p></div><a href="/x"><p>{H}</p></a>'
+    ) == [R1, H]
+
+
+# ── Declared divergences from the TS side (pinned, see the shim comment) ────
+def test_divergence_ascii_class_under_ignorecase_matches_long_s() -> None:
+    drops_to([A, "[ſhortcode]"], [A])  # TS keeps it
+
+
+@pytest.mark.parametrize("age", ["٣ months ago", "３ hours ago"])
+def test_divergence_unicode_digits_make_an_age_line(age: str) -> None:
+    drops_to([A, age], [A])  # TS keeps it
+
+
+def test_divergence_no_inline_split_a_pipe_list_ends_an_age_run() -> None:
+    pipes = "Mercados | Energia | Petróleo | Gás"
+    drops_to([A, "1 month ago", pipes, "3 months ago", B], [A, pipes, B])  # TS: [A, B]
+    drops_to([pipes, "Summary", A], [pipes, "Summary", A])  # TS: [A]
+
+
+def test_divergence_a_span_wrapped_link_paragraph_survives() -> None:
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><p><span><a href="/x">{H}</a></span></p>'
+    ) == [R1, R2, H]  # TS isMostlyLinks drops it
