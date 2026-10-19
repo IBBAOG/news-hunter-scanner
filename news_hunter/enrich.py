@@ -39,6 +39,13 @@ from .filter import strip_wp_footer
 try:
     from googlenewsdecoder import gnewsdecoder  # type: ignore
 except Exception:  # noqa: BLE001
+    # Was silent until 2026-10-19: selectolax 1.0 broke this import and every
+    # GNews wrapper would have stayed undecoded with no trace. The zero-yield
+    # guard fails the scan in that case; this line says why.
+    logging.getLogger(__name__).error(
+        "googlenewsdecoder import failed - Google News urls will not resolve",
+        exc_info=True,
+    )
     gnewsdecoder = None  # type: ignore
 
 # Pool dedicado para gnewsdecoder. A concorrencia e controlada externamente

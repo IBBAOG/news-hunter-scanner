@@ -31,6 +31,7 @@ from .fetcher import RawItem, iter_collect
 from .filter import matches_keywords, strip_related, within_window
 from .keyword_senses import drop_own_name, drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
+from .zero_yield import new_stage_stats
 from .store import (
     Article,
     excluded_url_reason,
@@ -1406,6 +1407,9 @@ def run_search(
 
     run_id = start_run()
     errors: list[str] = []
+    # Zero-yield guard counters (zero_yield.py), filled by iter_collect and the
+    # GNews resolve phase; judged by the service after the scan persisted.
+    stage_stats = new_stage_stats()
     n_new = 0
     n_upserted = 0
     n_lede_ok = 0
@@ -1447,6 +1451,11 @@ def run_search(
         n_cand = 0
         n_cache = 0
         n_resolved_ok = 0
+        # Wrappers the decoder actually turned into a publisher url (before the
+        # exclusion rule and the enrich cap, which n_resolved_ok also applies).
+        # Feeds the zero-yield guard: n_resolved_ok can be low for good reasons,
+        # n_decoded at ~0 cannot (2026-09-20 decoder break, zero_yield.py).
+        n_decoded = 0
         # Limita enriquecimentos por dominio.
         # Homepage scrapers (published_at=None) usam cap maior: sao paginas ja
         # topicas, entao vale a pena aceitar muito de cada uma.
@@ -1469,7 +1478,8 @@ def run_search(
         _RESOLVE_CAP = 20
         try:
             for dom, items, err in iter_collect(
-                keywords, hours, include_google_news=include_google_news
+                keywords, hours, include_google_news=include_google_news,
+                stage_stats=stage_stats,
             ):
                 if err:
                     errors.append(err)
@@ -1587,6 +1597,7 @@ def run_search(
                     resolved_url, resolved_domain = it.url, it.source_domain
                 if resolved_url.startswith("https://news.google.com/"):
                     continue  # nao resolvido — descarta
+                n_decoded += 1
                 # The GNews route is where every non-article shape came from:
                 # the wrapper hides the real url until here, so this is the
                 # first point the rule can see it — and it is before the enrich.
@@ -1620,9 +1631,13 @@ def run_search(
             for fut in nd_resolve:
                 fut.cancel()
 
+            stage_stats["gnews_resolve"] = {
+                "ok": n_decoded, "total": len(pending_resolve),
+            }
             log.info(
-                "Candidatos: %d (brutos %d) | cache_hit=%d resolve=%d(ok=%d) enrich=%d",
-                n_cand, n_raw, n_cache, len(pending_resolve), n_resolved_ok, len(pending),
+                "Candidatos: %d (brutos %d) | cache_hit=%d resolve=%d(ok=%d) decoded=%d enrich=%d",
+                n_cand, n_raw, n_cache, len(pending_resolve), n_resolved_ok,
+                n_decoded, len(pending),
             )
 
             # --- Fase 3: aguarda enrich ---
@@ -1960,6 +1975,7 @@ def run_search(
         "date_unverified_admitted": date_stats.n_unverified,
         "date_restamp_domains": date_stats.flagged(),
         "own_name_dropped": sum(own_name_drops.values()),
+        "stage_stats": stage_stats,
     }
 
 

@@ -46,6 +46,23 @@ signal.signal(signal.SIGTERM, _sigterm)
 signal.signal(signal.SIGINT, _sigterm)
 
 
+# Exit code of a scan that persisted what it got but had a whole stage yield
+# (almost) nothing. Distinct from 1 (crash) so the run log tells them apart.
+ZERO_YIELD_EXIT = 3
+
+
+def _zero_yield_exit(result: dict) -> int:
+    """0 when every guarded stage is healthy, else one ERROR line per tripped
+    stage and ZERO_YIELD_EXIT (fails the GHA job, see news_hunter/zero_yield.py).
+    """
+    from news_hunter.zero_yield import violations
+
+    tripped = violations(result.get("stage_stats"))
+    for msg in tripped:
+        log.error("ZERO-YIELD stage tripped: %s", msg)
+    return ZERO_YIELD_EXIT if tripped else 0
+
+
 def _run_once() -> int:
     from news_hunter.pipeline import run_search
 
@@ -68,7 +85,7 @@ def _run_once() -> int:
             result.get("keywords_count"),
             time.time() - t0,
         )
-        return 0
+        return _zero_yield_exit(result)
     except Exception:
         log.exception("scan crashed")
         return 1

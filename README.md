@@ -38,6 +38,27 @@ Required repository secrets (set under **Settings → Secrets → Actions**):
 
 Manual run: **Actions → News Hunter scan → Run workflow**.
 
+Dependencies in `requirements.txt` are pinned to exact versions. An unpinned
+`googlenewsdecoder>=0.1.7` picked up 0.2.x on 2026-09-20, whose result dict
+renamed `status` to `success`; every Google News url stayed undecoded for four
+weeks while the scan stayed green (`resolve=400(ok=0)`). Bump one package at a
+time and watch the `resolve=N(ok=M) decoded=D` line of the next scan.
+
+## Zero-yield guard (whole stage producing nothing)
+
+`news_hunter/zero_yield.py` judges three stages per scan and the job exits `3`
+with one `ERROR ... ZERO-YIELD stage tripped: <stage> ok=M/N` line per tripped
+stage (the rows the scan got are still persisted):
+
+| Stage | ok / total | Trips when (total ≥ 20) |
+|---|---|---|
+| `gnews_resolve` | wrappers decoded to a publisher url / wrappers sent to the decoder | ok < 50% (healthy ~95%) |
+| `registered_feeds` | RSS/sitemap/homepage tasks with ≥ 1 item / tasks submitted | ok < 50% (healthy ~94%) |
+| `gnews_queries` | Google News `site:` queries with ≥ 1 item / queries submitted | ok < 25% (healthy ~95%) |
+
+A single dead feed never trips it — that is what the per-feed lines below are
+for. A failing `googlenewsdecoder` import is also logged at ERROR.
+
 ## Diagnosing a dead source
 
 A source can stop producing while every run stays green. Each scan logs, at
