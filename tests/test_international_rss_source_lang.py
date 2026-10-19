@@ -232,7 +232,7 @@ _WAVE5_ITEM_URLS: tuple[tuple[str, str], ...] = (
     # --- Wave 5C (the first two are the misclassification cases) ---
     ("www.businesslive.co.za", "https://www.businessday.co.za/world/international-companies/2026-09-14-ai-safety-warnings-spark-tech-stock-slide/"),
     ("www.pipelineoilandgasnews.com", "https://www.energyconnects.com/news/oil/2026/september/trump-announces-russia-ukraine-energy-truce-kyiv-says-not-yet/"),
-    ("www.middleeasteye.net", "https://www.middleeasteye.net/news/houthi-attacks-expose-gaps-pakistans-defence-pact-saudi-arabia"),
+    # www.middleeasteye.net moved to GNews on 2026-10-19 (feed WAF-tarpitted).
     ("www.tehrantimes.com", "https://www.tehrantimes.com/news/530029/Iran-says-it-is-no-longer-afraid-of-confronting-US-or-Israel"),
     ("www.dailysabah.com", "https://www.dailysabah.com/business/economy/norway-mulls-jail-terms-for-trade-with-illegal-israeli-settlements"),
     ("www.koreaherald.com", "https://www.koreaherald.com/article/10873094"),

@@ -32,10 +32,11 @@ from news_hunter.sources import (  # noqa: E402
 )
 
 # host key in RSS_FEEDS -> apex used by normalize_url / SOURCE_NAMES
+# www.middleeasteye.net left this map on 2026-10-19 (RSS -> GNews, see
+# WAVE_C_GNEWS).
 WAVE_C_RSS = {
     "www.businesslive.co.za": "businesslive.co.za",
     "www.pipelineoilandgasnews.com": "pipelineoilandgasnews.com",
-    "www.middleeasteye.net": "middleeasteye.net",
     "www.tehrantimes.com": "tehrantimes.com",
     "www.dailysabah.com": "dailysabah.com",
     "www.koreaherald.com": "koreaherald.com",
@@ -60,6 +61,8 @@ WAVE_C_GNEWS = [
     "asia.nikkei.com",
     "japantimes.co.jp",
     "www3.nhk.or.jp/nhkworld",
+    # Moved RSS -> GNews on 2026-10-19 (feed WAF-tarpitted for the runner).
+    "middleeasteye.net",
 ]
 
 WAVE_C_PATH_FORMS = ("aa.com.tr/en", "tradearabia.com/news", "www3.nhk.or.jp/nhkworld")

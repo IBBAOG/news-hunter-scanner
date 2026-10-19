@@ -1107,6 +1107,15 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.pipelineoilandgasnews.com": [
         "https://www.pipelineoilandgasnews.com/feed/",
     ],
+    # MIDDLE EAST EYE MOVED TO GNews on 2026-10-19: from 2026-10-09 the feed
+    # tarpits the runner's plain `requests` client (ReadTimeout at 4s; HTTP 404
+    # after 15s at a 20s timeout) while curl_cffi browser impersonation gets 200
+    # + 20 entries in 0.6s (diagnose_feed run 39306147007) -- a fingerprint WAF,
+    # and the RSS fetcher has no curl_cffi fallback. Last RSS row 2026-10-09
+    # 22:40Z after 652 rows in 30 days (the top producer of Wave 5C). See its
+    # entry in the ENGLISH_NO_RSS_DOMAINS "2026-10-19 RSS -> GNews moves" block.
+    # If the RSS fetcher ever grows an impersonation fallback, the feed below is
+    # the richer surface (bodies, ~3x the rate) and should come back.
     # Middle East Eye (middleeasteye.net) -- London-based Middle East daily and
     # the fastest-moving feed of the wave: items=20 span=7h fresh=20 pass=14
     # near=6 fetch=0.21s, i.e. fourteen title/summary passes inside a
@@ -1119,9 +1128,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # in (`sanction` / `ceasefire` on Gaza-diplomacy copy, e.g. a French-TV
     # censorship item). Feed and article links are www -> apex
     # middleeasteye.net.
-    "www.middleeasteye.net": [
-        "https://www.middleeasteye.net/rss",
-    ],
+    # "www.middleeasteye.net": [
+    #     "https://www.middleeasteye.net/rss",
+    # ],
     # Tehran Times (tehrantimes.com) -- Iran's English daily. It does NOT
     # geo-block the datacenter runner (the open question when the candidate was
     # proposed): items=30 span=26h fresh=30 pass=7 near=23 fetch=0.71s, ~6.5
@@ -1764,7 +1773,8 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     "businesslive.co.za", "www.businesslive.co.za",             # Business Day / BusinessLive (South Africa)
     "businessday.co.za", "www.businessday.co.za",               # article host of www.businesslive.co.za (100/100 item links, 2026-09-14)
     # --- Middle East (Wave 5C, 2026-09-14) ---
-    "middleeasteye.net", "www.middleeasteye.net",               # Middle East Eye
+    # middleeasteye.net REMOVED 2026-10-19: its feed is WAF-blocked for the
+    # runner; it is in ENGLISH_NO_RSS_DOMAINS now (GNews stamps 'en').
     "tehrantimes.com", "www.tehrantimes.com",                   # Tehran Times
     "dailysabah.com", "www.dailysabah.com",                     # Daily Sabah
     "pipelineoilandgasnews.com", "www.pipelineoilandgasnews.com",  # Pipeline Oil & Gas Magazine
@@ -3579,6 +3589,13 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # the thinnest of the three (it was 5 pass/7d on RSS, partly duplicating
     # LNG Industry). First candidate for the next pruning pass.
     "tanksterminals.com",
+    # Middle East Eye (middleeasteye.net) -- RSS tarpitted by a fingerprint WAF
+    # since 2026-10-09 (see the RSS_FEEDS note). GNews measured on the runner
+    # (measure_source run 39306679320): items=74 fresh=73 pass=37 near=36 --
+    # Houthi / Saudi strikes on Yemeni oil facilities, Iran shadow-fleet
+    # sanctions, Gulf of Oman tanker fire. Same off-beat watch as on RSS
+    # (`sanction` / `ceasefire` on Gaza-diplomacy copy).
+    "middleeasteye.net",
     # --- 2026-10-19 RSS -> GNews moves (feed died; outlet alive) --- END
 ]
 
