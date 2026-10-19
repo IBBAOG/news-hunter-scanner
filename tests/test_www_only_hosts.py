@@ -38,7 +38,10 @@ from news_hunter._clipinator_shim import (  # noqa: E402
 )
 from news_hunter.enrich import source_name_for  # noqa: E402
 from news_hunter.fetcher import RawItem, _entry_to_item  # noqa: E402
-from news_hunter.sources import INTERNATIONAL_RSS_DOMAINS  # noqa: E402
+from news_hunter.sources import (  # noqa: E402
+    ENGLISH_NO_RSS_DOMAINS,
+    INTERNATIONAL_RSS_DOMAINS,
+)
 from news_hunter.store import WWW_ONLY_HOSTS, normalize_url  # noqa: E402
 
 _ARTICLE_PATHS = {
@@ -100,28 +103,19 @@ def test_tracking_and_amp_rules_still_apply_on_a_www_only_host():
 
 
 # ---------------------------------------------------------------------------
-# Classification: the www form must still be international-English, named and
-# extractable. It is (both spellings are registered), and this pins it.
+# Classification: the www form must still be named and extractable.
+# Until 2026-10-19 the three Palladian hosts were RSS-registered and this block
+# also pinned their RSS items as 'en' via INTERNATIONAL_RSS_DOMAINS. Their RSS
+# died with Palladian's CMS move; all five hosts are GNews-routed now, and the
+# GNews route stamps source_lang itself (fetcher._gnews_tasks lang_by_url).
 # ---------------------------------------------------------------------------
-def test_a_www_lngindustry_item_is_still_tagged_en():
-    it = _entry_to_item(
-        {"link": "https://www.lngindustry.com/floating-lng/14092026/kanata-pre-feed/",
-         "title": "Kanata Clean Power to launch pre-FEED", "summary": "body"},
-        "www.lngindustry.com",
-    )
-    assert it.url == "https://www.lngindustry.com/floating-lng/14092026/kanata-pre-feed"
-    assert it.source_domain == "www.lngindustry.com"
-    assert it.source_lang == "en"
-
-
-def test_an_apex_lngindustry_item_is_normalised_to_www_and_still_tagged_en():
+def test_an_apex_url_item_is_normalised_to_www():
     it = _entry_to_item(
         {"link": "https://lngindustry.com/floating-lng/14092026/kanata-pre-feed/",
          "title": "Kanata Clean Power to launch pre-FEED", "summary": "body"},
-        "www.lngindustry.com",
+        "news.google.com",
     )
-    assert it.source_domain == "www.lngindustry.com"
-    assert it.source_lang == "en"
+    assert it.url == "https://www.lngindustry.com/floating-lng/14092026/kanata-pre-feed"
 
 
 @pytest.mark.parametrize("host", sorted(_ARTICLE_PATHS))
@@ -132,12 +126,13 @@ def test_the_www_form_is_named_and_extractable(host):
     assert resolve_extractor_domain(www) is not None
 
 
-@pytest.mark.parametrize("host", ["lngindustry.com", "worldpipelines.com", "tanksterminals.com"])
-def test_the_rss_registered_hosts_carry_both_spellings(host):
-    # hydrocarbonengineering / rivieramm are GNews-covered, so they are not in
-    # this set; the three RSS ones must be, in both forms.
-    assert host in INTERNATIONAL_RSS_DOMAINS
-    assert f"www.{host}" in INTERNATIONAL_RSS_DOMAINS
+@pytest.mark.parametrize("host", sorted(_ARTICLE_PATHS))
+def test_every_www_only_host_is_gnews_routed_and_not_rss_tagged(host):
+    # All five are GNews-covered since 2026-10-19 (the Palladian three lost
+    # their RSS), so neither spelling may sit in the RSS-only tag set.
+    assert host in ENGLISH_NO_RSS_DOMAINS
+    assert host not in INTERNATIONAL_RSS_DOMAINS
+    assert f"www.{host}" not in INTERNATIONAL_RSS_DOMAINS
 
 
 # ---------------------------------------------------------------------------

@@ -863,9 +863,9 @@ GNews 2 items / pass=0).
 
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
-| LNG Industry | lngindustry.com | RSS | 20 |
-| World Pipelines | worldpipelines.com | RSS | 4 |
-| Tanks and Terminals | tanksterminals.com | RSS | 5 |
+| LNG Industry | lngindustry.com | GNews (RSS died 2026-10, CMS move) | 25 (GNews, 2026-10-19) |
+| World Pipelines | worldpipelines.com | GNews (RSS died 2026-10, CMS move) | 13 (GNews, 2026-10-19) |
+| Tanks and Terminals | tanksterminals.com | GNews (RSS died 2026-10, CMS move) | 1 (GNews, 2026-10-19) |
 | Drilling Contractor (IADC) | drillingcontractor.org | RSS | 10 |
 | RBN Energy | rbnenergy.com | RSS | 11 |
 | Fuels & Lubes (F+L Daily) | fuelsandlubes.com | RSS | 17 |

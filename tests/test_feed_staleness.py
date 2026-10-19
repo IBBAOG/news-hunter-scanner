@@ -126,13 +126,14 @@ def test_every_staleness_budget_is_keyed_on_a_real_registry_key():
 
 
 def test_the_wave_5_slow_feeds_actually_get_their_budget():
-    """The six feeds that nagged in production right after the 2026-09 merge."""
+    """The feeds that nagged in production right after the 2026-09 merge
+    (six then; the two Palladian feeds died on 2026-10 and were dropped)."""
     for key, min_days in (
         ("www.eia.gov", 5),              # one Today-in-Energy note per weekday
         ("calgaryherald.com", 5),        # regional section feed
         ("www.energymonitor.ai", 4),     # analysis desk
-        ("www.worldpipelines.com", 7),   # 20 items over 599h
-        ("www.tanksterminals.com", 7),   # 20 items over 792h
+        # www.worldpipelines.com / www.tanksterminals.com left this list on
+        # 2026-10-19: their feeds died and the titles are GNews-routed now.
         ("www.theguardian.com", 3),      # business/oil TAG feed, 20 items / 290h
     ):
         budget = feed_stale_hours(key)

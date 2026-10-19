@@ -1426,6 +1426,16 @@ RSS_FEEDS: dict[str, list[str]] = {
     # between items) nagging occasionally. All three now have a budget in the
     # FEED_STALE_HOURS "Wave 5" block, keyed on the RSS_FEEDS key.
     # =======================================================================
+    # PALLADIAN TITLES MOVED TO GNews on 2026-10-19 (LNG Industry, World
+    # Pipelines, Tanks and Terminals): Palladian rebuilt the three sites on a
+    # Next.js CMS around 2026-10-08/12 and dropped RSS. /rss/<title>.xml now
+    # answers HTTP 404 on the runner (10 of 10 scans 2026-10-19, "feed errors:
+    # ... HTTP 404"), /rss and /feed 308 to an HTML page, and sitemap.xml is a
+    # flat 17k-url list with no lastmod. Last rows: lngindustry 2026-10-12,
+    # worldpipelines 2026-10-12, tanksterminals 2026-10-08. See their entries in
+    # the ENGLISH_NO_RSS_DOMAINS "2026-10-19 RSS -> GNews moves" block for the
+    # GNews measurement. The feed entries below are left as comments so a later
+    # wave does not restore the dead URLs.
     # LNG Industry (lngindustry.com) -- Palladian Publications' pure-LNG trade
     # daily; on-beat by construction. items=20 span=146h fresh=20 pass=20 near=0
     # rescued=0 no_body=0 fetch=0.55s -- twenty of twenty items inside the 7d
@@ -1433,9 +1443,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # JOGMEC, Rovuma LNG, LNG bunkering, LNG carriers, Williams / Momentum
     # midstream). Feed and article links are www, so normalize_url strips to the
     # apex lngindustry.com -- where SOURCE_NAMES would be keyed.
-    "www.lngindustry.com": [
-        "https://www.lngindustry.com/rss/lngindustry.xml",
-    ],
+    # "www.lngindustry.com": [
+    #     "https://www.lngindustry.com/rss/lngindustry.xml",
+    # ],
     # World Pipelines (worldpipelines.com) -- Palladian's midstream / pipeline
     # title, same CMS and same /rss/<title>.xml feed shape as LNG Industry.
     # items=20 span=599h fresh=4 pass=4 near=0 rescued=0 fetch=0.53s -- a slow
@@ -1446,9 +1456,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # a pipeline-engineering title publishes; kept for the midstream-equipment
     # beat no other registered source carries. Feed and article links are www ->
     # apex worldpipelines.com.
-    "www.worldpipelines.com": [
-        "https://www.worldpipelines.com/rss/worldpipelines.xml",
-    ],
+    # "www.worldpipelines.com": [
+    #     "https://www.worldpipelines.com/rss/worldpipelines.xml",
+    # ],
     # Tanks and Terminals (tanksterminals.com) -- Palladian's storage / terminals
     # title. items=20 span=792h fresh=6 pass=5 near=1 rescued=0 no_body=1
     # fetch=0.56s -- five of the six items inside the 7d window pass (Wood /
@@ -1458,9 +1468,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # stories with LNG Industry above (the Argent LNG and Wood / ExxonMobil items
     # ran in both); news_articles is url-keyed, so each copy lands at most once.
     # Feed and article links are www -> apex tanksterminals.com.
-    "www.tanksterminals.com": [
-        "https://www.tanksterminals.com/rss/tanksterminals.xml",
-    ],
+    # "www.tanksterminals.com": [
+    #     "https://www.tanksterminals.com/rss/tanksterminals.xml",
+    # ],
     # Drilling Contractor (drillingcontractor.org) -- the IADC's drilling
     # journal, plain WordPress /feed. items=10 span=95h fresh=10 pass=10 near=0
     # rescued=0 fetch=0.45s -- ten of ten on-beat (Touchstone Trinidad campaign,
@@ -1804,9 +1814,9 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # post-merge promotions of intellinews and globalenergynetwork. Apex AND www
     # for each, per the invariant above; without these the outlets are
     # classified as NATIONAL.
-    "lngindustry.com", "www.lngindustry.com",                   # LNG Industry
-    "worldpipelines.com", "www.worldpipelines.com",             # World Pipelines
-    "tanksterminals.com", "www.tanksterminals.com",             # Tanks and Terminals
+    # lngindustry.com / worldpipelines.com / tanksterminals.com REMOVED
+    # 2026-10-19: their RSS died with Palladian's CMS move; they are now in
+    # ENGLISH_NO_RSS_DOMAINS, and GNews stamps 'en' on its own route.
     "drillingcontractor.org", "www.drillingcontractor.org",     # Drilling Contractor (IADC)
     "rbnenergy.com", "www.rbnenergy.com",                       # RBN Energy
     "fuelsandlubes.com", "www.fuelsandlubes.com",               # Fuels & Lubes (F+L Daily)
@@ -3553,6 +3563,23 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # ---- merge fence: keep >=4 lines between wave blocks ----
     #
     #
+    # --- 2026-10-19 RSS -> GNews moves (feed died; outlet alive) --- BEGIN
+    # Measured on the runner with measure_source.yml (run 39306141251, LIVE
+    # keyword set of 186, 7d window). Items land title-only, like every entry
+    # in this list.
+    # LNG Industry (lngindustry.com) -- Palladian; RSS 404 since the CMS move
+    # (see the RSS_FEEDS note). GNews: items=28 fresh=25 pass=25 near=0. www-only
+    # host (apex is an SSL error), articles resolve to www.lngindustry.com.
+    "lngindustry.com",
+    # World Pipelines (worldpipelines.com) -- Palladian midstream title; same
+    # move. GNews: items=14 fresh=13 pass=13 near=0.
+    "worldpipelines.com",
+    # Tanks and Terminals (tanksterminals.com) -- Palladian storage title; same
+    # move. GNews: items=3 fresh=3 pass=1 near=2 -- at the >=1 pass/7d bar,
+    # the thinnest of the three (it was 5 pass/7d on RSS, partly duplicating
+    # LNG Industry). First candidate for the next pruning pass.
+    "tanksterminals.com",
+    # --- 2026-10-19 RSS -> GNews moves (feed died; outlet alive) --- END
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
@@ -3728,11 +3755,8 @@ FEED_STALE_HOURS: dict[str, float] = {
     "calgaryherald.com": 7 * 24.0,
     # Energy Monitor (GlobalData): analysis desk, 3.3d at measurement.
     "www.energymonitor.ai": 5 * 24.0,
-    # Palladian trade titles -- 20-item feeds spanning 599h (World Pipelines)
-    # and 792h (Tanks and Terminals), i.e. ~30-40h between items on average and
-    # several days across a quiet week.
-    "www.worldpipelines.com": 14 * 24.0,
-    "www.tanksterminals.com": 14 * 24.0,
+    # (www.worldpipelines.com / www.tanksterminals.com budgets dropped
+    # 2026-10-19 with their feeds: the Palladian titles are GNews-routed now.)
     # The Guardian business/oil TAG feed (not the business section): 20 items
     # over 290h. A tag feed moves only when the desk files on that tag.
     "www.theguardian.com": 4 * 24.0,
