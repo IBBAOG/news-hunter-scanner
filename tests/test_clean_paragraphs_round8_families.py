@@ -372,17 +372,35 @@ def test_a_wordpress_lazy_load_card_is_removed() -> None:
 
 
 def test_noscript_template_script_style_text_is_not_card_text() -> None:
+    # TS extract.test.ts (i), 61b188625: a card holding <template>, <script>
+    # and <style> next to the headline.
+    t = "O risco escondido na economia dos EUA"
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="/y"><template><span>x</span></template>'
+        f'<script>var a = 1;</script><style>.c{{}}</style><p>{t}</p></a>'
+    ) == [R1, R2]
     assert _body(
         f'<p>{R1}</p><p>{R2}</p><a href="/x"><noscript>Ative o JavaScript</noscript>'
-        f'<template>tpl</template><script>var x = 1;</script><style>.a{{}}</style>'
         f'<p>{H}</p></a>'
     ) == [R1, R2]
 
 
-def test_the_card_text_is_the_collapsed_text_without_skipped_tags() -> None:
-    soup = BeautifulSoup(f'<a href="/x"><span> 12:30 </span>\n<b>{H}</b></a>', "lxml")
+def test_the_paragraph_key_uses_the_visible_text_too() -> None:
+    assert _body(
+        f'<p>{R1}</p><p>{R2}</p><a href="/x"><p>{H}<noscript>img</noscript>'
+        f'<!-- c --></p></a>'
+    ) == [R1, R2]
+
+
+def test_visible_text_is_the_collapsed_text_without_skipped_subtrees() -> None:
+    soup = BeautifulSoup(
+        f'<a href="/x"><span> 12:30 </span>\n<b>{H}</b><!-- c --><noscript>n</noscript>'
+        f'<template>t</template><script>s</script><style>y</style></a>', "lxml")
     a = soup.find("a")
-    assert shim._card_text(a) == shim._collapsed_text(a)
+    assert shim._visible_collapsed_text(a) == f"12:30 {H}"
+    plain = BeautifulSoup(f'<a href="/x"><span> 12:30 </span>\n<b>{H}</b></a>', "lxml").find("a")
+    assert shim._visible_collapsed_text(plain) == shim._collapsed_text(plain)
+    assert shim.CARD_TEXT_SKIP_TAGS == {"noscript", "template", "script", "style"}
 
 
 @pytest.mark.parametrize("line, outside", [
@@ -458,9 +476,14 @@ LABEL = "NESTA EDIÇÃO. Resumo da semana"
 
 
 def test_an_index_group_whose_teaser_is_a_card_goes_as_a_group() -> None:
+    # TS extract.test.ts (j), 61b188625.
+    label = "NESTA EDIÇÃO. Resumo da crise do petróleo e das medidas dos governos."
+    t1 = "Trump defende exploração de petróleo na Groenlândia."
+    t2 = "White Martins entra na distribuição de biometano no Brasil."
+    t3 = "Petrobras revisa o plano de investimentos em refino"
     assert _body(
-        f'<div class="wp-block-group"><p>{LABEL}</p><p>Teaser um.</p><p>Teaser dois.</p>'
-        f'<a href="/t3"><p>Teaser três</p></a></div><p>{R1}</p><p>{R2}</p>'
+        f'<div class="wp-block-group"><p>{label}</p><p>{t1}</p><p>{t2}</p>'
+        f'<a href="/t3"><p>{t3}</p></a></div><p>{R1}</p><p>{R2}</p>'
     ) == [R1, R2]
 
 
