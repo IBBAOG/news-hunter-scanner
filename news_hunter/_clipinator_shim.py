@@ -1942,11 +1942,12 @@ _SHORT_NOISE_PATTERNS = [
     # Torok/Official White House).") and the "Photo credit: X" label.
     r"\(\s*(foto|photo|imagem|image)\s*:[^)]{1,80}\)\s*\.?\s*$|^\s*(photo|foto|image|imagem)\s+(credits?|cr[eé]ditos?)\s*:",
     # Family 7, a bare role line of the author box ("Middle East correspondent").
-    # Letters and spaces only, so "John Smith, Middle East correspondent"
-    # survives; the (?!\s*by\s) guard keeps "By Gary Dixon Middle East
-    # correspondent". Python \w is Unicode-aware, JS \w is ASCII: a role line
-    # with an accented letter before the role word drops here only.
-    r"^(?!\s*by\s)\s*[\w\s]{0,40}\b(correspondent|editor|reporter|columnist)\s*$",
+    # Whole line, ASCII letters and spaces only (`[a-z\s]` under IGNORECASE, NOT
+    # `\w`: Python `\w` is Unicode and JS `\w` is ASCII, so "São Paulo
+    # correspondent" would split the two sides; with `[a-z]` both keep it).
+    # "John Smith, Middle East correspondent" (comma) survives; the (?!\s*by\s)
+    # guard keeps "By Gary Dixon Middle East correspondent".
+    r"^(?!\s*by\s)\s*[a-z\s]{0,40}\b(correspondent|editor|reporter|columnist)\s*$",
 ]
 _SHORT_NOISE_REGEX = re.compile("|".join(_SHORT_NOISE_PATTERNS), re.IGNORECASE)
 
