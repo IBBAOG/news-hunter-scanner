@@ -22,7 +22,8 @@ from typing import Callable
 from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4.element import PreformattedString
 from curl_cffi import requests as cffi_requests
 
 
@@ -748,6 +749,105 @@ def _strip_index_groups(container: Tag) -> None:
             p.decompose()
 
 
+#: Related headline (2026-10-16 c, round 8 family 3; byte-identical contract
+#: with stripRelatedHeadlines in src/lib/clipping/extract.ts): a `<p>` in the
+#: container that IS the text of the link CARD it sits in, i.e. another
+#: article's headline shipped as a paragraph (moneytimes `ul.single_videos`
+#: video teaser; Estadão E-Investidor "Leia mais" list,
+#: `<a><div><p class="li-title">`).
+#: Runs as the LAST step of _strip_noise (after _strip_index_groups), over the
+#: container as it stands then.
+#:   CANDIDATE: a `<p>` in the container whose visible text (below) is
+#:     non-empty, at most RELATED_HEADLINE_MAX_CHARS (120) code points, and
+#:     whose _dedupe_key K is non-empty and equals _dedupe_key(visible text)
+#:     OR _dedupe_key(raw `title` attribute) of some ANCESTOR `<a>` of the
+#:     `<p>` (anywhere up the document) with a USABLE href: present and,
+#:     stripped, non-empty and not starting with "#" (an in-page anchor
+#:     wrapping an intertitle is not a card). Punctuation does not matter
+#:     ("... Mercosul?" goes).
+#:   VISIBLE TEXT (both the `<p>` and the `<a>`) = the text nodes in document
+#:     order, SKIPPING every CARD_TEXT_SKIP_TAGS subtree (noscript, template,
+#:     script, style; tag name lowercased), joined with "", whitespace runs
+#:     folded to one space, trimmed; comments are not text. A WordPress
+#:     lazy-load card carries a `<noscript><img></noscript>` copy of its image
+#:     (cheerio reads that markup as text; bs4 parses it but keeps any
+#:     noscript TEXT in get_text()); both sides skip the subtrees explicitly
+#:     rather than rely on the parser.
+#:   BOUND: the candidates are removed only when at least
+#:     RELATED_HEADLINE_MIN_KEEP (2) non-empty `<p>` of the container are NOT
+#:     candidates; otherwise nothing is removed. A short real body is never
+#:     emptied.
+#: CARD CASE ONLY (QA 2026-10-16 c): a link ELSEWHERE on the page with the same
+#: text is not evidence (it removed real intertitles and decks: a TOC link
+#: written as a full URL with a #fragment, an href="", a share link whose
+#: title= is the deck, a one-word intertitle equal to a /tag/ link).
+#: A `<p>` whose own child link carries the text is the all-links `<p>` skip in
+#: _paragraphs_from (TS isMostlyLinks). DECLARED DIVERGENCE (pre-existing): the
+#: shim skip requires EVERY DIRECT child of the `<p>` to be an `<a>`, so
+#: `<p><span><a>H</a></span></p>` survives here while TS isMostlyLinks drops it.
+RELATED_HEADLINE_MAX_CHARS = 120
+RELATED_HEADLINE_MIN_KEEP = 2
+CARD_TEXT_SKIP_TAGS = frozenset({"noscript", "template", "script", "style"})
+
+
+def _has_usable_href(a: Tag) -> bool:
+    href = (a.get("href") or "").strip()
+    return href != "" and not href.startswith("#")
+
+
+def _visible_collapsed_text(node: Tag) -> str:
+    """Text nodes in document order, minus CARD_TEXT_SKIP_TAGS subtrees (see above)."""
+    parts: list[str] = []
+    stack = list(reversed(node.contents))
+    while stack:
+        child = stack.pop()
+        if isinstance(child, Tag):
+            if (child.name or "").lower() not in CARD_TEXT_SKIP_TAGS:
+                stack.extend(reversed(child.contents))
+        elif isinstance(child, NavigableString) and not isinstance(child, PreformattedString):
+            # PreformattedString = Comment, CData, Doctype, Declaration,
+            # ProcessingInstruction: not text.
+            parts.append(str(child))
+    return re.sub(r"\s+", " ", "".join(parts)).strip()
+
+
+def _strip_related_headlines(container: Tag) -> None:
+    # Key of each ancestor <a>, computed once per pass (TS memoises it too): a
+    # body wrapped in a single <a> must not be re-walked for every <p>. Nothing
+    # is removed until after the scan, so the cached keys stay valid.
+    anchor_keys: dict[int, str] = {}
+
+    def anchor_key(a: Tag) -> str:
+        if id(a) not in anchor_keys:
+            anchor_keys[id(a)] = _dedupe_key(_visible_collapsed_text(a))
+        return anchor_keys[id(a)]
+
+    candidates: list[Tag] = []
+    kept = 0
+    for p in container.find_all("p"):
+        text = _visible_collapsed_text(p)
+        if not text:
+            continue
+        key = _dedupe_key(text)
+        is_candidate = (
+            key != ""
+            and len(text) <= RELATED_HEADLINE_MAX_CHARS
+            and any(
+                _has_usable_href(a)
+                and (anchor_key(a) == key or _dedupe_key(a.get("title") or "") == key)
+                for a in p.find_parents("a")
+            )
+        )
+        if is_candidate:
+            candidates.append(p)
+        else:
+            kept += 1
+    if not candidates or kept < RELATED_HEADLINE_MIN_KEEP:
+        return
+    for p in candidates:
+        p.decompose()
+
+
 def _strip_noise(container: Tag) -> None:
     for tag in container.find_all(["figure", "figcaption", "aside", "script", "style", "iframe", "form", "nav"]):
         tag.decompose()
@@ -763,7 +863,11 @@ def _strip_noise(container: Tag) -> None:
         if (any(sub in combined for sub in NOISE_CLASS_SUBSTRINGS)
                 or _NOISE_CLASS_TOKEN_RE.search(combined)):
             el.decompose()
+    # Runs last so that nodes removed above do not count as teasers.
     _strip_index_groups(container)
+    # 2026-10-16 c: after the index groups, over what is left (see
+    # _strip_related_headlines).
+    _strip_related_headlines(container)
 
 
 def _title_from_meta(soup: BeautifulSoup) -> str:
@@ -1726,6 +1830,12 @@ def clean_title(titulo: str) -> str:
     return t
 
 
+# 2026-10-16 c (round 8): family 4, a relative-age line ("3 months ago", "1
+# month ago", "an hour ago"). Listed in _NOISE_PATTERNS below AND read by the
+# age-run rule (_RELATIVE_AGE_RE). Byte-identical with RELATIVE_AGE_PATTERN in
+# src/lib/clipping/clean.ts (dashboard repo).
+RELATIVE_AGE_PATTERN = r"^\s*(\d+|an?)\s+(seconds?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?)\s+ago\s*$"
+
 _NOISE_PATTERNS = [
     r"^\s*leia\s+(tamb[eé]m|mais|tudo\s+sobre)\b",
     r"^\s*leia\s+a\s+(reportagem|mat[eé]ria)\s+completa\b",
@@ -1806,6 +1916,16 @@ _NOISE_PATTERNS = [
     r"you\s+must\s+enable\s+advertisement\s+tracking|blocking\s+the\s+video\s+player"
     r"|to\s+display\s+this\s+content\s+from",
     r"^\s*(a\s+)?cobertura\s+no\s+google,\s+no\s+e-?mail\s+e\s+nas\s+redes",
+    # 2026-10-16 c (round 8): family 4 (globalenergynetwork "latest news" rail;
+    # shared contract with src/lib/clipping, same order). An unrendered
+    # WordPress shortcode line ("[mc4wp_form id=2073]", "[/vc_row]",
+    # '[contact-form-7 id="123"]') and the relative-age line
+    # (RELATIVE_AGE_PATTERN above). Any-length list on purpose: both are
+    # anchored at ^ AND $ over a closed shape. The shortcode is an identifier
+    # plus optional key=value attributes, so bracketed prose ("[The company
+    # declined to comment.]") survives.
+    r"^\s*\[\/?[a-z][a-z0-9_\-]*(\s+[a-z0-9_\-]+\s*=[^\]]*)?\]\s*$",
+    RELATIVE_AGE_PATTERN,
 ]
 _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 
@@ -1836,6 +1956,27 @@ _SHORT_NOISE_PATTERNS = [
     r"^\s*(©|copyright\b|\(c\)\s*copyright\b|\(c\)(?=\s*\d{4})).{0,60}\b\d{4}\b|\ball\s+rights\s+reserved\b",
     r"^\s*published\s+in\s+[A-Z][^,]{1,40},\s+\w+\s+\d{1,2}(st|nd|rd|th)?,?\s+\d{4}\s*\.?\s*$",
     r"^\s*\(?\s*(foto|photo|image|imagem)(\s+do\s+destaque)?\s*:",
+    # 2026-10-16 c (round 8; shared contract with src/lib/clipping, same
+    # order). Family 1, newsletter/social/podcast pitch lines (astanatimes
+    # "... stories sent directly to you! ...", 148 code points; cityam "Three
+    # daily briefings with ..."; energymonitor "make sure to subscribe",
+    # "wherever you get your podcasts"). "daily briefings" is COUNT-led only:
+    # "The White House held daily briefings" survives.
+    r"\b(stories|news|articles|updates|headlines)\s+sent\s+directly\s+to\s+(you|your\s+inbox)\b|\bmake\s+sure\s+to\s+subscribe\b|\bsubscribe\s+to\s+our\s+(x|facebook|instagram|youtube|podcasts?|channel)\b|\bwherever\s+you\s+get\s+your\s+podcasts\b|^\s*(one|two|three|four|five|\d+)\s+daily\s+briefings?\b",
+    # Family 2, advertiser/house promo (GlobalData "... editorial excellence to
+    # reach engaged professionals across 36 leading media platforms."); "reach
+    # 5,000 professionals across Brazil" is prose and survives.
+    r"\b(editorial\s+excellence\s+to\s+reach|reach\s+engaged\s+professionals|across\s+\d+\s+leading\s+media\s+platforms)\b",
+    # Family 8, a photo credit at the END of a caption ("... - (Foto: Daniel
+    # Torok/Official White House).") and the "Photo credit: X" label.
+    r"\(\s*(foto|photo|imagem|image)\s*:[^)]{1,80}\)\s*\.?\s*$|^\s*(photo|foto|image|imagem)\s+(credits?|cr[eé]ditos?)\s*:",
+    # Family 7, a bare role line of the author box ("Middle East correspondent").
+    # Whole line, ASCII letters and spaces only (`[a-z\s]` under IGNORECASE, NOT
+    # `\w`: Python `\w` is Unicode and JS `\w` is ASCII, so "São Paulo
+    # correspondent" would split the two sides; with `[a-z]` both keep it).
+    # "John Smith, Middle East correspondent" (comma) survives; the (?!\s*by\s)
+    # guard keeps "By Gary Dixon Middle East correspondent".
+    r"^(?!\s*by\s)\s*[a-z\s]{0,40}\b(correspondent|editor|reporter|columnist)\s*$",
 ]
 _SHORT_NOISE_REGEX = re.compile("|".join(_SHORT_NOISE_PATTERNS), re.IGNORECASE)
 
@@ -1893,14 +2034,169 @@ def _dedupe_key(p: str) -> str:
     return _DEDUPE_TRAIL_RE.sub("", re.sub(r"\s+", " ", p.lower())).strip()
 
 
+# Shared by the two structural rules below (2026-10-16 c, round 8; same spec
+# as src/lib/clipping/clean.ts). Words = the paragraph split on r"\s+" with
+# empty strings dropped (NOT str.split()).
+# CASELESS_SCRIPT_PATTERN (QA 2026-10-16 c): a paragraph holding ANY character
+# of a caseless script is never a section label and never an age-run label.
+# Unspaced Chinese/Japanese is one "word", and Arabic/Hebrew have no case, so
+# neither the word count nor the name shape can tell a label from a lead or a
+# byline there (an unspaced Chinese lead ending in a fullwidth bracket or a
+# digit, a 3-word Arabic byline, a 2-word Hebrew name). Accepted cost: a
+# caseless label (a 2-character Chinese "summary") stays. BMP-only class in
+# \uXXXX escapes, byte-identical with the TS string: U+0590-U+0EFF (Hebrew,
+# Arabic, Syriac, Thaana, NKo, Samaritan, Mandaic, Arabic Extended, the Indic
+# blocks Devanagari..Sinhala, Thai, Lao), Hiragana/Katakana, CJK Extension A,
+# CJK Unified, Hangul syllables, CJK Compatibility, Hebrew + Arabic
+# presentation forms (U+FEFF, the BOM, left out).
+CASELESS_SCRIPT_PATTERN = r"[\u0590-\u0EFF\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFB1D-\uFDFF\uFE70-\uFEFE]"
+_CASELESS_SCRIPT_RE = re.compile(CASELESS_SCRIPT_PATTERN)
+_WORD_SPLIT_RE = re.compile(r"\s+")
+
+
+def _words(p: str) -> list[str]:
+    return [w for w in _WORD_SPLIT_RE.split(p) if w]
+
+
+# Age-run labels (2026-10-16 c, round 8 family 4; byte-identical spec with
+# ageRunLabelIndexes in src/lib/clipping/clean.ts). A "latest news" rail
+# flattened into the body (globalenergynetwork, Readability path): bare tags
+# ("Middle East", "North America") between relative-age lines ("3 months ago").
+# No region/category word list: the rule is structural.
+# Input: the paragraph list AFTER normalisation and BEFORE any drop. An empty
+# entry neither counts nor ends a run (the TS inline split can leave one; the
+# shim removes empties in pass 1).
+#   AGE line   = matches _RELATIVE_AGE_RE (case-insensitive).
+#   LABEL line = not an AGE line, 1..AGE_RUN_LABEL_MAX_WORDS (3) words, under
+#                AGE_RUN_LABEL_MAX_CHARS (40) code points, NOT ending in
+#                _SENTENCE_END_RE, and holding no _CASELESS_SCRIPT_RE character.
+#   Any other line ends the run.
+# In every maximal run of consecutive AGE/LABEL lines, the LABEL lines that
+# come AFTER the run's first AGE line are dropped when the run holds at least
+# AGE_RUN_MIN_AGE_LINES (2) AGE lines; the AGE lines go through _NOISE_REGEX
+# anyway. Labels BEFORE the first AGE line stay (QA: a real list just above
+# the rail, "The consortium includes:" / "Petrobras" / "Shell"); a trailing
+# tag after the last AGE line ("Asia") still goes. A byline next to ONE age
+# line ("Dipali Banka" / "2 hours ago") is not a run.
+AGE_RUN_LABEL_MAX_WORDS = 3
+AGE_RUN_LABEL_MAX_CHARS = 40
+AGE_RUN_MIN_AGE_LINES = 2
+_RELATIVE_AGE_RE = re.compile(RELATIVE_AGE_PATTERN, re.IGNORECASE)
+
+
+def _age_run_label_indexes(paragraphs: list[str]) -> set[int]:
+    """Indexes (into `paragraphs`) of the LABEL lines that sit in an age run."""
+    drop: set[int] = set()
+    run_labels: list[int] = []
+    run_ages = 0
+    for i, p in enumerate(paragraphs):
+        if not p:
+            continue
+        if _RELATIVE_AGE_RE.search(p):
+            run_ages += 1
+            continue
+        words = len(_words(p))
+        if (1 <= words <= AGE_RUN_LABEL_MAX_WORDS
+                and len(p) < AGE_RUN_LABEL_MAX_CHARS
+                and not _SENTENCE_END_RE.search(p)
+                and not _CASELESS_SCRIPT_RE.search(p)):
+            if run_ages > 0:
+                run_labels.append(i)
+            continue
+        if run_ages >= AGE_RUN_MIN_AGE_LINES:
+            drop.update(run_labels)
+        run_labels, run_ages = [], 0
+    if run_ages >= AGE_RUN_MIN_AGE_LINES:
+        drop.update(run_labels)
+    return drop
+
+
+# Section-label first paragraph (2026-10-16 c, round 8 family 6; byte-identical
+# spec with isSectionLabelParagraph in src/lib/clipping/clean.ts): "In-brief
+# analysis" (eia.gov), "Summary" (livemint), "EUA" (diariodopoder) opening a
+# Readability body. Applied ONCE, as the LAST step of clean_paragraphs (after
+# the global dedupe), to the first paragraph of the deduped list, and only when
+# that list holds at least 2 paragraphs (a lone paragraph is never dropped). It
+# is dropped when it has 1..SECTION_LABEL_MAX_WORDS (3) words, does NOT end in
+# _SENTENCE_END_RE, holds no _CASELESS_SCRIPT_RE character, and is NOT
+# name-shaped. Name-shaped = 2+ words that ALL start with an uppercase
+# character: the word's first CODE POINT c with c != c.lower(). A bare byline
+# ("Luan Carlos", "By Tsvetana Paraskova", "Da Redação") stays. Known cost: a
+# Title Case label ("Oil Markets") is name-shaped and stays too.
+# NOT idempotent: cleaning already-cleaned output can drop a second label, so a
+# caller must never re-clean cleaned paragraphs.
+SECTION_LABEL_MAX_WORDS = 3
+
+
+def _starts_uppercase(word: str) -> bool:
+    c = word[0]
+    return c != c.lower()
+
+
+def is_section_label_paragraph(p: str) -> bool:
+    """True when a (first) paragraph is a bare section label (see above)."""
+    words = _words(p)
+    if not 1 <= len(words) <= SECTION_LABEL_MAX_WORDS:
+        return False
+    if _SENTENCE_END_RE.search(p):
+        return False
+    if _CASELESS_SCRIPT_RE.search(p):
+        return False
+    name_shaped = len(words) >= 2 and all(_starts_uppercase(w) for w in words)
+    return not name_shaped
+
+
+# DECLARED DIVERGENCES from src/lib/clipping (round-8 QA). The pattern strings
+# stay byte-identical; `(?a:...)` is deliberately NOT used. What still differs:
+#  - `[a-z]` under re.IGNORECASE also matches 4 non-ASCII letters (U+0130
+#    dotted I, U+0131 dotless i, U+017F long s, U+212A Kelvin sign); JS `/i`
+#    without `u` does not. So "[" + U+017F + "hortcode]" is a shortcode line
+#    (dropped) here only, and a role line spelled with those letters drops
+#    here only.
+#  - Python `\d` is Unicode: "3 months ago" written with an Arabic-Indic or a
+#    fullwidth digit is an age line (dropped, and counted in an age run) here
+#    only.
+#  - The TS pass 1 also splits inline markers (" | ", " \u2022 ", " \u203a ")
+#    out of a paragraph; a paragraph it empties is skipped by the structural
+#    rules. The shim has no inline split, so such a line stays and ENDS an age
+#    run: [A, "1 month ago", "Mercados | Energia | Petróleo | Gás",
+#    "3 months ago", B] keeps the pipe line here (TS: [A, B]), and labels
+#    around it in a rail survive here; a pipe-list FIRST paragraph also hides
+#    a following "Summary" from the section label here, while TS drops it.
+#  - Whitespace class: Python `\s` and str.strip() include U+001C-U+001F and
+#    U+0085 and exclude U+FEFF (BOM); JS `\s` and trim() the opposite. So
+#    "x" + U+0085 + "y z" is 3 words here and 2 in TS (pass 1 folds U+0085 to a
+#    space here only), and a card `<a href="/x">` + U+FEFF + `<p>O risco
+#    escondido na economia dos EUA</p></a>` keeps its headline here (the BOM
+#    stays in the card key) while TS trims it and removes the headline.
+#  - No zero-width strip: TS pass 1 removes zero-width characters first, the
+#    shim does not, so "3 months" + U+200B + " ago" is no age line here (kept)
+#    while TS drops it.
+#  - The all-links `<p>` skip in _paragraphs_from (TS isMostlyLinks): see the
+#    related-headline note.
+#  - Execution context: TS runs a fallback pre-strip (preStripForFallbacks,
+#    2026-10-19) that calls its noise strip over a whole <body> clone; since
+#    TS 63a9ffd95 that call runs WITHOUT the related-headline rule
+#    (StripNoiseOptions.relatedHeadlines=false). The shim has no pre-strip and
+#    does not add one.
 def clean_paragraphs(paragraphs: list[str]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
+    # Same order as cleanParagraphs in src/lib/clipping/clean.ts (2026-10-16 c).
+    # Pass 1 - normalise every paragraph (whitespace collapse, punctuation fix;
+    # empties removed). The age-run rule reads the whole normalised sequence
+    # before anything is dropped. (The TS side also strips zero-width
+    # characters and splits inline markers here; the shim never did either -
+    # see the declared divergences above.)
+    normalised: list[str] = []
     for p in paragraphs:
         p = re.sub(r"\s+", " ", p).strip()
         p = re.sub(r"\s+([.,;:!?])", r"\1", p)
-        if not p:
-            continue
+        if p:
+            normalised.append(p)
+    age_run_labels = _age_run_label_indexes(normalised)
+
+    # Pass 2 - per-paragraph tests, in order.
+    out: list[str] = []
+    for index, p in enumerate(normalised):
         if _NOISE_REGEX.search(p):
             continue
         if len(p) < SHORT_NOISE_MAX_CHARS and _SHORT_NOISE_REGEX.search(p):
@@ -1910,14 +2206,24 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         if is_date_only_paragraph(p):
             continue
-        # Global keep-first dedupe: an AMP barrier repeats the same CTA pair
-        # 18 times, interleaved, which a consecutive-only check never catches.
+        if index in age_run_labels:
+            continue
+        out.append(p)
+    # Global keep-first dedupe: an AMP barrier repeats the same CTA pair
+    # 18 times, interleaved, which a consecutive-only check never catches.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for p in out:
         key = _dedupe_key(p)
         if key in seen:
             continue
         seen.add(key)
-        out.append(p)
-    return out
+        deduped.append(p)
+    # Section-label first paragraph (2026-10-16 c): once, LAST, after the dedupe
+    # (so ["Summary", "Summary", A] ships [A]). Not idempotent: see above.
+    if len(deduped) >= 2 and is_section_label_paragraph(deduped[0]):
+        deduped.pop(0)
+    return deduped
 
 
 def _json_ld_article_body(soup: BeautifulSoup) -> list[str]:
