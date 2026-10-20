@@ -25,7 +25,8 @@ PROMO = (
 
 def test_research_block_is_a_noise_class() -> None:
     assert "research-block" in NOISE_CLASS_SUBSTRINGS
-    assert NOISE_CLASS_SUBSTRINGS[-1] == "research-block"
+    # Round 9 (2026-10-16 d) appended "crm-post-module" after it.
+    assert NOISE_CLASS_SUBSTRINGS[-2] == "research-block"
 
 
 def test_enb_research_promo_is_stripped_from_the_dom() -> None:

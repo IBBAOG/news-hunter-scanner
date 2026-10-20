@@ -685,6 +685,10 @@ NOISE_CLASS_SUBSTRINGS = (
     # (`div.research-block`). The TS side strips them so a paywall teaser is
     # not mistaken for a 3-paragraph body; lists stay byte-identical.
     "research-block",
+    # 2026-10-16 d (round 9), family d: reader-revenue appeal modules rendered
+    # hidden inside the body and shown by JS (timesofisrael
+    # `div.crm-post-module`). Byte-identical with src/lib/clipping: edit both sides.
+    "crm-post-module",
 )
 
 #: Words that mark a login widget only when a class token STARTS with them
@@ -1920,6 +1924,25 @@ _NOISE_PATTERNS = [
     # declined to comment.]") survives.
     r"^\s*\[\/?[a-z][a-z0-9_\-]*(\s+[a-z0-9_\-]+\s*=[^\]]*)?\]\s*$",
     RELATIVE_AGE_PATTERN,
+    # 2026-10-16 d (round 9): any-length lines (coverage round 15, CSV
+    # clipping_coverage_20261019T194624Z; shared contract with
+    # src/lib/clipping/clean.ts, same order, byte-identical: edit both sides).
+    # Each is anchored at ^ or names a phrase only a widget uses.
+    # Family a, cookie notice lines (theaustralian, montelnews, cnn).
+    r"^\s*(to\s+enable\s+cookies\b|please\s+note\s+that\s+by\s+blocking\s+(any\s+or\s+all|all|some)\s+cookies\b|a\s+cookie\s+is\s+a\s+small\s+(data\s+|text\s+)?file\b|you\s+can\s+change\s+your\s+consent\b|you\s+can\s+accept\s+all\s+cookies\b|we\s+and\s+our\s+(affiliates|partners|vendors)\s+use\s+(third\s+parties|cookies|technologies)\b)",
+    # Family a, ad-consent wall copy (tradewindsnews, upstreamonline).
+    r"\bdepends\s+on\s+being\s+able\s+to\s+display\s+ads\b|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
+    # Family d, Google preferred-source variants past the short cap (dw, swissinfo).
+    r"\bselect\s+us\s+as\s+(your|a)\s+preferred\s+source\b|\barticles\s+in\s+your\s+google\s+results\b",
+    # Family f, video/audio player placeholders (dw, cbc).
+    r"\bto\s+view\s+this\s+video\s+please\s+enable\s+javascript\b|\baudio\s+version\s+of\s+this\s+article\s+is\s+generated\b",
+    # Family d, bnamericas house pitch and its translation note.
+    r"^\s*subscribe\s+to\s+the\s+leading\s+[^.]{0,80}\bplatform\b|^\s*\(?\s*the\s+original\s+version\s+of\s+this\s+(content|article)\s+was\s+(written|published)\s+in\s+[a-z]+\s*\)?\s*\.?\s*$",
+    # Family e, Chinese copyright notice (chinadaily). Caseless script: literal
+    # CJK characters, no \b, no \w.
+    r"^\s*(版权保护|版权声明|版权所有)\s*[：:]|未经[^。]{0,40}授权[^。]{0,10}禁止转载",
+    # Family f, inline cross-link label "Also Read: <headline>" (economictimes).
+    r"^\s*also\s+read\s*:",
 ]
 _NOISE_REGEX = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 
@@ -1971,6 +1994,28 @@ _SHORT_NOISE_PATTERNS = [
     # "John Smith, Middle East correspondent" (comma) survives; the (?!\s*by\s)
     # guard keeps "By Gary Dixon Middle East correspondent".
     r"^(?!\s*by\s)\s*[a-z\s]{0,40}\b(correspondent|editor|reporter|columnist)\s*$",
+    # 2026-10-16 d (round 9): short lines (< 160 code points), coverage round
+    # 15 (shared contract with src/lib/clipping/clean.ts, same order,
+    # byte-identical: edit both sides). Every entry is a WHOLE-LINE label or a
+    # CTA form, so prose carrying the same words survives.
+    # Family c, audio / read-time widgets (cbc, economictimes, wsj, montelnews, gulfnews).
+    r"^\s*(listen(\s+to\s+this\s+(article|story)(\s+in\s+summarized\s+format)?)?|duration|estimated\s+\d+\s+minutes?|\(?\s*\d+\s+min(ute)?s?(\s+read)?\s*\)?|\.{2,}\s*more\s*less)\s*[.:|]?\s*$",
+    # Family c, a video teaser line led by "WATCH |" (cbc).
+    r"^\s*watch\s*\|",
+    # Family b, register/login teasers and subscription pitch lines (qcintel, ogj,
+    # offshore-mag).
+    r"^\s*please\s+(register|sign\s*in|log\s*in)(\s+or\s+(register|sign\s*in|log\s*in))?\s+to\s+(view|read|access)\s+this\s+(content|article)\b|\bis\s+a\s+premium\s+(paid\s+)?subscription\s+service\b|\bsubscribers\s+have\s+access\s+to\s*:?\s*$|\bfor\s+subscription\s+information\b|^\s*already\s+registered\s*\?|^\s*this\s+email\s+(is\s+being|was)\s+sent\s+to\b",
+    # Families b/f, lone UI labels (whole line) and the haaretz ad-free lines.
+    r"^\s*(subscribe|tags|synopsis|request\s+a\s+demo|featured\s+partner\s+offers?|also\s+in\s+this\s+package|up\s+next|related\s+(articles|stories|content)|loading|save\s+article|or\s+to)\s*(\.{3}|…|[.:!])?\s*$|^\s*(print\s+in\s+a\s+simple,?\s+ad-free\s+format|ad-free\s+and\s+in\s+a\s+comfortable\s+reading\s+format)\s*\.?\s*$",
+    # Family d, follow / messaging CTAs (ahram, portafolio, allafrica, timesofisrael).
+    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|\bkeep\s+up\s+with\b.{0,60}\bon\s+(whatsapp|telegram)\b|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment\b",
+    # Family g, liveblog filler (cityam).
+    r"^\s*welcome\s+back\s+to\s+(the\s+)?[^.]{0,60}\blive\s*blog\b|^\s*here(\S?s|\s+are)\s+(a\s+few\s+of\s+)?(our|the)\s+top\s+(headlines|stories)\b|^\s*stick\s+with\s+us\s+throughout\s+the\s+day\b",
+    # Family f, markets-wrap lead-in (swissinfo); family e, a bare "(Copyright)".
+    r"^\s*some\s+of\s+the\s+main\s+moves\s+in\s+markets\s*:?\s*$|^\s*\(\s*copyright\s*\)\s*\.?\s*$",
+    # Family f, Arabic related/recommended labels (attaqa). Caseless script:
+    # whole line, no \b / \w.
+    r"^\s*(موضوعات\s+متعلقة|نرشح\s+لكم|المصادر)\s*[.:…]*\s*$",
 ]
 _SHORT_NOISE_REGEX = re.compile("|".join(_SHORT_NOISE_PATTERNS), re.IGNORECASE)
 
@@ -2122,6 +2167,17 @@ def _age_run_label_indexes(paragraphs: list[str]) -> set[int]:
 SECTION_LABEL_MAX_WORDS = 3
 
 
+# Byline guard (2026-10-16 d, round 9; byte-identical with BYLINE_LEAD_PATTERN
+# in src/lib/clipping/clean.ts): coverage round 15 dropped two real bylines as
+# section labels (megawhat "*Por: Fabrício Duarte", offshore-mag "By Offshore
+# staff"). A line made of optional leading `*` / whitespace, a byline word
+# (por | by | de | da, any case, optional colon) and then 1-3 more words is a
+# byline and never a section label. Compiled case-insensitive; no \w. Known
+# cost: a "De Olho" or "Da Semana" section label stays.
+BYLINE_LEAD_PATTERN = r"^[\s*]*(por|by|de|da)\s*:?(\s+\S+){1,3}\s*$"
+_BYLINE_LEAD_RE = re.compile(BYLINE_LEAD_PATTERN, re.IGNORECASE)
+
+
 def _starts_uppercase(word: str) -> bool:
     c = word[0]
     return c != c.lower()
@@ -2136,8 +2192,31 @@ def is_section_label_paragraph(p: str) -> bool:
         return False
     if _CASELESS_SCRIPT_RE.search(p):
         return False
+    if _BYLINE_LEAD_RE.search(p):
+        return False
     name_shaped = len(words) >= 2 and all(_starts_uppercase(w) for w in words)
     return not name_shaped
+
+
+# Cookie-notice body (2026-10-16 d, round 9 family a; byte-identical spec with
+# isCookieNoticeBody in src/lib/clipping/clean.ts). montelnews shipped its
+# cookie declaration (nine paragraphs, every one about cookies) as the body.
+# Applied in clean_paragraphs after the global dedupe and before the
+# section-label rule: when at least COOKIE_BODY_MIN_LINES (3) deduped
+# paragraphs contain the word cookie/cookies (_COOKIE_WORD_RE,
+# case-insensitive) AND they are at least 2/3 of the deduped list (compared as
+# n * 3 >= total * 2, integers on both sides), the WHOLE list is dropped. The
+# TS debug line `[cookie-body] n/total` has no shim counterpart (no debug
+# sink here). Known cost: an article where two thirds of the paragraphs say
+# "cookie" is dropped whole.
+COOKIE_BODY_MIN_LINES = 3
+_COOKIE_WORD_RE = re.compile(r"\bcookies?\b", re.IGNORECASE)
+
+
+def is_cookie_notice_body(paragraphs: list[str]) -> bool:
+    """True when the deduped list is a cookie declaration (see above)."""
+    n = sum(1 for p in paragraphs if _COOKIE_WORD_RE.search(p))
+    return n >= COOKIE_BODY_MIN_LINES and n * 3 >= len(paragraphs) * 2
 
 
 # DECLARED DIVERGENCES from src/lib/clipping (round-8 QA). The pattern strings
@@ -2168,6 +2247,19 @@ def is_section_label_paragraph(p: str) -> bool:
 #    while TS drops it.
 #  - The all-links `<p>` skip in _paragraphs_from (TS isMostlyLinks): see the
 #    related-headline note.
+#  - Round 9 (2026-10-16 d), same root causes, pattern bytes unchanged:
+#    Python `\d` is Unicode, so "Estimated " + an Arabic-Indic or fullwidth
+#    digit + " minutes" or "(" + such a digit + " min)" drops here only;
+#    Python `\b` treats non-ASCII letters as word characters, so a trigger
+#    glued to an accented letter ("écookies", "Xsubscribers have access
+#    to:" with X = é) matches in TS only - for _COOKIE_WORD_RE that means a
+#    cookie word glued to an accented letter counts toward the cookie-body
+#    gate in TS only; Python IGNORECASE also folds U+017F (long s) and
+#    U+212A (Kelvin) onto `s` / `k` in every new ASCII literal and in the
+#    `[a-z]+` of the original-version note; `\s` / `\S` follow the
+#    whitespace-class note above (the byline guard's word count and the
+#    `[^\s.]+` token of the one-token channel line included). The
+#    `[cookie-body] n/total` debug line is not emitted here.
 #  - Execution context: TS runs a fallback pre-strip (preStripForFallbacks,
 #    2026-10-19) that calls its noise strip over a whole <body> clone; since
 #    TS 63a9ffd95 that call runs WITHOUT the related-headline rule
@@ -2213,6 +2305,10 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         seen.add(key)
         deduped.append(p)
+    # Cookie-notice body (2026-10-16 d): a whole-body gate, before the
+    # section-label rule (see is_cookie_notice_body).
+    if is_cookie_notice_body(deduped):
+        return []
     # Section-label first paragraph (2026-10-16 c): once, LAST, after the dedupe
     # (so ["Summary", "Summary", A] ships [A]). Not idempotent: see above.
     if len(deduped) >= 2 and is_section_label_paragraph(deduped[0]):
