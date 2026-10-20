@@ -1,7 +1,7 @@
 """Boilerplate families from the dashboard's coverage round 15 / round 9 (2026-10-16 d).
 
 Mirror of the round-9 cases of the dashboard's `src/lib/clipping/__tests__/
-clean.test.ts` (TS source of truth ba4435866; the patterns and constants are
+clean.test.ts` (TS source of truth 67b364ec5; the patterns and constants are
 byte-identical): cookie/consent lines and the cookie-notice gate (drops only the
 cookie lines),
 register teasers, audio/read-time widgets, follow/messaging CTAs, copyright
@@ -9,7 +9,7 @@ footers (incl. the chinadaily Chinese notice), related/package/UI labels
 (incl. the attaqa Arabic labels), liveblog filler, the byline guard on the
 section-label rule and the `crm-post-module` noise class. Every family has
 negative controls - real prose that must survive. The string lists below were
-extracted BY SCRIPT from clean.test.ts at ba4435866 (never retyped).
+extracted BY SCRIPT from clean.test.ts at 67b364ec5 (never retyped).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ A = "A Petrobras anunciou nesta terça-feira um novo plano de investimentos para
 B = "Segundo a companhia, os recursos serão aplicados ao longo dos próximos cinco anos."
 C = "Brent crude rose 2% on Friday as traders weighed fresh supply risks in the Middle East."
 
-# ── Cases extracted by script from clean.test.ts (ba4435866) ────────────────
+# ── Cases extracted by script from clean.test.ts (67b364ec5) ────────────────
 DROPS_FAMILY_A_0 = [
     "To enable cookies, follow the instructions for your browser below.",
     "Please note that by blocking any or all cookies you may not have access to certain features, content or personalization.",
@@ -201,6 +201,23 @@ QA_NEGATIVES = [
     "You can change your consent decree obligations only with court approval, the judge said.",
     "法院认定，被告未经原告授权，禁止转载的内容被大量复制。",
     "版权保护：网络文学平台的新规则",
+    "Keep up with the latest developments, the minister urged lawmakers.",
+    "Keep up with the latest technology is hard for state firms, analysts say.",
+    "Google depends on being able to display ads to fund YouTube, the judge said.",
+    "We and our vendors use third parties to store crude in Rotterdam, Vitol said.",
+    "You can change your consent by voting differently, the shareholder letter said.",
+    "This email was sent to analysts@bank.com by mistake, the company said.",
+    "Get in touch with us for subscription information on the rights issue, Petrobras told shareholders.",
+    "If you'd like to comment, join us at the hearing on Friday, the agency said.",
+    "Platts is a premium paid subscription service for professionals and traders, the filing said.",
+    "他说，未经授权，禁止转载",
+]
+DELTA_DROPS = [
+    "Upstream Online depends on being able to display ads on our services in order to finance our journalism.",
+    "Lloyd's List depends on being able to display ads on our services in order to finance our journalism.",
+    "Upstream depends on being able to display ads on our services in order to finance our journalism.",
+    "Keep up with the latest headlines on WhatsApp",
+    "This email was sent to alerts@offshore-mag.com.",
 ]
 COOKIE_K1 = "Some cookies perform essential functions for our website."
 COOKIE_K2 = "You can see the specific services that store cookies under the different categories:"
@@ -339,7 +356,7 @@ def test_the_section_label_rule_runs_on_the_list_left_by_the_cookie_gate() -> No
     drops_to([COOKIE_K1, "Summary", COOKIE_K2, COOKIE_K3, COOKIE_K4, A], [A])
 
 
-# ── Round-9 QA negative controls (TS ba4435866) ─────────────────────────────
+# ── Round-9 QA + delta QA negative controls (TS ba4435866, 67b364ec5) ──────
 @pytest.mark.parametrize("line", QA_NEGATIVES)
 def test_round9_qa_negative_controls_survive(line: str) -> None:
     drops_to([A, line, B], [A, line, B])
@@ -377,3 +394,9 @@ def test_the_timesofisrael_appeal_module_is_stripped_from_the_dom() -> None:
     _title, paragraphs = _extract(html, "www.timesofisrael.com")
     assert appeal not in paragraphs
     assert paragraphs == [C, A]
+
+
+# ── Delta QA (TS 67b364ec5): anchored real chrome still goes ────────────────
+@pytest.mark.parametrize("line", DELTA_DROPS)
+def test_delta_qa_anchored_chrome_is_still_dropped(line: str) -> None:
+    drops_to([A, line, B], [A, B])
