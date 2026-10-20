@@ -2,13 +2,14 @@
 
 Mirror of the round-9 cases of the dashboard's `src/lib/clipping/__tests__/
 clean.test.ts` (TS source of truth 37252016e; the patterns and constants are
-byte-identical): cookie/consent lines and the cookie-notice body gate,
+byte-identical): cookie/consent lines and the cookie-notice gate (drops only the
+cookie lines),
 register teasers, audio/read-time widgets, follow/messaging CTAs, copyright
 footers (incl. the chinadaily Chinese notice), related/package/UI labels
 (incl. the attaqa Arabic labels), liveblog filler, the byline guard on the
 section-label rule and the `crm-post-module` noise class. Every family has
 negative controls - real prose that must survive. The string lists below were
-extracted BY SCRIPT from clean.test.ts at 37252016e (never retyped).
+extracted BY SCRIPT from clean.test.ts at ba4435866 (never retyped).
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ A = "A Petrobras anunciou nesta terça-feira um novo plano de investimentos para
 B = "Segundo a companhia, os recursos serão aplicados ao longo dos próximos cinco anos."
 C = "Brent crude rose 2% on Friday as traders weighed fresh supply risks in the Middle East."
 
-# ── Cases extracted by script from clean.test.ts (37252016e) ────────────────
+# ── Cases extracted by script from clean.test.ts (ba4435866) ────────────────
 DROPS_FAMILY_A_0 = [
     "To enable cookies, follow the instructions for your browser below.",
     "Please note that by blocking any or all cookies you may not have access to certain features, content or personalization.",
@@ -188,6 +189,23 @@ COOKIE_COST = [
     "Cookies made up half of revenue.",
 ]
 CHINADAILY = "版权保护：本网登载的内容（包括文字、图片、多媒体资讯等）版权属中国日报网（中报国际文化传媒（北京）有限公司）独家所有使用。 未经中国日报网事先协议授权，禁止转载使用。"
+QA_NEGATIVES = [
+    "Contact Petrobras investor relations for subscription information on the share offering.",
+    "Bloomberg Terminal is a premium paid subscription service used by traders worldwide.",
+    "This email was sent to shareholders on Monday, the company said.",
+    "Investors should keep up with the regulators who now rely on WhatsApp and Telegram channels.",
+    "If you'd like to comment on the proposal, the regulator will accept submissions until Friday.",
+    "Welcome back to the OPEC+ liveblog. Ministers meet in Vienna today.",
+    "Here are the top stories from the ministerial meeting, in which OPEC+ agreed to raise output.",
+    "We and our partners use technologies such as AI to optimise drilling, the CEO said.",
+    "You can change your consent decree obligations only with court approval, the judge said.",
+    "法院认定，被告未经原告授权，禁止转载的内容被大量复制。",
+    "版权保护：网络文学平台的新规则",
+]
+COOKIE_K1 = "Some cookies perform essential functions for our website."
+COOKIE_K2 = "You can see the specific services that store cookies under the different categories:"
+COOKIE_K3 = "The length of time a cookie is stored on your devices varies."
+COOKIE_K4 = "Remember: If you use more than one browser, you must delete cookies in all of them."
 
 
 def drops_to(inp: list[str], expected: list[str]) -> None:
@@ -263,8 +281,9 @@ def test_the_montel_cookie_declaration_ships_as_nothing() -> None:
     drops_to(MONTEL, [])
 
 
-def test_three_cookie_lines_out_of_four_is_a_cookie_notice() -> None:
-    drops_to([*MONTEL[:3], A], [])
+def test_three_cookie_lines_out_of_four_fire_and_only_the_cookie_lines_go() -> None:
+    # QA round 9 (TS ba4435866): the gate drops only the cookie paragraphs.
+    drops_to([*MONTEL[:3], A], [A])
 
 
 def test_two_cookie_lines_never_trip_the_gate() -> None:
@@ -279,12 +298,15 @@ def test_three_cookie_lines_under_two_thirds_are_kept() -> None:
     drops_to([COOKIE1, COOKIE2, COOKIE3, A, B], [COOKIE1, COOKIE2, COOKIE3, A, B])
 
 
-def test_exactly_two_thirds_drops_the_body() -> None:
+def test_exactly_two_thirds_fires_and_drops_only_the_cookie_lines() -> None:
     cookie4 = "Cookies made up half of revenue."
     # 4/6: 12 >= 12.
-    drops_to([COOKIE1, COOKIE2, COOKIE3, cookie4, A, B], [])
-    assert shim.is_cookie_notice_body([COOKIE1, COOKIE2, COOKIE3, cookie4, A, B])
-    assert not shim.is_cookie_notice_body([COOKIE1, COOKIE2, COOKIE3, A, B])
+    drops_to([COOKIE1, COOKIE2, COOKIE3, cookie4, A, B], [A, B])
+    assert shim.cookie_notice_line_count([COOKIE1, COOKIE2, COOKIE3, cookie4, A, B]) == 4
+    # 3/5: 9 < 10 -> 0; 2/2: n < 3 -> 0.
+    assert shim.cookie_notice_line_count([COOKIE1, COOKIE2, COOKIE3, A, B]) == 0
+    assert shim.cookie_notice_line_count([COOKIE1, COOKIE2]) == 0
+    assert not hasattr(shim, "is_cookie_notice_body")
 
 
 def test_a_prose_body_with_three_cookie_mentions_among_twelve_is_kept() -> None:
@@ -295,12 +317,32 @@ def test_a_prose_body_with_three_cookie_mentions_among_twelve_is_kept() -> None:
 
 
 def test_the_gate_counts_the_deduped_list() -> None:
-    # Duplicates of A collapse first: 3 cookie lines + A = 3/4 -> dropped.
-    drops_to([*MONTEL[:3], A, A, A, A], [])
+    # Duplicates of A collapse first: 3 cookie lines + A = 3/4 -> fires.
+    drops_to([*MONTEL[:3], A, A, A, A], [A])
 
 
-def test_accepted_cost_two_thirds_cookie_article_is_dropped_whole() -> None:
-    drops_to([*COOKIE_COST, A], [])
+def test_accepted_cost_two_thirds_cookie_article_loses_those_paragraphs() -> None:
+    drops_to([*COOKIE_COST, A], [A])
+
+
+def test_three_cookie_lines_and_one_real_paragraph_ship_the_real_one() -> None:
+    drops_to([COOKIE_K1, A, COOKIE_K2, COOKIE_K3], [A])
+
+
+def test_mixed_container_four_cookie_lines_and_two_prose_ship_the_prose() -> None:
+    drops_to([COOKIE_K1, A, COOKIE_K2, COOKIE_K3, B, COOKIE_K4], [A, B])
+
+
+def test_the_section_label_rule_runs_on_the_list_left_by_the_cookie_gate() -> None:
+    # Synthetic: 4/6 fires, the gate removes the cookie lines, then "Summary"
+    # (now first, with 2 paragraphs left) is a section label.
+    drops_to([COOKIE_K1, "Summary", COOKIE_K2, COOKIE_K3, COOKIE_K4, A], [A])
+
+
+# ── Round-9 QA negative controls (TS ba4435866) ─────────────────────────────
+@pytest.mark.parametrize("line", QA_NEGATIVES)
+def test_round9_qa_negative_controls_survive(line: str) -> None:
+    drops_to([A, line, B], [A, line, B])
 
 
 def test_the_cookie_word_is_a_whole_word() -> None:
