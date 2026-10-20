@@ -49,7 +49,7 @@ WAVE_C_GNEWS = [
     "thisdaylive.com",
     "theeastafrican.co.ke",
     "africaoilgasreport.com",
-    "energycapitalpower.com",
+    # energycapitalpower.com pruned 2026-10-19 (zero rows, GNews items=0 / 7d).
     "english.alarabiya.net",
     "timesofisrael.com",
     "haaretz.com",

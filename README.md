@@ -791,7 +791,7 @@ comment in `sources.py` carries each rejected surface with its numbers.
 | Business Day / BusinessLive (South Africa) | businesslive.co.za | RSS | 10 (297h) |
 | The East African | theeastafrican.co.ke | GNews en-US | 3 |
 | Africa Oil+Gas Report | africaoilgasreport.com | GNews en-US | 8 (of 8 items) |
-| Energy Capital & Power | energycapitalpower.com | GNews en-US | 1 |
+| Energy Capital & Power | energycapitalpower.com | pruned 2026-10-19 (0 rows ever, GNews 7d items=0) | 0 |
 | Al Arabiya English | english.alarabiya.net | GNews en-US | 52 |
 | Middle East Eye | middleeasteye.net | GNews (RSS WAF-blocked for the runner 2026-10-09) | 37 (GNews 7d, 2026-10-19) |
 | The Times of Israel | timesofisrael.com | GNews en-US | 40 |

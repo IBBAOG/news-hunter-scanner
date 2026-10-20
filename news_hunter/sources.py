@@ -3038,7 +3038,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # surface is all there is. Registered per the rule (>=1 pass/7d) and
     # flagged here for the first pruning pass if it stays at 1. Articles
     # resolve to energycapitalpower.com.
-    "energycapitalpower.com",
+    # PRUNED 2026-10-19 (the "first pruning pass" flagged above): zero
+    # news_articles rows all-time since registration on 2026-09-14, and the
+    # site: query returns items=0 for both the 24h and the 7d window on the
+    # runner (measure_source 39306679320) and from a residential IP
+    # (2026-10-20). The en cohort slot goes back to the burst budget.
+    # "energycapitalpower.com",
     # --- Middle East ---
     # Al Arabiya English (english.alarabiya.net) -- the English edition of the
     # Saudi broadcaster, a SEPARATE surface from the Arabic alarabiya.net entry
