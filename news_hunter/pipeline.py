@@ -31,6 +31,7 @@ from .fetcher import RawItem, iter_collect
 from .filter import matches_keywords, strip_related, within_window
 from .keyword_senses import drop_own_name, drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
+from .zero_yield import new_stage_stats
 from .store import (
     Article,
     excluded_url_reason,
@@ -53,8 +54,19 @@ RESOLVE_WORKERS = 6
 # Deadline de enrich sobre URLs ja resolvidas (fetch_html = 6s/item max).
 ENRICH_DEADLINE = 18.0
 # Deadline adicional para aguardar resolucoes pendentes apos collect.
-# 56 itens / 6 workers * 1.75s/item ≈ 16s para cobrir quase tudo.
-RESOLVE_EXTRA = 16.0
+# Was 16s, sized for 56 items. Since Wave 5 (2026-09-14) a scan submits
+# 250-400 wrappers, and the 16s wait expired on most scans: Candidatos is logged
+# exactly 16.0s after the feed summary (2026-09-17 14:05/14:10/14:15 and
+# 2026-10-19 19:00), with the unfinished tail cancelled. The tail is not random:
+# it is the domains whose site: query returns last, i.e. the END of each EN
+# cohort (zawya, aljazeera, mees, interfax in cohort 1; barrons; timesofisrael,
+# aa.com.tr/en; icis), which then sit at zero for whole scans while their
+# measured 24h query passes 20 items (zawya, measure_source 39307905049).
+# Observed throughput is ~9-10 decodes/s across the 6 workers, so 400 wrappers
+# need ~40s from the start of collect; with collect taking 13-22s, 36s of extra
+# wait covers the worst scan seen. Cost: up to +20s per scan on a ~75s job that
+# runs every 5 min (timeout-minutes 8).
+RESOLVE_EXTRA = 36.0
 
 # --- Lede rescue (added 2026-06-09) -----------------------------------------
 # Em fast_mode (o unico modo do scanner cloud) so casavamos keyword contra
@@ -1406,6 +1418,9 @@ def run_search(
 
     run_id = start_run()
     errors: list[str] = []
+    # Zero-yield guard counters (zero_yield.py), filled by iter_collect and the
+    # GNews resolve phase; judged by the service after the scan persisted.
+    stage_stats = new_stage_stats()
     n_new = 0
     n_upserted = 0
     n_lede_ok = 0
@@ -1447,6 +1462,11 @@ def run_search(
         n_cand = 0
         n_cache = 0
         n_resolved_ok = 0
+        # Wrappers the decoder actually turned into a publisher url (before the
+        # exclusion rule and the enrich cap, which n_resolved_ok also applies).
+        # Feeds the zero-yield guard: n_resolved_ok can be low for good reasons,
+        # n_decoded at ~0 cannot (2026-09-20 decoder break, zero_yield.py).
+        n_decoded = 0
         # Limita enriquecimentos por dominio.
         # Homepage scrapers (published_at=None) usam cap maior: sao paginas ja
         # topicas, entao vale a pena aceitar muito de cada uma.
@@ -1469,7 +1489,8 @@ def run_search(
         _RESOLVE_CAP = 20
         try:
             for dom, items, err in iter_collect(
-                keywords, hours, include_google_news=include_google_news
+                keywords, hours, include_google_news=include_google_news,
+                stage_stats=stage_stats,
             ):
                 if err:
                     errors.append(err)
@@ -1587,6 +1608,7 @@ def run_search(
                     resolved_url, resolved_domain = it.url, it.source_domain
                 if resolved_url.startswith("https://news.google.com/"):
                     continue  # nao resolvido — descarta
+                n_decoded += 1
                 # The GNews route is where every non-article shape came from:
                 # the wrapper hides the real url until here, so this is the
                 # first point the rule can see it — and it is before the enrich.
@@ -1620,9 +1642,14 @@ def run_search(
             for fut in nd_resolve:
                 fut.cancel()
 
+            stage_stats["gnews_resolve"] = {
+                "ok": n_decoded, "total": len(pending_resolve),
+            }
             log.info(
-                "Candidatos: %d (brutos %d) | cache_hit=%d resolve=%d(ok=%d) enrich=%d",
-                n_cand, n_raw, n_cache, len(pending_resolve), n_resolved_ok, len(pending),
+                "Candidatos: %d (brutos %d) | cache_hit=%d resolve=%d(ok=%d) decoded=%d "
+                "resolve_cancelled=%d enrich=%d",
+                n_cand, n_raw, n_cache, len(pending_resolve), n_resolved_ok,
+                n_decoded, len(nd_resolve), len(pending),
             )
 
             # --- Fase 3: aguarda enrich ---
@@ -1912,6 +1939,13 @@ def run_search(
 
         n_new = upsert_articles(to_persist)
         n_upserted = len(to_persist)
+        # upsert_articles / push_new swallow every exception and return 0, so a
+        # dead Supabase reads as "nothing new". Rows to save and none saved is
+        # a failed scan: tagged `fatal:` so the service exits non-zero.
+        if to_persist and not n_new:
+            msg = f"fatal: save wrote 0 of {len(to_persist)} rows"
+            log.error(msg)
+            errors.append(msg)
 
         # --- Stage 3e: retry stored rows still missing title_en --------------
         # AFTER the upsert, so the database reflects this scan's results and
@@ -1960,6 +1994,7 @@ def run_search(
         "date_unverified_admitted": date_stats.n_unverified,
         "date_restamp_domains": date_stats.flagged(),
         "own_name_dropped": sum(own_name_drops.values()),
+        "stage_stats": stage_stats,
     }
 
 

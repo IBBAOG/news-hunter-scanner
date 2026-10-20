@@ -23,10 +23,10 @@ from news_hunter.sources import (
 )
 
 # apex -> the RSS_FEEDS key that carries the feed (www form where the site uses one)
+# The three Palladian titles (lngindustry, worldpipelines, tanksterminals) left
+# this map on 2026-10-19: their RSS died with Palladian's CMS move and they are
+# GNews-routed now (WAVE_5E_GNEWS below).
 WAVE_5E_RSS = {
-    "lngindustry.com": "www.lngindustry.com",
-    "worldpipelines.com": "www.worldpipelines.com",
-    "tanksterminals.com": "www.tanksterminals.com",
     "drillingcontractor.org": "drillingcontractor.org",
     "rbnenergy.com": "rbnenergy.com",
     "fuelsandlubes.com": "www.fuelsandlubes.com",
@@ -52,6 +52,10 @@ WAVE_5E_GNEWS = (
     "oxfordenergy.org",
     "icis.com",
     "jpt.spe.org",
+    # Moved RSS -> GNews on 2026-10-19 (RSS 404 after the Palladian CMS move).
+    "lngindustry.com",
+    "worldpipelines.com",
+    "tanksterminals.com",
 )
 
 # Measured 0 items on every surface on 2026-09-14 (or, for petrolplaza.com, a
@@ -102,7 +106,7 @@ def test_eia_feed_gets_its_measured_budget_through_the_www_key():
     assert feed_timeout("eia.gov", default) == 14.0
     assert feed_timeout("www.eia.gov", default) > default
     # And it is scoped: a neighbouring Wave 5E feed keeps the default budget.
-    assert feed_timeout("www.lngindustry.com", default) == default
+    assert feed_timeout("www.drillingcontractor.org", default) == default
 
 
 def test_globalenergynetwork_feed_gets_more_than_the_default_budget():
@@ -158,9 +162,9 @@ def test_every_wave_5e_feed_url_is_served_by_its_own_host():
 
     Checked on the NETLOC, not with `apex in url`: the substring form passes for
     a URL that merely mentions the domain in a path or query (the three
-    Palladian titles — lngindustry, worldpipelines, tanksterminals — all serve
-    /rss/<name>.xml, so the apex appears twice in each URL and a substring
-    assertion proves nothing about the host).
+    Palladian titles — lngindustry, worldpipelines, tanksterminals — served
+    /rss/<name>.xml until 2026-10, so the apex appeared twice in each URL and a
+    substring assertion proved nothing about the host).
     """
     for apex, key in WAVE_5E_RSS.items():
         for url in RSS_FEEDS[key]:

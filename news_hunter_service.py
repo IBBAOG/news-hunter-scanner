@@ -46,6 +46,33 @@ signal.signal(signal.SIGTERM, _sigterm)
 signal.signal(signal.SIGINT, _sigterm)
 
 
+# Exit code of a scan that persisted what it got but had a whole stage yield
+# (almost) nothing. Distinct from 1 (crash) so the run log tells them apart.
+ZERO_YIELD_EXIT = 3
+# Exit code of a scan whose run_search caught a fatal error (collect crash,
+# save that wrote nothing): run_search returns normally with a `fatal: ...`
+# entry in errors, so without this the job would end green.
+FATAL_EXIT = 1
+
+
+def _zero_yield_exit(result: dict) -> int:
+    """0 when the scan is healthy. Otherwise one ERROR line per problem and:
+    FATAL_EXIT when run_search recorded a `fatal:` error, else ZERO_YIELD_EXIT
+    when a guarded stage tripped (see news_hunter/zero_yield.py).
+    """
+    from news_hunter.zero_yield import violations
+
+    fatal = [e for e in result.get("errors") or [] if str(e).startswith("fatal:")]
+    for err in fatal:
+        log.error("FATAL scan error: %s", err)
+    tripped = violations(result.get("stage_stats"))
+    for msg in tripped:
+        log.error("ZERO-YIELD stage tripped: %s", msg)
+    if fatal:
+        return FATAL_EXIT
+    return ZERO_YIELD_EXIT if tripped else 0
+
+
 def _run_once() -> int:
     from news_hunter.pipeline import run_search
 
@@ -68,7 +95,7 @@ def _run_once() -> int:
             result.get("keywords_count"),
             time.time() - t0,
         )
-        return 0
+        return _zero_yield_exit(result)
     except Exception:
         log.exception("scan crashed")
         return 1

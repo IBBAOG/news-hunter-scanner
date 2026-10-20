@@ -38,6 +38,33 @@ Required repository secrets (set under **Settings → Secrets → Actions**):
 
 Manual run: **Actions → News Hunter scan → Run workflow**.
 
+Dependencies in `requirements.txt` are pinned to exact versions. An unpinned
+`googlenewsdecoder>=0.1.7` picked up 0.2.x on 2026-09-20, whose result dict
+renamed `status` to `success`; every Google News url stayed undecoded for four
+weeks while the scan stayed green (`resolve=400(ok=0)`). Bump one package at a
+time and watch the `resolve=N(ok=M) decoded=D resolve_cancelled=C` line of the
+next scan.
+
+## Zero-yield guard (whole stage producing nothing)
+
+`news_hunter/zero_yield.py` judges three stages per scan and the job exits `3`
+with one `ERROR ... ZERO-YIELD stage tripped: <stage> ok=M/N` line per tripped
+stage (the rows the scan got are still persisted):
+
+| Stage | ok / total | Trips when (total ≥ 20) |
+|---|---|---|
+| `gnews_resolve` | wrappers decoded to a publisher url / wrappers sent to the decoder | ok < 50% (healthy ~95%) |
+| `registered_feeds` | RSS/sitemap/homepage tasks with ≥ 1 item / tasks submitted | ok < 50% (healthy ~94%) |
+| `gnews_queries` | Google News `site:` queries with ≥ 1 item / queries submitted | ok < 25% (healthy ~95%) |
+
+A single dead feed never trips it — that is what the per-feed lines below are
+for. Nor can it see one foreign language going silent: each language is ~3
+queries (~15 foreign in total), below the floor of 20 — the dashboard ops
+routine's per-class probe covers that. A failing `googlenewsdecoder` import is
+also logged at ERROR. Separately, a `fatal:` error caught inside run_search
+(collect crash, or a save that wrote 0 of N rows) exits `1` with
+`ERROR ... FATAL scan error:`.
+
 ## Diagnosing a dead source
 
 A source can stop producing while every run stays green. Each scan logs, at
@@ -769,9 +796,9 @@ comment in `sources.py` carries each rejected surface with its numbers.
 | Business Day / BusinessLive (South Africa) | businesslive.co.za | RSS | 10 (297h) |
 | The East African | theeastafrican.co.ke | GNews en-US | 3 |
 | Africa Oil+Gas Report | africaoilgasreport.com | GNews en-US | 8 (of 8 items) |
-| Energy Capital & Power | energycapitalpower.com | GNews en-US | 1 |
+| Energy Capital & Power | energycapitalpower.com | pruned 2026-10-19 (0 rows ever, GNews 7d items=0) | 0 |
 | Al Arabiya English | english.alarabiya.net | GNews en-US | 52 |
-| Middle East Eye | middleeasteye.net | RSS | 14 (7h) |
+| Middle East Eye | middleeasteye.net | GNews (RSS WAF-blocked for the runner 2026-10-09) | 37 (GNews 7d, 2026-10-19) |
 | The Times of Israel | timesofisrael.com | GNews en-US | 40 |
 | Haaretz | haaretz.com | GNews en-US | 19 |
 | Anadolu Agency (EN) | aa.com.tr/en | GNews en-US | 60 |
@@ -842,9 +869,9 @@ GNews 2 items / pass=0).
 
 | Outlet | Domain | Surface | pass |
 |---|---|---|---|
-| LNG Industry | lngindustry.com | RSS | 20 |
-| World Pipelines | worldpipelines.com | RSS | 4 |
-| Tanks and Terminals | tanksterminals.com | RSS | 5 |
+| LNG Industry | lngindustry.com | GNews (RSS died 2026-10, CMS move) | 25 (GNews, 2026-10-19) |
+| World Pipelines | worldpipelines.com | GNews (RSS died 2026-10, CMS move) | 13 (GNews, 2026-10-19) |
+| Tanks and Terminals | tanksterminals.com | GNews (RSS died 2026-10, CMS move) | 1 (GNews, 2026-10-19) |
 | Drilling Contractor (IADC) | drillingcontractor.org | RSS | 10 |
 | RBN Energy | rbnenergy.com | RSS | 11 |
 | Fuels & Lubes (F+L Daily) | fuelsandlubes.com | RSS | 17 |

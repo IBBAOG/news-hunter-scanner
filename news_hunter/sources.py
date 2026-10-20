@@ -1107,6 +1107,15 @@ RSS_FEEDS: dict[str, list[str]] = {
     "www.pipelineoilandgasnews.com": [
         "https://www.pipelineoilandgasnews.com/feed/",
     ],
+    # MIDDLE EAST EYE MOVED TO GNews on 2026-10-19: from 2026-10-09 the feed
+    # tarpits the runner's plain `requests` client (ReadTimeout at 4s; HTTP 404
+    # after 15s at a 20s timeout) while curl_cffi browser impersonation gets 200
+    # + 20 entries in 0.6s (diagnose_feed run 39306147007) -- a fingerprint WAF,
+    # and the RSS fetcher has no curl_cffi fallback. Last RSS row 2026-10-09
+    # 22:40Z after 652 rows in 30 days (the top producer of Wave 5C). See its
+    # entry in the ENGLISH_NO_RSS_DOMAINS "2026-10-19 RSS -> GNews moves" block.
+    # If the RSS fetcher ever grows an impersonation fallback, the feed below is
+    # the richer surface (bodies, ~3x the rate) and should come back.
     # Middle East Eye (middleeasteye.net) -- London-based Middle East daily and
     # the fastest-moving feed of the wave: items=20 span=7h fresh=20 pass=14
     # near=6 fetch=0.21s, i.e. fourteen title/summary passes inside a
@@ -1119,9 +1128,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # in (`sanction` / `ceasefire` on Gaza-diplomacy copy, e.g. a French-TV
     # censorship item). Feed and article links are www -> apex
     # middleeasteye.net.
-    "www.middleeasteye.net": [
-        "https://www.middleeasteye.net/rss",
-    ],
+    # "www.middleeasteye.net": [
+    #     "https://www.middleeasteye.net/rss",
+    # ],
     # Tehran Times (tehrantimes.com) -- Iran's English daily. It does NOT
     # geo-block the datacenter runner (the open question when the candidate was
     # proposed): items=30 span=26h fresh=30 pass=7 near=23 fetch=0.71s, ~6.5
@@ -1426,6 +1435,16 @@ RSS_FEEDS: dict[str, list[str]] = {
     # between items) nagging occasionally. All three now have a budget in the
     # FEED_STALE_HOURS "Wave 5" block, keyed on the RSS_FEEDS key.
     # =======================================================================
+    # PALLADIAN TITLES MOVED TO GNews on 2026-10-19 (LNG Industry, World
+    # Pipelines, Tanks and Terminals): Palladian rebuilt the three sites on a
+    # Next.js CMS around 2026-10-08/12 and dropped RSS. /rss/<title>.xml now
+    # answers HTTP 404 on the runner (10 of 10 scans 2026-10-19, "feed errors:
+    # ... HTTP 404"), /rss and /feed 308 to an HTML page, and sitemap.xml is a
+    # flat 17k-url list with no lastmod. Last rows: lngindustry 2026-10-12,
+    # worldpipelines 2026-10-12, tanksterminals 2026-10-08. See their entries in
+    # the ENGLISH_NO_RSS_DOMAINS "2026-10-19 RSS -> GNews moves" block for the
+    # GNews measurement. The feed entries below are left as comments so a later
+    # wave does not restore the dead URLs.
     # LNG Industry (lngindustry.com) -- Palladian Publications' pure-LNG trade
     # daily; on-beat by construction. items=20 span=146h fresh=20 pass=20 near=0
     # rescued=0 no_body=0 fetch=0.55s -- twenty of twenty items inside the 7d
@@ -1433,9 +1452,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # JOGMEC, Rovuma LNG, LNG bunkering, LNG carriers, Williams / Momentum
     # midstream). Feed and article links are www, so normalize_url strips to the
     # apex lngindustry.com -- where SOURCE_NAMES would be keyed.
-    "www.lngindustry.com": [
-        "https://www.lngindustry.com/rss/lngindustry.xml",
-    ],
+    # "www.lngindustry.com": [
+    #     "https://www.lngindustry.com/rss/lngindustry.xml",
+    # ],
     # World Pipelines (worldpipelines.com) -- Palladian's midstream / pipeline
     # title, same CMS and same /rss/<title>.xml feed shape as LNG Industry.
     # items=20 span=599h fresh=4 pass=4 near=0 rescued=0 fetch=0.53s -- a slow
@@ -1446,9 +1465,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # a pipeline-engineering title publishes; kept for the midstream-equipment
     # beat no other registered source carries. Feed and article links are www ->
     # apex worldpipelines.com.
-    "www.worldpipelines.com": [
-        "https://www.worldpipelines.com/rss/worldpipelines.xml",
-    ],
+    # "www.worldpipelines.com": [
+    #     "https://www.worldpipelines.com/rss/worldpipelines.xml",
+    # ],
     # Tanks and Terminals (tanksterminals.com) -- Palladian's storage / terminals
     # title. items=20 span=792h fresh=6 pass=5 near=1 rescued=0 no_body=1
     # fetch=0.56s -- five of the six items inside the 7d window pass (Wood /
@@ -1458,9 +1477,9 @@ RSS_FEEDS: dict[str, list[str]] = {
     # stories with LNG Industry above (the Argent LNG and Wood / ExxonMobil items
     # ran in both); news_articles is url-keyed, so each copy lands at most once.
     # Feed and article links are www -> apex tanksterminals.com.
-    "www.tanksterminals.com": [
-        "https://www.tanksterminals.com/rss/tanksterminals.xml",
-    ],
+    # "www.tanksterminals.com": [
+    #     "https://www.tanksterminals.com/rss/tanksterminals.xml",
+    # ],
     # Drilling Contractor (drillingcontractor.org) -- the IADC's drilling
     # journal, plain WordPress /feed. items=10 span=95h fresh=10 pass=10 near=0
     # rescued=0 fetch=0.45s -- ten of ten on-beat (Touchstone Trinidad campaign,
@@ -1754,7 +1773,8 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     "businesslive.co.za", "www.businesslive.co.za",             # Business Day / BusinessLive (South Africa)
     "businessday.co.za", "www.businessday.co.za",               # article host of www.businesslive.co.za (100/100 item links, 2026-09-14)
     # --- Middle East (Wave 5C, 2026-09-14) ---
-    "middleeasteye.net", "www.middleeasteye.net",               # Middle East Eye
+    # middleeasteye.net REMOVED 2026-10-19: its feed is WAF-blocked for the
+    # runner; it is in ENGLISH_NO_RSS_DOMAINS now (GNews stamps 'en').
     "tehrantimes.com", "www.tehrantimes.com",                   # Tehran Times
     "dailysabah.com", "www.dailysabah.com",                     # Daily Sabah
     "pipelineoilandgasnews.com", "www.pipelineoilandgasnews.com",  # Pipeline Oil & Gas Magazine
@@ -1804,9 +1824,9 @@ INTERNATIONAL_RSS_DOMAINS: frozenset[str] = frozenset({
     # post-merge promotions of intellinews and globalenergynetwork. Apex AND www
     # for each, per the invariant above; without these the outlets are
     # classified as NATIONAL.
-    "lngindustry.com", "www.lngindustry.com",                   # LNG Industry
-    "worldpipelines.com", "www.worldpipelines.com",             # World Pipelines
-    "tanksterminals.com", "www.tanksterminals.com",             # Tanks and Terminals
+    # lngindustry.com / worldpipelines.com / tanksterminals.com REMOVED
+    # 2026-10-19: their RSS died with Palladian's CMS move; they are now in
+    # ENGLISH_NO_RSS_DOMAINS, and GNews stamps 'en' on its own route.
     "drillingcontractor.org", "www.drillingcontractor.org",     # Drilling Contractor (IADC)
     "rbnenergy.com", "www.rbnenergy.com",                       # RBN Energy
     "fuelsandlubes.com", "www.fuelsandlubes.com",               # Fuels & Lubes (F+L Daily)
@@ -1855,7 +1875,12 @@ NO_RSS_DOMAINS: list[str] = [
     # RSS descontinuado ou bloqueado — cobertura via Google News site:
     "www.brasil247.com",
     "brasil247.com",
-    "observatorio.firjan.com.br",
+    # observatorio.firjan.com.br REMOVED 2026-10-19: registered since the
+    # first commit (2026-04-24) and never produced a single news_articles row
+    # (all-time query by domain, 2026-10-19). Google indexes 3 static pages of
+    # the host in total (bare `site:` query, no window): report landing pages,
+    # not news. Zero yield in six months; the query only spent a PT GNews slot.
+    # "observatorio.firjan.com.br",
     "agenciainfra.com",
     "noticias.r7.com",           # removeu feed RSS publico
     "agencia.petrobras.com.br",  # CMS Liferay sem feed publico
@@ -3013,7 +3038,12 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # surface is all there is. Registered per the rule (>=1 pass/7d) and
     # flagged here for the first pruning pass if it stays at 1. Articles
     # resolve to energycapitalpower.com.
-    "energycapitalpower.com",
+    # PRUNED 2026-10-19 (the "first pruning pass" flagged above): zero
+    # news_articles rows all-time since registration on 2026-09-14, and the
+    # site: query returns items=0 for both the 24h and the 7d window on the
+    # runner (measure_source 39306679320) and from a residential IP
+    # (2026-10-20). The en cohort slot goes back to the burst budget.
+    # "energycapitalpower.com",
     # --- Middle East ---
     # Al Arabiya English (english.alarabiya.net) -- the English edition of the
     # Saudi broadcaster, a SEPARATE surface from the Arabic alarabiya.net entry
@@ -3553,6 +3583,30 @@ ENGLISH_NO_RSS_DOMAINS: list[str] = [
     # ---- merge fence: keep >=4 lines between wave blocks ----
     #
     #
+    # --- 2026-10-19 RSS -> GNews moves (feed died; outlet alive) --- BEGIN
+    # Measured on the runner with measure_source.yml (run 39306141251, LIVE
+    # keyword set of 186, 7d window). Items land title-only, like every entry
+    # in this list.
+    # LNG Industry (lngindustry.com) -- Palladian; RSS 404 since the CMS move
+    # (see the RSS_FEEDS note). GNews: items=28 fresh=25 pass=25 near=0. www-only
+    # host (apex is an SSL error), articles resolve to www.lngindustry.com.
+    "lngindustry.com",
+    # World Pipelines (worldpipelines.com) -- Palladian midstream title; same
+    # move. GNews: items=14 fresh=13 pass=13 near=0.
+    "worldpipelines.com",
+    # Tanks and Terminals (tanksterminals.com) -- Palladian storage title; same
+    # move. GNews: items=3 fresh=3 pass=1 near=2 -- at the >=1 pass/7d bar,
+    # the thinnest of the three (it was 5 pass/7d on RSS, partly duplicating
+    # LNG Industry). First candidate for the next pruning pass.
+    "tanksterminals.com",
+    # Middle East Eye (middleeasteye.net) -- RSS tarpitted by a fingerprint WAF
+    # since 2026-10-09 (see the RSS_FEEDS note). GNews measured on the runner
+    # (measure_source run 39306679320): items=74 fresh=73 pass=37 near=36 --
+    # Houthi / Saudi strikes on Yemeni oil facilities, Iran shadow-fleet
+    # sanctions, Gulf of Oman tanker fire. Same off-beat watch as on RSS
+    # (`sanction` / `ceasefire` on Gaza-diplomacy copy).
+    "middleeasteye.net",
+    # --- 2026-10-19 RSS -> GNews moves (feed died; outlet alive) --- END
 ]
 
 # Sitemaps WordPress padrao (sem namespace news:news).
@@ -3728,11 +3782,8 @@ FEED_STALE_HOURS: dict[str, float] = {
     "calgaryherald.com": 7 * 24.0,
     # Energy Monitor (GlobalData): analysis desk, 3.3d at measurement.
     "www.energymonitor.ai": 5 * 24.0,
-    # Palladian trade titles -- 20-item feeds spanning 599h (World Pipelines)
-    # and 792h (Tanks and Terminals), i.e. ~30-40h between items on average and
-    # several days across a quiet week.
-    "www.worldpipelines.com": 14 * 24.0,
-    "www.tanksterminals.com": 14 * 24.0,
+    # (www.worldpipelines.com / www.tanksterminals.com budgets dropped
+    # 2026-10-19 with their feeds: the Palladian titles are GNews-routed now.)
     # The Guardian business/oil TAG feed (not the business section): 20 items
     # over 290h. A tag feed moves only when the desk files on that tag.
     "www.theguardian.com": 4 * 24.0,

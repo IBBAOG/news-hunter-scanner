@@ -958,6 +958,20 @@ def _gnews_tasks(
     return priority_tasks, tasks, lang_by_url
 
 
+def _fill_stage_stats(stage_stats: dict, submitted, feed_counts: dict) -> None:
+    """Zero-yield guard counters for the collect stage (see zero_yield.py).
+
+    `submitted` is every (domain, url) task handed to the pool; a task with no
+    entry in `feed_counts` raised, so it counts as not ok like a 0 or a -1.
+    """
+    for dom, url in submitted:
+        key = "gnews_queries" if dom == "news.google.com" else "registered_feeds"
+        s = stage_stats.setdefault(key, {"ok": 0, "total": 0})
+        s["total"] += 1
+        if feed_counts.get((dom, url), 0) > 0:
+            s["ok"] += 1
+
+
 def iter_collect(
     keywords: list[str],
     hours: int,
@@ -965,9 +979,15 @@ def iter_collect(
     max_workers: int = 48,
     include_google_news: bool = True,
     deadline: float | None = None,
+    stage_stats: dict | None = None,
 ):
     """Versao streaming de collect: yield (dom, items, err) a medida que feeds
     terminam. Permite overlap com enriquecimento.
+
+    stage_stats: optional zero_yield.new_stage_stats() dict. When given, its
+    "registered_feeds" and "gnews_queries" counters are filled once the drain
+    ends (ok = tasks that returned >= 1 item, total = tasks submitted; errors,
+    timeouts and the deadline all count as not ok).
     """
     tasks: list[tuple[str, str]] = list(all_rss_feeds())
     # Sitemaps WordPress padrao (istoedinheiro, visaoagro, etc.)
@@ -1056,6 +1076,8 @@ def iter_collect(
                 fut.cancel()
                 _feed_counts.setdefault((dom, url), -1)
         ex.shutdown(wait=False, cancel_futures=True)
+        if stage_stats is not None:
+            _fill_stage_stats(stage_stats, futs.values(), _feed_counts)
         if _feed_counts or _feed_errors:
             total = sum(c for c in _feed_counts.values() if c > 0)
             # A REGISTERED feed returning 0 items is always anomalous: these

@@ -232,7 +232,7 @@ _WAVE5_ITEM_URLS: tuple[tuple[str, str], ...] = (
     # --- Wave 5C (the first two are the misclassification cases) ---
     ("www.businesslive.co.za", "https://www.businessday.co.za/world/international-companies/2026-09-14-ai-safety-warnings-spark-tech-stock-slide/"),
     ("www.pipelineoilandgasnews.com", "https://www.energyconnects.com/news/oil/2026/september/trump-announces-russia-ukraine-energy-truce-kyiv-says-not-yet/"),
-    ("www.middleeasteye.net", "https://www.middleeasteye.net/news/houthi-attacks-expose-gaps-pakistans-defence-pact-saudi-arabia"),
+    # www.middleeasteye.net moved to GNews on 2026-10-19 (feed WAF-tarpitted).
     ("www.tehrantimes.com", "https://www.tehrantimes.com/news/530029/Iran-says-it-is-no-longer-afraid-of-confronting-US-or-Israel"),
     ("www.dailysabah.com", "https://www.dailysabah.com/business/economy/norway-mulls-jail-terms-for-trade-with-illegal-israeli-settlements"),
     ("www.koreaherald.com", "https://www.koreaherald.com/article/10873094"),
@@ -252,9 +252,8 @@ _WAVE5_ITEM_URLS: tuple[tuple[str, str], ...] = (
     ("www.batimes.com.ar", "https://www.batimes.com.ar/news/latin-america/lula-and-bolsonaro-in-dead-heat-ahead-of-brazil-vote-polls-show.phtml"),
     ("mexiconewsdaily.com", "https://mexiconewsdaily.com/news/pemex-contains-another-gulf-oil-spill/"),
     # --- Wave 5E ---
-    ("www.lngindustry.com", "https://www.lngindustry.com/floating-lng/14092026/kanata-clean-power-and-hanwha-ocean-to-launch-pre-feed-for-proposed-floating-lng-project/"),
-    ("www.worldpipelines.com", "https://www.worldpipelines.com/contracts-and-tenders/14092026/baker-hughes-and-venture-global-advance-next-phase-of-us-gas-infrastructure-growth/"),
-    ("www.tanksterminals.com", "https://www.tanksterminals.com/terminals/14092026/wood-secures-long-term-construction-services-contract-with-exxonmobil-png/"),
+    # lngindustry / worldpipelines / tanksterminals moved to GNews on
+    # 2026-10-19 (RSS 404 after the Palladian CMS move): no feed, no pinned URL.
     ("drillingcontractor.org", "https://drillingcontractor.org/touchstone-mobilizes-rig-for-wd-4-drilling-campaign-in-trinidad-79950"),
     ("rbnenergy.com", "https://rbnenergy.com/daily-posts/blog/us-refiners-already-running-hard-relief-diesel-remains-elusive"),
     ("www.fuelsandlubes.com", "https://www.fuelsandlubes.com/arteco-coolant-wins-nvidia-qualification-for-data-centres/"),

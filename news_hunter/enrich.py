@@ -36,17 +36,24 @@ from .date_credibility import PageEvidence, parse_date_value, record_page
 from .fetcher import RSS_THIN_SUMMARY_CHARS, RawItem
 from .filter import strip_wp_footer
 
+log = logging.getLogger(__name__)
+
 try:
     from googlenewsdecoder import gnewsdecoder  # type: ignore
 except Exception:  # noqa: BLE001
+    # Was silent until 2026-10-19: selectolax 1.0 broke this import and every
+    # GNews wrapper would have stayed undecoded with no trace. The zero-yield
+    # guard fails the scan in that case; this line says why.
+    log.error(
+        "googlenewsdecoder import failed - Google News urls will not resolve",
+        exc_info=True,
+    )
     gnewsdecoder = None  # type: ignore
 
 # Pool dedicado para gnewsdecoder. A concorrencia e controlada externamente
 # pelo pipeline (fase de pre-resolucao separada), entao 8 workers e suficiente.
 _gnews_ex = ThreadPoolExecutor(max_workers=8, thread_name_prefix="gnews")
 _GNEWS_TIMEOUT = 8.0  # timeout por chamada (gnewsdecoder leva ~1.5s quando sem rate-limit)
-
-log = logging.getLogger(__name__)
 
 from ._clipinator_shim import (
     _HOST_PREFIXES,
