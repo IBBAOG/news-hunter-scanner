@@ -1929,12 +1929,14 @@ _NOISE_PATTERNS = [
     # src/lib/clipping/clean.ts, same order, byte-identical: edit both sides).
     # Each is anchored at ^ or names a phrase only a widget uses.
     # Family a, cookie notice lines (theaustralian, montelnews, cnn). QA (round
-    # 9): "consent" needs by/at/via and "we and our ... use" needs cookies or
-    # "third parties to access/store".
-    r"^\s*(to\s+enable\s+cookies\b|please\s+note\s+that\s+by\s+blocking\s+(any\s+or\s+all|all|some)\s+cookies\b|a\s+cookie\s+is\s+a\s+small\s+(data\s+|text\s+)?file\b|you\s+can\s+change\s+your\s+consent\s+(by|at|via)\b|you\s+can\s+accept\s+all\s+cookies\b|we\s+and\s+our\s+(affiliates|partners|vendors)\s+use\s+(cookies|third\s+parties\s+to\s+(access|store))\b)",
-    # Family a, ad-consent wall copy (tradewindsnews, upstreamonline). QA: the
-    # first alternative is anchored on ONE leading token (the site name).
-    r"^\s*\S+\s+depends\s+on\s+being\s+able\s+to\s+display\s+ads\b|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
+    # 9, delta QA 67b364ec5): "consent" needs by/at/via plus a cookie/browser/
+    # settings/preferences word, "we and our ... use" needs cookies or "third
+    # parties to access and store".
+    r"^\s*(to\s+enable\s+cookies\b|please\s+note\s+that\s+by\s+blocking\s+(any\s+or\s+all|all|some)\s+cookies\b|a\s+cookie\s+is\s+a\s+small\s+(data\s+|text\s+)?file\b|you\s+can\s+change\s+your\s+consent\s+(by|at|via)\b[^.]{0,80}\b(cookie|browser|settings|preferences)|you\s+can\s+accept\s+all\s+cookies\b|we\s+and\s+our\s+(affiliates|partners|vendors)\s+use\s+(cookies|third\s+parties\s+to\s+access\s+and\s+store)\b)",
+    # Family a, ad-consent wall copy (tradewindsnews, upstreamonline). Delta QA:
+    # the first alternative names the whole "display ads on our services"
+    # phrase (any masthead length before it).
+    r"\bdepends\s+on\s+being\s+able\s+to\s+display\s+ads\s+on\s+our\s+services\b|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
     # Family d, Google preferred-source variants past the short cap (dw, swissinfo).
     r"\bselect\s+us\s+as\s+(your|a)\s+preferred\s+source\b|\barticles\s+in\s+your\s+google\s+results\b",
     # Family f, video/audio player placeholders (dw, cbc).
@@ -1942,10 +1944,10 @@ _NOISE_PATTERNS = [
     # Family d, bnamericas house pitch and its translation note.
     r"^\s*subscribe\s+to\s+the\s+leading\s+[^.]{0,80}\bplatform\b|^\s*\(?\s*the\s+original\s+version\s+of\s+this\s+(content|article)\s+was\s+(written|published)\s+in\s+[a-z]+\s*\)?\s*\.?\s*$",
     # Family e, Chinese copyright notice (chinadaily). Caseless script: literal
-    # CJK characters, no \b, no \w. QA (round 9): END-anchored on the closing
-    # clause; the former "版权保护：/版权声明：/版权所有：" opener alternative was
-    # removed (it dropped a copyright-topic heading).
-    r"未经[^。]{0,40}授权[^。]{0,10}禁止转载(使用)?\s*[。.]?\s*$",
+    # CJK characters, no \b, no \w. Delta QA: WHOLE-LINE, an optional
+    # "版权保护：...。" sentence then the closing clause; a bare clause inside
+    # reported speech ("他说，未经授权，禁止转载") survives.
+    r"^\s*(版权保护[：:][^。]{0,120}。\s*)?未经[^。]{0,40}授权[^。]{0,10}禁止转载(使用)?\s*[。.！!]?\s*$",
     # Family f, inline cross-link label "Also Read: <headline>" (economictimes).
     r"^\s*also\s+read\s*:",
 ]
@@ -2008,16 +2010,18 @@ _SHORT_NOISE_PATTERNS = [
     # Family c, a video teaser line led by "WATCH |" (cbc).
     r"^\s*watch\s*\|",
     # Family b, register/login teasers and subscription pitch lines (qcintel, ogj,
-    # offshore-mag). QA (round 9): the pitch needs "... service for
-    # professionals", the contact line its own opening "Get in touch with us
-    # for", the email line an address after "sent to" (`\S*@`).
-    r"^\s*please\s+(register|sign\s*in|log\s*in)(\s+or\s+(register|sign\s*in|log\s*in))?\s+to\s+(view|read|access)\s+this\s+(content|article)\b|\bis\s+a\s+premium\s+(paid\s+)?subscription\s+service\s+for\s+professionals\b|\bsubscribers\s+have\s+access\s+to\s*:?\s*$|^\s*get\s+in\s+touch\s+with\s+us\s+for\s+subscription\s+information\b|^\s*already\s+registered\s*\?|^\s*this\s+email\s+(is\s+being|was)\s+sent\s+to\s+\S*@",
+    # offshore-mag). QA (round 9) + delta QA: the pitch needs "... service for
+    # professionals in the ... markets" (end-anchored), the contact line "Get in
+    # touch with us for subscription information (on|about) (our|all)", the
+    # email line ends right after the address.
+    r"^\s*please\s+(register|sign\s*in|log\s*in)(\s+or\s+(register|sign\s*in|log\s*in))?\s+to\s+(view|read|access)\s+this\s+(content|article)\b|\bis\s+a\s+premium\s+(paid\s+)?subscription\s+service\s+for\s+professionals\s+in\s+the\b[^.]{0,120}\bmarkets\s*\.?\s*$|\bsubscribers\s+have\s+access\s+to\s*:?\s*$|^\s*get\s+in\s+touch\s+with\s+us\s+for\s+subscription\s+information\s*(on|about)?\s*(our|all)\b|^\s*already\s+registered\s*\?|^\s*this\s+email\s+(is\s+being|was)\s+sent\s+to\s+\S*@(\S*|[^.]{0,40})\s*\.?\s*$",
     # Families b/f, lone UI labels (whole line) and the haaretz ad-free lines.
     r"^\s*(subscribe|tags|synopsis|request\s+a\s+demo|featured\s+partner\s+offers?|also\s+in\s+this\s+package|up\s+next|related\s+(articles|stories|content)|loading|save\s+article|or\s+to)\s*(\.{3}|…|[.:!])?\s*$|^\s*(print\s+in\s+a\s+simple,?\s+ad-free\s+format|ad-free\s+and\s+in\s+a\s+comfortable\s+reading\s+format)\s*\.?\s*$",
     # Family d, follow / messaging CTAs (ahram, portafolio, allafrica, timesofisrael).
-    # QA (round 9): "Keep up with the latest" anchored at ^, the comment CTA
-    # needs ", join".
-    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|^\s*keep\s+up\s+with\s+the\s+latest\b|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment,?\s+join\b",
+    # QA (round 9) + delta QA: "Keep up with the latest ... on WhatsApp/
+    # Telegram" anchored at ^, the comment CTA needs ", join the/our ...
+    # community" (end-anchored).
+    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|^\s*keep\s+up\s+with\s+the\s+latest\b.{0,60}\bon\s+(whatsapp|telegram)\b|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment,?\s+join\s+(the|our)\b[^,]{0,60}\bcommunity\s*\.?\s*$",
     # Family g, liveblog filler (cityam). QA (round 9): the greeting and the
     # headlines line are whole-line (end-anchored).
     r"^\s*welcome\s+back\s+to\s+(the\s+)?[^.]{0,60}\blive\s*blog\s*\.?\s*$|^\s*here(\S?s|\s+are)\s+(a\s+few\s+of\s+)?(our|the)\s+top\s+(headlines|stories)\s*:?\s*$|^\s*stick\s+with\s+us\s+throughout\s+the\s+day\b",
