@@ -1928,10 +1928,13 @@ _NOISE_PATTERNS = [
     # clipping_coverage_20261019T194624Z; shared contract with
     # src/lib/clipping/clean.ts, same order, byte-identical: edit both sides).
     # Each is anchored at ^ or names a phrase only a widget uses.
-    # Family a, cookie notice lines (theaustralian, montelnews, cnn).
-    r"^\s*(to\s+enable\s+cookies\b|please\s+note\s+that\s+by\s+blocking\s+(any\s+or\s+all|all|some)\s+cookies\b|a\s+cookie\s+is\s+a\s+small\s+(data\s+|text\s+)?file\b|you\s+can\s+change\s+your\s+consent\b|you\s+can\s+accept\s+all\s+cookies\b|we\s+and\s+our\s+(affiliates|partners|vendors)\s+use\s+(third\s+parties|cookies|technologies)\b)",
-    # Family a, ad-consent wall copy (tradewindsnews, upstreamonline).
-    r"\bdepends\s+on\s+being\s+able\s+to\s+display\s+ads\b|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
+    # Family a, cookie notice lines (theaustralian, montelnews, cnn). QA (round
+    # 9): "consent" needs by/at/via and "we and our ... use" needs cookies or
+    # "third parties to access/store".
+    r"^\s*(to\s+enable\s+cookies\b|please\s+note\s+that\s+by\s+blocking\s+(any\s+or\s+all|all|some)\s+cookies\b|a\s+cookie\s+is\s+a\s+small\s+(data\s+|text\s+)?file\b|you\s+can\s+change\s+your\s+consent\s+(by|at|via)\b|you\s+can\s+accept\s+all\s+cookies\b|we\s+and\s+our\s+(affiliates|partners|vendors)\s+use\s+(cookies|third\s+parties\s+to\s+(access|store))\b)",
+    # Family a, ad-consent wall copy (tradewindsnews, upstreamonline). QA: the
+    # first alternative is anchored on ONE leading token (the site name).
+    r"^\s*\S+\s+depends\s+on\s+being\s+able\s+to\s+display\s+ads\b|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
     # Family d, Google preferred-source variants past the short cap (dw, swissinfo).
     r"\bselect\s+us\s+as\s+(your|a)\s+preferred\s+source\b|\barticles\s+in\s+your\s+google\s+results\b",
     # Family f, video/audio player placeholders (dw, cbc).
@@ -1939,8 +1942,10 @@ _NOISE_PATTERNS = [
     # Family d, bnamericas house pitch and its translation note.
     r"^\s*subscribe\s+to\s+the\s+leading\s+[^.]{0,80}\bplatform\b|^\s*\(?\s*the\s+original\s+version\s+of\s+this\s+(content|article)\s+was\s+(written|published)\s+in\s+[a-z]+\s*\)?\s*\.?\s*$",
     # Family e, Chinese copyright notice (chinadaily). Caseless script: literal
-    # CJK characters, no \b, no \w.
-    r"^\s*(版权保护|版权声明|版权所有)\s*[：:]|未经[^。]{0,40}授权[^。]{0,10}禁止转载",
+    # CJK characters, no \b, no \w. QA (round 9): END-anchored on the closing
+    # clause; the former "版权保护：/版权声明：/版权所有：" opener alternative was
+    # removed (it dropped a copyright-topic heading).
+    r"未经[^。]{0,40}授权[^。]{0,10}禁止转载(使用)?\s*[。.]?\s*$",
     # Family f, inline cross-link label "Also Read: <headline>" (economictimes).
     r"^\s*also\s+read\s*:",
 ]
@@ -1996,21 +2001,26 @@ _SHORT_NOISE_PATTERNS = [
     r"^(?!\s*by\s)\s*[a-z\s]{0,40}\b(correspondent|editor|reporter|columnist)\s*$",
     # 2026-10-16 d (round 9): short lines (< 160 code points), coverage round
     # 15 (shared contract with src/lib/clipping/clean.ts, same order,
-    # byte-identical: edit both sides). Every entry is a WHOLE-LINE label or a
-    # CTA form, so prose carrying the same words survives.
+    # byte-identical: edit both sides). Each entry is a WHOLE-LINE label or a
+    # PHRASE-ANCHORED CTA form, so prose carrying the same words survives.
     # Family c, audio / read-time widgets (cbc, economictimes, wsj, montelnews, gulfnews).
     r"^\s*(listen(\s+to\s+this\s+(article|story)(\s+in\s+summarized\s+format)?)?|duration|estimated\s+\d+\s+minutes?|\(?\s*\d+\s+min(ute)?s?(\s+read)?\s*\)?|\.{2,}\s*more\s*less)\s*[.:|]?\s*$",
     # Family c, a video teaser line led by "WATCH |" (cbc).
     r"^\s*watch\s*\|",
     # Family b, register/login teasers and subscription pitch lines (qcintel, ogj,
-    # offshore-mag).
-    r"^\s*please\s+(register|sign\s*in|log\s*in)(\s+or\s+(register|sign\s*in|log\s*in))?\s+to\s+(view|read|access)\s+this\s+(content|article)\b|\bis\s+a\s+premium\s+(paid\s+)?subscription\s+service\b|\bsubscribers\s+have\s+access\s+to\s*:?\s*$|\bfor\s+subscription\s+information\b|^\s*already\s+registered\s*\?|^\s*this\s+email\s+(is\s+being|was)\s+sent\s+to\b",
+    # offshore-mag). QA (round 9): the pitch needs "... service for
+    # professionals", the contact line its own opening "Get in touch with us
+    # for", the email line an address after "sent to" (`\S*@`).
+    r"^\s*please\s+(register|sign\s*in|log\s*in)(\s+or\s+(register|sign\s*in|log\s*in))?\s+to\s+(view|read|access)\s+this\s+(content|article)\b|\bis\s+a\s+premium\s+(paid\s+)?subscription\s+service\s+for\s+professionals\b|\bsubscribers\s+have\s+access\s+to\s*:?\s*$|^\s*get\s+in\s+touch\s+with\s+us\s+for\s+subscription\s+information\b|^\s*already\s+registered\s*\?|^\s*this\s+email\s+(is\s+being|was)\s+sent\s+to\s+\S*@",
     # Families b/f, lone UI labels (whole line) and the haaretz ad-free lines.
     r"^\s*(subscribe|tags|synopsis|request\s+a\s+demo|featured\s+partner\s+offers?|also\s+in\s+this\s+package|up\s+next|related\s+(articles|stories|content)|loading|save\s+article|or\s+to)\s*(\.{3}|…|[.:!])?\s*$|^\s*(print\s+in\s+a\s+simple,?\s+ad-free\s+format|ad-free\s+and\s+in\s+a\s+comfortable\s+reading\s+format)\s*\.?\s*$",
     # Family d, follow / messaging CTAs (ahram, portafolio, allafrica, timesofisrael).
-    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|\bkeep\s+up\s+with\b.{0,60}\bon\s+(whatsapp|telegram)\b|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment\b",
-    # Family g, liveblog filler (cityam).
-    r"^\s*welcome\s+back\s+to\s+(the\s+)?[^.]{0,60}\blive\s*blog\b|^\s*here(\S?s|\s+are)\s+(a\s+few\s+of\s+)?(our|the)\s+top\s+(headlines|stories)\b|^\s*stick\s+with\s+us\s+throughout\s+the\s+day\b",
+    # QA (round 9): "Keep up with the latest" anchored at ^, the comment CTA
+    # needs ", join".
+    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|^\s*keep\s+up\s+with\s+the\s+latest\b|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment,?\s+join\b",
+    # Family g, liveblog filler (cityam). QA (round 9): the greeting and the
+    # headlines line are whole-line (end-anchored).
+    r"^\s*welcome\s+back\s+to\s+(the\s+)?[^.]{0,60}\blive\s*blog\s*\.?\s*$|^\s*here(\S?s|\s+are)\s+(a\s+few\s+of\s+)?(our|the)\s+top\s+(headlines|stories)\s*:?\s*$|^\s*stick\s+with\s+us\s+throughout\s+the\s+day\b",
     # Family f, markets-wrap lead-in (swissinfo); family e, a bare "(Copyright)".
     r"^\s*some\s+of\s+the\s+main\s+moves\s+in\s+markets\s*:?\s*$|^\s*\(\s*copyright\s*\)\s*\.?\s*$",
     # Family f, Arabic related/recommended labels (attaqa). Caseless script:
@@ -2199,24 +2209,30 @@ def is_section_label_paragraph(p: str) -> bool:
 
 
 # Cookie-notice body (2026-10-16 d, round 9 family a; byte-identical spec with
-# isCookieNoticeBody in src/lib/clipping/clean.ts). montelnews shipped its
-# cookie declaration (nine paragraphs, every one about cookies) as the body.
-# Applied in clean_paragraphs after the global dedupe and before the
+# cookieNoticeLineCount in src/lib/clipping/clean.ts, TS ba4435866). montelnews
+# shipped its cookie declaration (nine paragraphs, every one about cookies) as
+# the body. Applied in clean_paragraphs after the global dedupe and before the
 # section-label rule: when at least COOKIE_BODY_MIN_LINES (3) deduped
 # paragraphs contain the word cookie/cookies (_COOKIE_WORD_RE,
-# case-insensitive) AND they are at least 2/3 of the deduped list (compared as
-# n * 3 >= total * 2, integers on both sides), the WHOLE list is dropped. The
-# TS debug line `[cookie-body] n/total` has no shim counterpart (no debug
-# sink here). Known cost: an article where two thirds of the paragraphs say
-# "cookie" is dropped whole.
+# case-insensitive) AND n * 3 >= total * 2 (two thirds of the deduped list,
+# integers on both sides), the paragraphs that match _COOKIE_WORD_RE are
+# dropped and the others kept (QA, round 9: was the WHOLE list). A cookie
+# declaration ends empty; a mixed container keeps its prose; the
+# section-label rule then runs on what is left. The TS debug line
+# `[cookie-body] n/total` has no shim counterpart (no debug sink here). The TS
+# manual-paste option `cleanParagraphs(..., { cookieGate: false })` is
+# TS-only: the shim has no manual-paste path, so the gate always runs here.
+# Known cost: an article where at least 3 paragraphs and two thirds of them
+# say "cookie" loses those paragraphs.
 COOKIE_BODY_MIN_LINES = 3
 _COOKIE_WORD_RE = re.compile(r"\bcookies?\b", re.IGNORECASE)
 
 
-def is_cookie_notice_body(paragraphs: list[str]) -> bool:
-    """True when the deduped list is a cookie declaration (see above)."""
+def cookie_notice_line_count(paragraphs: list[str]) -> int:
+    """Number of cookie paragraphs when the deduped list is a cookie
+    declaration (see above), else 0."""
     n = sum(1 for p in paragraphs if _COOKIE_WORD_RE.search(p))
-    return n >= COOKIE_BODY_MIN_LINES and n * 3 >= len(paragraphs) * 2
+    return n if n >= COOKIE_BODY_MIN_LINES and n * 3 >= len(paragraphs) * 2 else 0
 
 
 # DECLARED DIVERGENCES from src/lib/clipping (round-8 QA). The pattern strings
@@ -2259,7 +2275,9 @@ def is_cookie_notice_body(paragraphs: list[str]) -> bool:
 #    `[a-z]+` of the original-version note; `\s` / `\S` follow the
 #    whitespace-class note above (the byline guard's word count and the
 #    `[^\s.]+` token of the one-token channel line included). The
-#    `[cookie-body] n/total` debug line is not emitted here.
+#    `[cookie-body] n/total` debug line is not emitted here, and the TS
+#    manual-paste `cookieGate: false` option does not exist here (no manual
+#    path: the gate always runs).
 #  - Execution context: TS runs a fallback pre-strip (preStripForFallbacks,
 #    2026-10-19) that calls its noise strip over a whole <body> clone; since
 #    TS 63a9ffd95 that call runs WITHOUT the related-headline rule
@@ -2305,10 +2323,11 @@ def clean_paragraphs(paragraphs: list[str]) -> list[str]:
             continue
         seen.add(key)
         deduped.append(p)
-    # Cookie-notice body (2026-10-16 d): a whole-body gate, before the
-    # section-label rule (see is_cookie_notice_body).
-    if is_cookie_notice_body(deduped):
-        return []
+    # Cookie-notice body (2026-10-16 d): a body-level test, before the
+    # section-label rule; when it fires only the cookie paragraphs go (see
+    # cookie_notice_line_count). No manual-paste opt-out here (TS-only).
+    if cookie_notice_line_count(deduped) > 0:
+        deduped = [p for p in deduped if not _COOKIE_WORD_RE.search(p)]
     # Section-label first paragraph (2026-10-16 c): once, LAST, after the dedupe
     # (so ["Summary", "Summary", A] ships [A]). Not idempotent: see above.
     if len(deduped) >= 2 and is_section_label_paragraph(deduped[0]):
