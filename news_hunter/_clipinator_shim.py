@@ -1935,8 +1935,9 @@ _NOISE_PATTERNS = [
     r"^\s*(to\s+enable\s+cookies\b|please\s+note\s+that\s+by\s+blocking\s+(any\s+or\s+all|all|some)\s+cookies\b|a\s+cookie\s+is\s+a\s+small\s+(data\s+|text\s+)?file\b|you\s+can\s+change\s+your\s+consent\s+(by|at|via)\b[^.]{0,80}\b(cookie|browser|settings|preferences)|you\s+can\s+accept\s+all\s+cookies\b|we\s+and\s+our\s+(affiliates|partners|vendors)\s+use\s+(cookies|third\s+parties\s+to\s+access\s+and\s+store)\b)",
     # Family a, ad-consent wall copy (tradewindsnews, upstreamonline). Delta QA:
     # the first alternative names the whole "display ads on our services"
-    # phrase (any masthead length before it).
-    r"\bdepends\s+on\s+being\s+able\s+to\s+display\s+ads\s+on\s+our\s+services\b|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
+    # phrase; final QA (acdb0eddd): whole line, 1-3 masthead tokens first and
+    # an optional "in order to finance our journalism" tail.
+    r"^\s*(\S+\s+){1,3}depends\s+on\s+being\s+able\s+to\s+display\s+ads\s+on\s+our\s+services(\s+in\s+order\s+to\s+finance\s+our\s+journalism)?\s*\.?\s*$|^\s*when\s+you\s+click\s+on\s+\S{0,2}accept\s+all\S{0,2},?\s+you\s+consent\b|^\s*for\s+ads\s+that\s+aren\S?t\s+personali[sz]ed\b",
     # Family d, Google preferred-source variants past the short cap (dw, swissinfo).
     r"\bselect\s+us\s+as\s+(your|a)\s+preferred\s+source\b|\barticles\s+in\s+your\s+google\s+results\b",
     # Family f, video/audio player placeholders (dw, cbc).
@@ -2019,9 +2020,10 @@ _SHORT_NOISE_PATTERNS = [
     r"^\s*(subscribe|tags|synopsis|request\s+a\s+demo|featured\s+partner\s+offers?|also\s+in\s+this\s+package|up\s+next|related\s+(articles|stories|content)|loading|save\s+article|or\s+to)\s*(\.{3}|…|[.:!])?\s*$|^\s*(print\s+in\s+a\s+simple,?\s+ad-free\s+format|ad-free\s+and\s+in\s+a\s+comfortable\s+reading\s+format)\s*\.?\s*$",
     # Family d, follow / messaging CTAs (ahram, portafolio, allafrica, timesofisrael).
     # QA (round 9) + delta QA: "Keep up with the latest ... on WhatsApp/
-    # Telegram" anchored at ^, the comment CTA needs ", join the/our ...
+    # Telegram" anchored at ^ and whole-line (final QA: no comma/period in the
+    # span, optional "| <channel>" tail), the comment CTA needs ", join the/our ...
     # community" (end-anchored).
-    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|^\s*keep\s+up\s+with\s+the\s+latest\b.{0,60}\bon\s+(whatsapp|telegram)\b|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment,?\s+join\s+(the|our)\b[^,]{0,60}\bcommunity\s*\.?\s*$",
+    r"^\s*follow\s+us(\s+on)?\s*:?\s*$|^\s*s[ií]guenos\s+en\b|^\s*keep\s+up\s+with\s+the\s+latest\b[^,.]{0,60}\bon\s+(whatsapp|telegram)\b\s*(\|[^,.]{0,40})?\s*\.?\s*$|^\s*[^\s.]+\s+(google\s+news|whatsapp|telegram)\s*$|^\s*if\s+you\S{1,2}d\s+like\s+to\s+comment,?\s+join\s+(the|our)\b[^,]{0,60}\bcommunity\s*\.?\s*$",
     # Family g, liveblog filler (cityam). QA (round 9): the greeting and the
     # headlines line are whole-line (end-anchored).
     r"^\s*welcome\s+back\s+to\s+(the\s+)?[^.]{0,60}\blive\s*blog\s*\.?\s*$|^\s*here(\S?s|\s+are)\s+(a\s+few\s+of\s+)?(our|the)\s+top\s+(headlines|stories)\s*:?\s*$|^\s*stick\s+with\s+us\s+throughout\s+the\s+day\b",
