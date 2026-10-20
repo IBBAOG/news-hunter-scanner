@@ -59,8 +59,8 @@ def violations(stage_stats: dict[str, dict[str, int]] | None) -> list[str]:
         s = stats.get(rule.name)
         if not s:
             continue
-        total = int(s.get("total", 0))
-        ok = int(s.get("ok", 0))
+        total = s.get("total", 0)
+        ok = s.get("ok", 0)
         if total < rule.min_total:
             continue
         ratio = ok / total
