@@ -13,12 +13,13 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import news_hunter_service  # noqa: E402
-from news_hunter import fetcher, pipeline  # noqa: E402
+from news_hunter import enrich, fetcher, pipeline, store, supabase_sync  # noqa: E402
 from news_hunter.fetcher import RawItem  # noqa: E402
 from news_hunter.zero_yield import RULES, new_stage_stats, violations  # noqa: E402
 
@@ -124,7 +125,13 @@ def test_iter_collect_without_stage_stats_is_unchanged(monkeypatch):
 # ---------------------------------------------------------------------------
 # 3. run_search -> service exit code, end to end
 # ---------------------------------------------------------------------------
-def _scan(monkeypatch, n_wrappers: int, decode: bool):
+def _scan(monkeypatch, n_wrappers: int, decode, *, collect=None, upsert=None):
+    """Run run_search over `n_wrappers` GNews items with collector/sink stubbed.
+
+    decode: True / False patch the resolver (decode / hand the wrapper back);
+    None keeps the REAL enrich._resolve_google_news_url; a callable replaces it.
+    collect / upsert override the iter_collect / upsert_articles stubs.
+    """
     monkeypatch.setattr(
         pipeline, "get_config",
         lambda: {"keywords": ["oil"], "exact_keywords": set(), "window_hours": 24},
@@ -139,9 +146,9 @@ def _scan(monkeypatch, n_wrappers: int, decode: bool):
     ]
     monkeypatch.setattr(
         pipeline, "iter_collect",
-        lambda *a, **k: iter([("news.google.com", items, None)]),
+        collect or (lambda *a, **k: iter([("news.google.com", items, None)])),
     )
-    monkeypatch.setattr(pipeline, "upsert_articles", lambda arts: len(arts))
+    monkeypatch.setattr(pipeline, "upsert_articles", upsert or (lambda arts: len(arts)))
     monkeypatch.setattr(pipeline, "source_name_for", lambda d: d)
     monkeypatch.setattr(
         pipeline, "enrich_item",
@@ -154,7 +161,10 @@ def _scan(monkeypatch, n_wrappers: int, decode: bool):
         real = url.replace("https://news.google.com/rss/articles/", "https://pub.com/a/")
         return real, "pub.com"
 
-    monkeypatch.setattr(pipeline, "_resolve_google_news_url", _resolve)
+    if callable(decode):
+        monkeypatch.setattr(pipeline, "_resolve_google_news_url", decode)
+    elif decode is not None:
+        monkeypatch.setattr(pipeline, "_resolve_google_news_url", _resolve)
     return pipeline.run_search(include_google_news=True, fast_mode=True, hours_override=24)
 
 
@@ -171,4 +181,64 @@ def test_scan_with_broken_decoder_exits_nonzero(monkeypatch, caplog):
 def test_scan_with_working_decoder_exits_zero(monkeypatch):
     res = _scan(monkeypatch, 40, decode=True)
     assert res["stage_stats"]["gnews_resolve"] == {"ok": 40, "total": 40}
+    assert news_hunter_service._zero_yield_exit(res) == 0
+
+
+def test_real_resolver_with_missing_decoder_trips(monkeypatch):
+    """The import-failure path for real: enrich.gnewsdecoder is None (what a
+    broken googlenewsdecoder/selectolax import leaves behind) and the REAL
+    resolver hands every wrapper back undecoded."""
+    monkeypatch.setattr(enrich, "gnewsdecoder", None)
+    res = _scan(monkeypatch, 40, decode=None)
+    assert res["stage_stats"]["gnews_resolve"] == {"ok": 0, "total": 40}
+    assert news_hunter_service._zero_yield_exit(res) == news_hunter_service.ZERO_YIELD_EXIT
+
+
+def test_resolve_deadline_cancelling_most_resolves_trips(monkeypatch):
+    """RESOLVE_EXTRA expiring before the decodes finish: the cancelled tail
+    counts as not decoded."""
+    monkeypatch.setattr(pipeline, "RESOLVE_EXTRA", 0.2)
+
+    def _slow(url):
+        time.sleep(1.0)
+        return url.replace("https://news.google.com/rss/articles/", "https://pub.com/a/"), "pub.com"
+
+    res = _scan(monkeypatch, 40, decode=_slow)
+    s = res["stage_stats"]["gnews_resolve"]
+    assert s["total"] == 40 and s["ok"] < 20
+    assert news_hunter_service._zero_yield_exit(res) == news_hunter_service.ZERO_YIELD_EXIT
+
+
+def test_collect_crash_exits_fatal(monkeypatch, caplog):
+    """run_search catches the crash and returns normally with `fatal:`; the
+    stage counters are 0/0 (never judged), so only the fatal check sees it."""
+    def _boom(*_a, **_k):
+        raise RuntimeError("collect exploded")
+
+    res = _scan(monkeypatch, 40, decode=True, collect=_boom)
+    assert any(e.startswith("fatal:") for e in res["errors"])
+    assert res["stage_stats"]["gnews_resolve"]["total"] == 0
+    with caplog.at_level(logging.ERROR, logger="news_hunter_service"):
+        code = news_hunter_service._zero_yield_exit(res)
+    assert code == news_hunter_service.FATAL_EXIT != 0
+    assert any("FATAL scan error" in r.getMessage() for r in caplog.records)
+
+
+def test_save_failure_exits_fatal(monkeypatch):
+    """Supabase down: the REAL store.upsert_articles -> push_new chain swallows
+    the exception and returns 0. Rows to save and none saved must fail the job."""
+    class _DeadSink:
+        def push(self, _articles):
+            raise ConnectionError("supabase unreachable")
+
+    monkeypatch.setattr(supabase_sync, "get_sink", lambda: _DeadSink())
+    res = _scan(monkeypatch, 40, decode=True, upsert=store.upsert_articles)
+    # 20, not 40: the resolved items all land on pub.com, capped at 20 enriches.
+    assert any(e.startswith("fatal: save wrote 0 of ") for e in res["errors"])
+    assert news_hunter_service._zero_yield_exit(res) == news_hunter_service.FATAL_EXIT
+
+
+def test_healthy_scan_has_no_fatal(monkeypatch):
+    res = _scan(monkeypatch, 40, decode=True)
+    assert not any(str(e).startswith("fatal:") for e in res["errors"])
     assert news_hunter_service._zero_yield_exit(res) == 0

@@ -1939,6 +1939,13 @@ def run_search(
 
         n_new = upsert_articles(to_persist)
         n_upserted = len(to_persist)
+        # upsert_articles / push_new swallow every exception and return 0, so a
+        # dead Supabase reads as "nothing new". Rows to save and none saved is
+        # a failed scan: tagged `fatal:` so the service exits non-zero.
+        if to_persist and not n_new:
+            msg = f"fatal: save wrote 0 of {len(to_persist)} rows"
+            log.error(msg)
+            errors.append(msg)
 
         # --- Stage 3e: retry stored rows still missing title_en --------------
         # AFTER the upsert, so the database reflects this scan's results and

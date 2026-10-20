@@ -58,7 +58,12 @@ stage (the rows the scan got are still persisted):
 | `gnews_queries` | Google News `site:` queries with ≥ 1 item / queries submitted | ok < 25% (healthy ~95%) |
 
 A single dead feed never trips it — that is what the per-feed lines below are
-for. A failing `googlenewsdecoder` import is also logged at ERROR.
+for. Nor can it see one foreign language going silent: each language is ~3
+queries (~15 foreign in total), below the floor of 20 — the dashboard ops
+routine's per-class probe covers that. A failing `googlenewsdecoder` import is
+also logged at ERROR. Separately, a `fatal:` error caught inside run_search
+(collect crash, or a save that wrote 0 of N rows) exits `1` with
+`ERROR ... FATAL scan error:`.
 
 ## Diagnosing a dead source
 
