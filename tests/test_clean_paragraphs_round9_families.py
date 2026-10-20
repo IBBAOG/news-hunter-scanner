@@ -1,7 +1,7 @@
 """Boilerplate families from the dashboard's coverage round 15 / round 9 (2026-10-16 d).
 
 Mirror of the round-9 cases of the dashboard's `src/lib/clipping/__tests__/
-clean.test.ts` (TS source of truth 37252016e; the patterns and constants are
+clean.test.ts` (TS source of truth ba4435866; the patterns and constants are
 byte-identical): cookie/consent lines and the cookie-notice gate (drops only the
 cookie lines),
 register teasers, audio/read-time widgets, follow/messaging CTAs, copyright
