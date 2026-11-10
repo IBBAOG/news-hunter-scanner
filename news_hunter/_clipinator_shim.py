@@ -1779,6 +1779,12 @@ def fetch_html(url: str, timeout: int = 25) -> str:
     # absent or login fails, get() returns None and we raise so the caller's
     # try/except skips this URL gracefully (the rest of the scan keeps running).
     if domain in IMPERSONATE_DOMAINS:
+        # A run that skips Brasil Energia (SCAN_SKIP_SOURCES, the cloud scan
+        # whose IPs Cloudflare blocks) must not even try to log in: a stray
+        # BE url reaching enrich would otherwise cost a 403 login per item.
+        from .source_filter import is_selected
+        if not is_selected(domain):
+            raise RuntimeError(f"Brasil Energia skipped by the source filter: {url}")
         from .brasilenergia_auth import get_auth
         auth = get_auth()
         if auth is not None:

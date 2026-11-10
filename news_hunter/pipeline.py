@@ -31,6 +31,8 @@ from .fetcher import RawItem, iter_collect
 from .filter import matches_keywords, strip_related, within_window
 from .keyword_senses import drop_own_name, drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
+from .source_filter import describe as describe_source_filter
+from .source_filter import is_allowlist_run, is_selected
 from .zero_yield import new_stage_stats
 from .store import (
     Article,
@@ -1416,6 +1418,13 @@ def run_search(
         for nat, canon in c.keyword_priority
     }
 
+    # SCAN_ONLY_SOURCES / SCAN_SKIP_SOURCES (source_filter.py). Parsed before
+    # start_run so a typo fails the run before anything is fetched or written.
+    _filter_desc = describe_source_filter()
+    allowlist_run = is_allowlist_run()
+    if _filter_desc:
+        log.info("source filter active: %s", _filter_desc)
+
     run_id = start_run()
     errors: list[str] = []
     # Zero-yield guard counters (zero_yield.py), filled by iter_collect and the
@@ -1706,6 +1715,8 @@ def run_search(
         # url (normalised) -> where its date came from, for Stage 4b.
         origins: dict[str, _Origin] = {}
         n_dropped_blind = 0
+        # selected_pages (zero_yield.py): allowlist runs only.
+        sel_pages = {"ok": 0, "total": 0}
         for it, matched, snippet, published, resolved_url, resolved_domain, ext_title in enriched:
             # Last gate before persistence: enrich can hand back a url the
             # earlier gates never saw (cache hits, a redirect followed).
@@ -1724,6 +1735,10 @@ def run_search(
             # (404 de slug-variante, timeout, sessao caida) e nao ha noticia —
             # so um slug. Descarta; o item segue na listagem e o proximo scan
             # (~5 min) tenta de novo.
+            if allowlist_run and is_topic and is_selected(it.feed_domain):
+                sel_pages["total"] += 1
+                if snippet or ext_title:
+                    sel_pages["ok"] += 1
             if is_topic and not (snippet or ext_title):
                 n_dropped_blind += 1
                 continue
@@ -1884,6 +1899,9 @@ def run_search(
             errors.append(f"date credibility: {e!s}")
         date_stats.seconds = time.time() - t_dc
 
+        if allowlist_run:
+            stage_stats["selected_pages"] = sel_pages
+
         # Always logged, zero included: a filter nobody can see the size of is
         # a filter nobody notices eating real articles.
         log.info(
@@ -1950,7 +1968,9 @@ def run_search(
         # --- Stage 3e: retry stored rows still missing title_en --------------
         # AFTER the upsert, so the database reflects this scan's results and
         # the fill-only UPDATE cannot race this scan's own write.
-        n_retried = _run_translation_retry(attempted_tx, errors)
+        # Skipped on an allowlist run: it works on stored rows of EVERY source,
+        # which is the full scan's job (two jobs would race the same rows).
+        n_retried = 0 if allowlist_run else _run_translation_retry(attempted_tx, errors)
 
         from .translate import pop_backend_stats
         tx_stats = pop_backend_stats()

@@ -20,6 +20,21 @@ Checks (each needs a minimum sample, so a quiet night cannot trip them):
 * gnews_queries -- Google News `site:` queries that returned >= 1 item /
   queries submitted. Healthy is ~95%; near 0 means Google blocks the runner.
 
+Allowlist runs (SCAN_ONLY_SOURCES, news_hunter/source_filter.py) scan one or a
+few sources, so the three stage-wide rules above never reach their minimum
+sample and cannot judge them. Two extra rules exist for those runs only; their
+counters are recorded ONLY when an allowlist is active, so a full scan is never
+judged by them (and a one-source run never trips on the other sources' absence):
+* selected_sources -- selected sources whose own tasks (registered feed,
+  sitemap, homepage scraper; GNews `site:` queries excluded) returned >= 1
+  item / selected sources with an own task. Every one must yield: a BE-only
+  run whose listing is blocked (Cloudflare 403, failed login) is ok=0/1 and
+  exits 3. A selected source covered ONLY by Google News has no own task and
+  is not judged here.
+* selected_pages -- listing items of the selected sources that reached a real
+  article page (title or body) / listing items that reached Stage 4. Catches a
+  listing that answers while every article fetch fails (session lost mid-scan).
+
 The scan still persists whatever it got; the guard only decides the exit code
 and writes one ERROR line per tripped stage (grep `ZERO-YIELD`).
 """
@@ -39,6 +54,9 @@ RULES: tuple[StageRule, ...] = (
     StageRule("gnews_resolve", min_total=20, min_ratio=0.5),
     StageRule("registered_feeds", min_total=20, min_ratio=0.5),
     StageRule("gnews_queries", min_total=20, min_ratio=0.25),
+    # Allowlist runs only (counters absent otherwise, see the module docstring).
+    StageRule("selected_sources", min_total=1, min_ratio=1.0),
+    StageRule("selected_pages", min_total=5, min_ratio=0.2),
 )
 
 
@@ -65,7 +83,9 @@ def violations(stage_stats: dict[str, dict[str, int]] | None) -> list[str]:
             continue
         ratio = ok / total
         if ratio < rule.min_ratio:
-            out.append(
-                f"{rule.name} ok={ok}/{total} ({ratio:.0%}) below {rule.min_ratio:.0%}"
-            )
+            msg = f"{rule.name} ok={ok}/{total} ({ratio:.0%}) below {rule.min_ratio:.0%}"
+            dead = s.get("dead")
+            if dead:
+                msg += f" (no items: {', '.join(dead)})"
+            out.append(msg)
     return out

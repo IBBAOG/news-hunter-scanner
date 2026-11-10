@@ -77,7 +77,7 @@ def main() -> int:
 
     # --- 1. Login -------------------------------------------------------
     try:
-        from news_hunter.brasilenergia_auth import get_auth
+        from news_hunter.brasilenergia_auth import cookie_jar, get_auth
     except Exception as e:  # noqa: BLE001
         log.error("could not import news_hunter.brasilenergia_auth: %s", e)
         return 1
@@ -106,7 +106,8 @@ def main() -> int:
         log.error("login() returned True but _session is None — internal bug")
         return 1
 
-    cookies = list(session.cookies)
+    # cookie_jar(): curl_cffi's Cookies iterates NAMES, not Cookie objects.
+    cookies = cookie_jar(session)
     if not cookies:
         log.error("login() returned True but cookie jar is empty — bug")
         return 1

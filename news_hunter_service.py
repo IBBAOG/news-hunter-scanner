@@ -106,6 +106,18 @@ def main() -> int:
         log.error("SUPABASE_URL / SUPABASE_SERVICE_KEY ausentes — abortando")
         return 2
 
+    # SCAN_ONLY_SOURCES / SCAN_SKIP_SOURCES naming no registered source is a
+    # configuration error, not a quiet scan (news_hunter/source_filter.py).
+    from news_hunter.source_filter import SourceFilterError, describe
+
+    try:
+        desc = describe()
+    except SourceFilterError as e:
+        log.error("source filter misconfigured: %s", e)
+        return 2
+    if desc:
+        log.info("source filter: %s", desc)
+
     once = "--once" in sys.argv[1:]
     if once:
         log.info("scanner: single-shot mode")

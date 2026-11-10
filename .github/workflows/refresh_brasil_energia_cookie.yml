@@ -1,14 +1,13 @@
 name: Refresh Brasil Energia cookie
 
-# Brasil Energia's be-auth cookie expires ~every 14 days. Refresh it twice a
-# week so the SectorData clipping generator never falls back to public/teaser
-# bodies silently. See scripts/refresh_brasil_energia_cookie.py for context.
+# RETIRED SCHEDULE (2026-11-10). Since 2026-08-24 Cloudflare serves a managed
+# challenge (HTTP 403) to GitHub-hosted IPs on every brasilenergia.com.br page,
+# /login included, so this job failed on almost every run. The be-auth cookie in
+# SectorData's clipping_cookies is now refreshed daily from the SectorData
+# self-hosted (residential IP) runner by brasil_energia_cookie_refresh.yml in
+# the SectorData repo. Kept for manual runs only.
 
 on:
-  schedule:
-    # Mon + Thu 06:00 UTC. 3-4 days between refreshes, ~4x safety margin over
-    # the 14-day TTL. Pre-business-hours UTC keeps it off the high-load window.
-    - cron: '0 6 * * 1,4'
   workflow_dispatch:
 
 concurrency:

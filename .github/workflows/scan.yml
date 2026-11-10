@@ -34,3 +34,8 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           BRASIL_ENERGIA_USER: ${{ secrets.BRASIL_ENERGIA_USER }}
           BRASIL_ENERGIA_PASS: ${{ secrets.BRASIL_ENERGIA_PASS }}
+          # Cloudflare 403s GitHub-hosted IPs on every brasilenergia.com.br
+          # page (/login included) since 2026-11-03. Brasil Energia is scanned
+          # from the SectorData self-hosted runner instead
+          # (news_hunter_brasil_energia_scan.yml, SCAN_ONLY_SOURCES).
+          SCAN_SKIP_SOURCES: brasil_energia

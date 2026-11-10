@@ -32,6 +32,7 @@ from .sources import (
     google_news_site_queries_lang,
     is_sitemap_url,
 )
+from .source_filter import filter_domains, is_selected
 from .store import normalize_url
 
 log = logging.getLogger(__name__)
@@ -919,17 +920,23 @@ def _gnews_tasks(
     tasks: list[tuple[str, str]] = []
     lang_by_url: dict[str, str] = {}
 
+    # Every domain list goes through source_filter (SCAN_ONLY_SOURCES /
+    # SCAN_SKIP_SOURCES): a source excluded from this run costs no query.
     for cfg in LANGUAGES.values():
         if cfg.translate and cfg.no_rss_domains:      # foreign, GNews-only
+            foreign = filter_domains(cfg.no_rss_domains)
+            if not foreign:
+                continue
             for url in google_news_site_queries_lang(
-                cfg, list(cfg.no_rss_domains), keywords, hours
+                cfg, foreign, keywords, hours
             ):
                 priority_tasks.append(("news.google.com", url))
                 lang_by_url[url] = cfg.code
 
-    if NO_RSS_DOMAINS:
+    pt_all = filter_domains(NO_RSS_DOMAINS)
+    if pt_all:
         pt_domains, pt_k, pt_n = gnews_cohort(
-            list(NO_RSS_DOMAINS), PT_GNEWS_QUERIES_PER_SCAN
+            pt_all, PT_GNEWS_QUERIES_PER_SCAN
         )
         # Only worth a log line once the list actually rotates; at cohorts == 1
         # it would just be noise on every scan.
@@ -945,8 +952,11 @@ def _gnews_tasks(
     for cfg in LANGUAGES.values():
         if cfg.translate or not cfg.no_rss_domains:
             continue
+        en_all = filter_domains(cfg.no_rss_domains)
+        if not en_all:
+            continue
         domains, k, n = gnews_cohort(
-            list(cfg.no_rss_domains), EN_GNEWS_QUERIES_PER_SCAN
+            en_all, EN_GNEWS_QUERIES_PER_SCAN
         )
         log.info(
             "gnews %s cohort %d/%d (%d domains)", cfg.code, k + 1, n, len(domains)
@@ -972,6 +982,37 @@ def _fill_stage_stats(stage_stats: dict, submitted, feed_counts: dict) -> None:
             s["ok"] += 1
 
 
+def _fill_selected_sources(stage_stats: dict, submitted, feed_counts: dict) -> None:
+    """Zero-yield counters for an ALLOWLIST run (SCAN_ONLY_SOURCES, see
+    source_filter.py and zero_yield.py's "selected_sources" rule).
+
+    The stage-wide rules need >= 20 tasks and so never judge a one-source run:
+    a BE-only scan blocked by Cloudflare would read green forever. Here every
+    selected source with at least one own task (registered feed, sitemap or
+    homepage scraper; Google News `site:` queries are a redundant net and do not
+    count) is one unit: ok when any of its own tasks returned >= 1 item.
+    Nothing is recorded outside an allowlist run.
+    """
+    from .source_filter import is_allowlist_run, normalize_host, selected_hosts
+
+    if not is_allowlist_run():
+        return
+    wanted = selected_hosts()
+    per_host: dict[str, bool] = {}
+    for dom, url in submitted:
+        if dom == "news.google.com":
+            continue
+        host = normalize_host(dom)
+        if host not in wanted:
+            continue
+        per_host[host] = per_host.get(host, False) or feed_counts.get((dom, url), 0) > 0
+    stage_stats["selected_sources"] = {
+        "ok": sum(1 for v in per_host.values() if v),
+        "total": len(per_host),
+        "dead": sorted(h for h, v in per_host.items() if not v),
+    }
+
+
 def iter_collect(
     keywords: list[str],
     hours: int,
@@ -989,9 +1030,13 @@ def iter_collect(
     ends (ok = tasks that returned >= 1 item, total = tasks submitted; errors,
     timeouts and the deadline all count as not ok).
     """
-    tasks: list[tuple[str, str]] = list(all_rss_feeds())
+    # source_filter (SCAN_ONLY_SOURCES / SCAN_SKIP_SOURCES) drops the sources
+    # this run must not touch before anything is requested.
+    tasks: list[tuple[str, str]] = [t for t in all_rss_feeds() if is_selected(t[0])]
     # Sitemaps WordPress padrao (istoedinheiro, visaoagro, etc.)
-    std_tasks: list[tuple[str, str]] = list(all_standard_sitemaps())
+    std_tasks: list[tuple[str, str]] = [
+        t for t in all_standard_sitemaps() if is_selected(t[0])
+    ]
     # Query URL -> retrieval language (§1.4). Only per-language GNews `site:`
     # queries are entered; RSS feeds and the PT block stay absent (=> None =
     # native/untranslated). Items are stamped from this map in the drain loop.
@@ -1009,7 +1054,9 @@ def iter_collect(
 
     # Agrega todos os tipos de fonte: RSS/sitemaps, sitemaps padrao, homepage scrapers
     # Cada tipo tem seu fetcher mas todos compartilham o mesmo deadline global.
-    home_tasks: list[tuple[str, str]] = list(all_homepage_scrapers())
+    home_tasks: list[tuple[str, str]] = [
+        t for t in all_homepage_scrapers() if is_selected(t[0])
+    ]
 
     def _make_fetcher(is_std: bool, is_home: bool):
         if is_home:
@@ -1078,6 +1125,7 @@ def iter_collect(
         ex.shutdown(wait=False, cancel_futures=True)
         if stage_stats is not None:
             _fill_stage_stats(stage_stats, futs.values(), _feed_counts)
+            _fill_selected_sources(stage_stats, futs.values(), _feed_counts)
         if _feed_counts or _feed_errors:
             total = sum(c for c in _feed_counts.values() if c > 0)
             # A REGISTERED feed returning 0 items is always anomalous: these
@@ -1147,7 +1195,7 @@ def collect(
     decode. Por padrao usamos apenas queries 'site:' para dominios sem
     RSS/sitemap proprio. Isso mantem o orcamento <10s.
     """
-    rss_tasks: list[tuple[str, str]] = list(all_rss_feeds())
+    rss_tasks: list[tuple[str, str]] = [t for t in all_rss_feeds() if is_selected(t[0])]
     tasks: list[tuple[str, str]] = list(rss_tasks)
     lang_by_url: dict[str, str] = {}
 

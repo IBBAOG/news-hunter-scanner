@@ -534,8 +534,36 @@ cookie causes silent fallback to public/teaser article bodies.
 
 Workflow `.github/workflows/refresh_brasil_energia_cookie.yml` logs in via
 `news_hunter/brasilenergia_auth.py`, dumps the live cookie jar to the Netscape
-format and UPDATEs the `brasilenergia.com.br` row twice a week (Mon + Thu
-06:00 UTC) — ~4x safety margin over the 14-day TTL.
+format and UPDATEs the `brasilenergia.com.br` row. Its schedule is RETIRED
+(2026-11-10): Cloudflare 403s GitHub-hosted IPs on every brasilenergia.com.br
+page, so the daily refresh now runs from the SectorData self-hosted runner
+(`brasil_energia_cookie_refresh.yml` in the SectorData repo). This one is kept
+for manual runs.
+
+## Brasil Energia scan (self-hosted, source filter)
+
+Same Cloudflare block: since 2026-11-03 the cloud scan got 0 Brasil Energia
+items while staying green. So `scan.yml` sets `SCAN_SKIP_SOURCES=brasil_energia`
+and Brasil Energia is scanned every 30 min by
+`news_hunter_brasil_energia_scan.yml` in the SectorData repo, which checks out
+this repo's `main` on the residential self-hosted runner and runs
+`python news_hunter_service.py --once` with `SCAN_ONLY_SOURCES=brasil_energia`.
+
+`news_hunter/source_filter.py`: both variables take comma-separated tokens, an
+alias (`brasil_energia`) or a registered host (`www.` optional); skip wins over
+only; an unknown token exits `2`. The filter is applied to every source list
+(feeds, sitemaps, homepage scrapers, every Google News `site:` block), and a
+skipped Brasil Energia url never triggers a login. An allowlist run also skips
+the global Stage 3e translation retry (the full scan's job) and is judged by two
+extra zero-yield rules that a full scan never records: `selected_sources` (every
+selected source's own feed/listing must return ≥ 1 item) and `selected_pages`
+(≥ 20% of its listing items must reach a real page, judged from 5 items).
+
+`brasilenergia_auth.py` uses a curl_cffi `Session(impersonate="chrome")` (Linux
+`requests` gets a TLS-fingerprint 403 even from the residential IP) and falls
+back to `requests` where curl_cffi is missing. `BRASIL_ENERGIA_SESSION_CACHE`
+moves the session cache out of the checkout (the self-hosted job sets it, so a
+30-min run reuses the session instead of logging in every time).
 
 Manual refresh:
 

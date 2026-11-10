@@ -45,6 +45,24 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
+# HTTP client (2026-11-10). Cloudflare rejects the TLS fingerprint of Python
+# `requests` on brasilenergia.com.br: from the residential self-hosted runner a
+# plain requests login got `GET /login: HTTP 403` while curl_cffi impersonating
+# Chrome got a 200 from the same IP (SectorData
+# scripts/clipping/refresh_brasil_energia_cookie.py, live since 2026-11-10). So
+# the session is a curl_cffi Session(impersonate="chrome") whenever curl_cffi
+# is importable, and falls back to requests.Session only where it is not.
+# NOTE: from GitHub-hosted IPs NEITHER client passes (managed challenge on every
+# page); that is why Brasil Energia is scanned from the self-hosted runner
+# (SCAN_ONLY_SOURCES=brasil_energia) and skipped by scan.yml.
+try:  # pragma: no cover - exercised by the import itself
+    from curl_cffi import requests as cffi_requests
+except Exception:  # noqa: BLE001
+    cffi_requests = None  # type: ignore[assignment]
+
+#: curl_cffi profile: the newest Chrome the installed curl_cffi ships.
+IMPERSONATE = "chrome"
+
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://brasilenergia.com.br"
@@ -53,6 +71,18 @@ AUTH_COOKIE = "be-auth"
 
 # On-disk cookie cache (optional optimization). Gitignored — see .gitignore.
 _SESSION_CACHE = Path(__file__).resolve().parent.parent / ".be_session.json"
+#: Overrides the cache location. The self-hosted job sets it OUTSIDE the
+#: checkout: actions/checkout cleans the workspace every run, which would turn
+#: every 30-min scan into a fresh login.
+SESSION_CACHE_ENV = "BRASIL_ENERGIA_SESSION_CACHE"
+
+
+def session_cache_path() -> Path:
+    """Where the best-effort session cache lives (env override, else repo root)."""
+    override = os.environ.get(SESSION_CACHE_ENV, "").strip()
+    return Path(override).expanduser() if override else _SESSION_CACHE
+
+
 # A cached session older than this is treated as stale and re-logged in.
 _SESSION_MAX_AGE = 6 * 3600  # 6 hours
 
@@ -69,6 +99,41 @@ _HEADERS = {
     "Accept-Encoding": "gzip, deflate",
 }
 
+# curl_cffi path: NO User-Agent / Accept / Accept-Encoding by hand. curl_cffi
+# emits the impersonated browser's own (a hand-written UA over a Chrome TLS
+# fingerprint is itself a bot signal) and decodes `br` natively.
+_CFFI_HEADERS = {
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+}
+
+
+def http_client() -> str:
+    """'curl_cffi' or 'requests': the client new sessions are built with."""
+    return "curl_cffi" if cffi_requests is not None else "requests"
+
+
+def new_http_session():
+    """A Session for brasilenergia.com.br: curl_cffi Chrome impersonation when
+    available, else requests with browser-like headers (see the note above)."""
+    if cffi_requests is not None:
+        s = cffi_requests.Session(impersonate=IMPERSONATE)
+        s.headers.update(_CFFI_HEADERS)
+        return s
+    s = requests.Session()
+    s.headers.update(_HEADERS)
+    return s
+
+
+def cookie_jar(session) -> list:
+    """The session's cookies as http.cookiejar.Cookie objects, for either client.
+
+    Iterating a requests jar yields Cookie objects; iterating curl_cffi's
+    Cookies mapping yields NAMES, its Cookie objects live in `.jar`.
+    """
+    cookies = session.cookies
+    jar = getattr(cookies, "jar", None)
+    return list(jar if jar is not None else cookies)
+
 # Substrings whose presence in a 200 body means the page is logged-out /
 # paywalled (i.e. the session is missing or expired). Lowercased compare.
 _LOGGED_OUT_MARKERS = (
@@ -83,18 +148,22 @@ _lock = threading.Lock()
 
 
 class BrasilEnergiaAuth:
-    """Holds the authenticated requests.Session and renews it on expiry."""
+    """Holds the authenticated HTTP session and renews it on expiry.
+
+    The session is a curl_cffi Session (Chrome impersonation) when curl_cffi is
+    installed, else a requests.Session; both expose the same get/post/cookies
+    surface used here.
+    """
 
     def __init__(self, user: str, password: str) -> None:
         self._user = user
         self._password = password
-        self._session: requests.Session | None = None
+        self._session = None
+        log.info("Brasil Energia: HTTP client %s", http_client())
 
     # -- login -------------------------------------------------------------
-    def _new_session(self) -> requests.Session:
-        s = requests.Session()
-        s.headers.update(_HEADERS)
-        return s
+    def _new_session(self):
+        return new_http_session()
 
     def login(self) -> bool:
         """Perform a fresh login. Returns True on success.
@@ -108,7 +177,7 @@ class BrasilEnergiaAuth:
             r = s.get(login_url, timeout=_TIMEOUT)
             r.raise_for_status()
         except Exception as e:  # noqa: BLE001
-            log.warning("Brasil Energia: GET login page failed: %s", e)
+            log.warning("Brasil Energia: GET login page failed (%s): %s", http_client(), e)
             return False
 
         token = self._read_token(r.text)
@@ -165,18 +234,25 @@ class BrasilEnergiaAuth:
         return None
 
     # -- on-disk cache (best-effort) --------------------------------------
-    def _write_cache(self, s: requests.Session) -> None:
+    def _write_cache(self, s) -> None:
         try:
             data = {"ts": time.time(), "cookies": s.cookies.get_dict()}
-            _SESSION_CACHE.write_text(json.dumps(data), encoding="utf-8")
+            path = session_cache_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data), encoding="utf-8")
+            try:
+                os.chmod(path, 0o600)  # holds a live subscriber session
+            except OSError:
+                pass
         except Exception as e:  # noqa: BLE001
             log.debug("Brasil Energia: could not write session cache: %s", e)
 
-    def _load_cache(self) -> requests.Session | None:
+    def _load_cache(self):
         try:
-            if not _SESSION_CACHE.exists():
+            path = session_cache_path()
+            if not path.exists():
                 return None
-            data = json.loads(_SESSION_CACHE.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
         except Exception as e:  # noqa: BLE001
             log.debug("Brasil Energia: could not read session cache: %s", e)
             return None
@@ -194,7 +270,7 @@ class BrasilEnergiaAuth:
         """Drop the in-memory session and the on-disk cache (for testing/expiry)."""
         self._session = None
         try:
-            _SESSION_CACHE.unlink(missing_ok=True)
+            session_cache_path().unlink(missing_ok=True)
         except Exception:  # noqa: BLE001
             pass
 
@@ -210,7 +286,7 @@ class BrasilEnergiaAuth:
         return self.login()
 
     @staticmethod
-    def _looks_logged_out(resp: requests.Response) -> bool:
+    def _looks_logged_out(resp) -> bool:
         if resp.status_code in (401, 403):
             return True
         if resp.status_code != 200:
@@ -220,7 +296,7 @@ class BrasilEnergiaAuth:
         body = resp.text.lower()
         return any(m in body for m in _LOGGED_OUT_MARKERS)
 
-    def get(self, url: str, *, timeout: int = _TIMEOUT) -> requests.Response | None:
+    def get(self, url: str, *, timeout: int = _TIMEOUT):
         """Authenticated GET with transparent re-login on expiry.
 
         Returns the Response on success, or None if it could not obtain an
