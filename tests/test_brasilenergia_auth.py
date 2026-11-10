@@ -11,9 +11,13 @@ Run from repo root: python -m pytest tests/test_brasilenergia_auth.py -v
 """
 from __future__ import annotations
 
+import http.cookiejar
+import http.server
 import json
 import os
+import stat
 import sys
+import threading
 import time
 
 import pytest
@@ -60,17 +64,74 @@ def test_falls_back_to_requests_without_curl_cffi(monkeypatch):
     assert "br" not in s.headers["Accept-Encoding"]
 
 
+class _SetCookieHandler(http.server.BaseHTTPRequestHandler):
+    """Answers like the BE login POST does on success: a Set-Cookie be-auth."""
+
+    def do_GET(self):  # noqa: N802
+        self.send_response(200)
+        self.send_header("Set-Cookie", "be-auth=abc123; Path=/; HttpOnly")
+        self.send_header("Set-Cookie", "be_uuid=u-1; Path=/")
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *_a):  # keep pytest output quiet
+        pass
+
+
+@pytest.fixture
+def set_cookie_server():
+    srv = http.server.HTTPServer(("127.0.0.1", 0), _SetCookieHandler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}/"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 @pytest.mark.parametrize("client", ["curl_cffi", "requests"])
-def test_cookie_jar_yields_cookie_objects_for_both_clients(monkeypatch, client):
+def test_cookie_jar_yields_cookie_objects_for_both_clients(monkeypatch, client, set_cookie_server):
+    """Cookies set by a real HTTP response (not s.cookies.set), read back through
+    cookie_jar() as http.cookiejar.Cookie objects: the shape the cookie
+    refresher's Netscape dump iterates."""
     if client == "requests":
         monkeypatch.setattr(be, "cffi_requests", None)
     else:
         pytest.importorskip("curl_cffi")
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
     s = be.new_http_session()
-    s.cookies.set("be-auth", "abc", domain="brasilenergia.com.br")
+    r = s.get(set_cookie_server, timeout=5)
+    assert r.status_code == 200
     jar = be.cookie_jar(s)
-    assert [c.name for c in jar] == ["be-auth"]
-    assert jar[0].value == "abc" and jar[0].domain.endswith("brasilenergia.com.br")
+    assert all(isinstance(c, http.cookiejar.Cookie) for c in jar)
+    by_name = {c.name: c for c in jar}
+    assert set(by_name) == {"be-auth", "be_uuid"}
+    assert by_name["be-auth"].value == "abc123"
+    assert by_name["be-auth"].path == "/"
+    assert "127.0.0.1" in by_name["be-auth"].domain
+    assert s.cookies.get_dict()["be-auth"] == "abc123"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_cache_file_is_0600_and_dedicated_dir_0700(tmp_path, monkeypatch):
+    target = tmp_path / "cache" / "be_session.json"
+    monkeypatch.setenv(be.SESSION_CACHE_ENV, str(target))
+    be._atomic_private_write(target, "{}")
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
+
+
+def test_atomic_write_replaces_and_leaves_no_tmp(tmp_path, monkeypatch):
+    target = tmp_path / "be_session.json"
+    monkeypatch.setenv(be.SESSION_CACHE_ENV, str(target))
+    be._atomic_private_write(target, '{"v": 1}')
+    be._atomic_private_write(target, '{"v": 2}')
+    assert json.loads(target.read_text(encoding="utf-8")) == {"v": 2}
+    assert [p.name for p in tmp_path.iterdir()] == ["be_session.json"]
 
 
 # ---------------------------------------------------------------------------

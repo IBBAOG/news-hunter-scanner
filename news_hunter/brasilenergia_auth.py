@@ -83,6 +83,43 @@ def session_cache_path() -> Path:
     return Path(override).expanduser() if override else _SESSION_CACHE
 
 
+def _atomic_private_write(path: Path, text: str) -> None:
+    """Write `text` to `path` readable by the owner only, atomically.
+
+    The file holds a live subscriber session. It is created 0600 from the start
+    (os.open with a mode, never write-then-chmod, so there is no window where it
+    is world-readable) under a temporary name and moved into place with
+    os.replace, so a reader never sees a half-written file. The parent directory
+    is made 0700 when it is the dedicated cache directory (env override) or
+    when this call creates it; the repo-root default is never chmod'ed.
+    """
+    parent = path.parent
+    created = not parent.exists()
+    if created:
+        parent.mkdir(parents=True, exist_ok=True)
+    if created or os.environ.get(SESSION_CACHE_ENV, "").strip():
+        try:
+            os.chmod(parent, 0o700)
+        except OSError:
+            pass
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:  # a leftover tmp would keep its old mode: O_CREAT's mode only applies on creation
+        os.unlink(tmp)
+    except FileNotFoundError:
+        pass
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 # A cached session older than this is treated as stale and re-logged in.
 _SESSION_MAX_AGE = 6 * 3600  # 6 hours
 
@@ -237,13 +274,7 @@ class BrasilEnergiaAuth:
     def _write_cache(self, s) -> None:
         try:
             data = {"ts": time.time(), "cookies": s.cookies.get_dict()}
-            path = session_cache_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data), encoding="utf-8")
-            try:
-                os.chmod(path, 0o600)  # holds a live subscriber session
-            except OSError:
-                pass
+            _atomic_private_write(session_cache_path(), json.dumps(data))
         except Exception as e:  # noqa: BLE001
             log.debug("Brasil Energia: could not write session cache: %s", e)
 

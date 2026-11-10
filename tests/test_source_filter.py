@@ -38,6 +38,10 @@ _NOW = datetime.now(timezone.utc)
 def _clean_env(monkeypatch):
     monkeypatch.delenv(source_filter.ONLY_ENV, raising=False)
     monkeypatch.delenv(source_filter.SKIP_ENV, raising=False)
+    # A BE allowlist needs the subscriber login (validate()); tests that check
+    # the missing-credentials error remove them explicitly.
+    monkeypatch.setenv("BRASIL_ENERGIA_USER", "user@example.com")
+    monkeypatch.setenv("BRASIL_ENERGIA_PASS", "secret")
 
 
 def _only(monkeypatch, value):
@@ -106,6 +110,72 @@ def test_service_exits_2_on_a_typo(monkeypatch, caplog):
     with caplog.at_level(logging.ERROR, logger="news_hunter_service"):
         assert news_hunter_service.main() == 2
     assert any("source filter misconfigured" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("only,skip", [
+    ("brasil_energia", "brasil_energia"),
+    ("brasilenergia.com.br", "brasil_energia"),
+    ("brasil_energia", "www.brasilenergia.com.br"),
+    ("brasil_energia,agencia.petrobras.com.br", "agencia.petrobras.com.br,brasil_energia"),
+])
+def test_only_and_skip_cancelling_out_is_a_configuration_error(monkeypatch, only, skip):
+    _only(monkeypatch, only)
+    _skip(monkeypatch, skip)
+    assert source_filter.selected_hosts() == frozenset()
+    with pytest.raises(source_filter.SourceFilterError, match="cancel out"):
+        source_filter.validate()
+
+
+def test_partial_overlap_is_valid(monkeypatch):
+    _only(monkeypatch, "brasil_energia,agencia.petrobras.com.br")
+    _skip(monkeypatch, "agencia.petrobras.com.br")
+    source_filter.validate()
+    assert source_filter.selected_hosts() == {"brasilenergia.com.br"}
+
+
+@pytest.mark.parametrize("var", ["BRASIL_ENERGIA_USER", "BRASIL_ENERGIA_PASS"])
+@pytest.mark.parametrize("how", ["missing", "blank"])
+def test_be_allowlist_without_credentials_is_a_configuration_error(monkeypatch, var, how):
+    _only(monkeypatch, "brasil_energia")
+    if how == "missing":
+        monkeypatch.delenv(var)
+    else:
+        monkeypatch.setenv(var, "   ")
+    with pytest.raises(source_filter.SourceFilterError, match=var):
+        source_filter.validate()
+
+
+def test_service_exits_2_without_be_credentials(monkeypatch, caplog):
+    from news_hunter import brasilenergia_auth
+
+    monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "k")
+    _only(monkeypatch, "brasil_energia")
+    monkeypatch.delenv("BRASIL_ENERGIA_PASS")
+    # The condition validate() checks is exactly the one get_auth() returns None on.
+    monkeypatch.setattr(brasilenergia_auth, "_instance", None)
+    monkeypatch.setattr(brasilenergia_auth, "_init_tried", False)
+    assert brasilenergia_auth.get_auth() is None
+    monkeypatch.setattr(sys, "argv", ["news_hunter_service.py", "--once"])
+    monkeypatch.setattr(news_hunter_service, "_run_once", lambda: pytest.fail("scan ran"))
+    with caplog.at_level(logging.ERROR, logger="news_hunter_service"):
+        assert news_hunter_service.main() == 2
+    assert any("BRASIL_ENERGIA_PASS" in r.getMessage() for r in caplog.records)
+
+
+def test_skip_list_never_needs_credentials(monkeypatch):
+    monkeypatch.delenv("BRASIL_ENERGIA_USER")
+    monkeypatch.delenv("BRASIL_ENERGIA_PASS")
+    _skip(monkeypatch, "brasil_energia")
+    source_filter.validate()
+
+
+def test_allowlist_the_guard_cannot_judge_is_a_configuration_error(monkeypatch):
+    own = source_filter.own_task_hosts()
+    gnews_only = next(d for d in NO_RSS_DOMAINS if source_filter.normalize_host(d) not in own)
+    _only(monkeypatch, gnews_only)
+    with pytest.raises(source_filter.SourceFilterError, match="could not judge"):
+        source_filter.validate()
 
 
 def test_be_is_registered_where_the_filter_expects_it():
@@ -201,6 +271,27 @@ def test_only_run_with_blocked_listing_trips(monkeypatch):
     msgs = violations(stats)
     assert len(msgs) == 1 and msgs[0].startswith("selected_sources ok=0/1")
     assert "brasilenergia.com.br" in msgs[0]
+
+
+def test_mixed_allowlist_with_one_dead_source_trips(monkeypatch):
+    _only(monkeypatch, "brasil_energia,agencia.petrobras.com.br")
+    called = _stub_registries(
+        monkeypatch,
+        lambda d: [] if d == "agencia.petrobras.com.br"
+        else [_item("https://brasilenergia.com.br/petroleoegas/x-y-zzzzzzzzzzzz", d)],
+    )
+    stats = new_stage_stats()
+    list(fetcher.iter_collect(["oil"], 24, max_workers=2, stage_stats=stats))
+    assert sorted(called) == sorted([BE, "agencia.petrobras.com.br"])   # a.com untouched
+    assert stats["selected_sources"] == {
+        "ok": 1, "total": 2, "dead": ["agencia.petrobras.com.br"],
+    }
+    msgs = violations(stats)
+    assert len(msgs) == 1
+    assert msgs[0].startswith("selected_sources ok=1/2 (50%)")
+    assert "agencia.petrobras.com.br" in msgs[0]
+    res = {"errors": [], "stage_stats": stats}
+    assert news_hunter_service._zero_yield_exit(res) == news_hunter_service.ZERO_YIELD_EXIT
 
 
 def test_skip_run_never_touches_be_and_records_no_selected_counter(monkeypatch):

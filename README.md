@@ -535,23 +535,29 @@ cookie causes silent fallback to public/teaser article bodies.
 Workflow `.github/workflows/refresh_brasil_energia_cookie.yml` logs in via
 `news_hunter/brasilenergia_auth.py`, dumps the live cookie jar to the Netscape
 format and UPDATEs the `brasilenergia.com.br` row. Its schedule is RETIRED
-(2026-11-10): Cloudflare 403s GitHub-hosted IPs on every brasilenergia.com.br
-page, so the daily refresh now runs from the SectorData self-hosted runner
+(2026-11-10): since 2026-08-24 Cloudflare 403s GitHub-hosted IPs on
+brasilenergia.com.br's /login, so the daily refresh now runs from the SectorData self-hosted runner
 (`brasil_energia_cookie_refresh.yml` in the SectorData repo). This one is kept
 for manual runs.
 
 ## Brasil Energia scan (self-hosted, source filter)
 
-Same Cloudflare block: since 2026-11-03 the cloud scan got 0 Brasil Energia
-items while staying green. So `scan.yml` sets `SCAN_SKIP_SOURCES=brasil_energia`
-and Brasil Energia is scanned every 30 min by
-`news_hunter_brasil_energia_scan.yml` in the SectorData repo, which checks out
-this repo's `main` on the residential self-hosted runner and runs
+Same Cloudflare block, extended from /login to every BE page: since 2026-11-03
+16:25 UTC the cloud scan stored 0 Brasil Energia items while staying green. So
+`scan.yml` sets `SCAN_SKIP_SOURCES=brasil_energia` and Brasil Energia is scanned
+every 30 min by `news_hunter_brasil_energia_scan.yml` in the SectorData repo,
+which checks out a PINNED commit of this repo's `main` (its `SCANNER_SHA`; bump
+it there after a scanner change ships) on the residential self-hosted runner and
+runs
 `python news_hunter_service.py --once` with `SCAN_ONLY_SOURCES=brasil_energia`.
 
 `news_hunter/source_filter.py`: both variables take comma-separated tokens, an
 alias (`brasil_energia`) or a registered host (`www.` optional); skip wins over
-only; an unknown token exits `2`. The filter is applied to every source list
+only. Exit `2` (configuration error, before anything is fetched) for an
+unknown token, an allowlist that selects nothing (only and skip cancel out),
+an allowlist with no source that has its own feed/sitemap/listing (the guard
+could not judge it), or Brasil Energia selected without
+`BRASIL_ENERGIA_USER`/`BRASIL_ENERGIA_PASS`. The filter is applied to every source list
 (feeds, sitemaps, homepage scrapers, every Google News `site:` block), and a
 skipped Brasil Energia url never triggers a login. An allowlist run also skips
 the global Stage 3e translation retry (the full scan's job) and is judged by two

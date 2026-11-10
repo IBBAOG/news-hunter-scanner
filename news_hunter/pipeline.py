@@ -31,8 +31,7 @@ from .fetcher import RawItem, iter_collect
 from .filter import matches_keywords, strip_related, within_window
 from .keyword_senses import drop_own_name, drop_sense_excluded
 from .sources import HOMEPAGE_SCRAPERS, LANGUAGES, RECENT_ONLY_SCRAPERS
-from .source_filter import describe as describe_source_filter
-from .source_filter import is_allowlist_run, is_selected
+from .source_filter import describe as describe_source_filter, is_allowlist_run, is_selected
 from .zero_yield import new_stage_stats
 from .store import (
     Article,

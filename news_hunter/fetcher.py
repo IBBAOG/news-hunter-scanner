@@ -32,7 +32,13 @@ from .sources import (
     google_news_site_queries_lang,
     is_sitemap_url,
 )
-from .source_filter import filter_domains, is_selected
+from .source_filter import (
+    filter_domains,
+    is_allowlist_run,
+    is_selected,
+    normalize_host,
+    selected_hosts,
+)
 from .store import normalize_url
 
 log = logging.getLogger(__name__)
@@ -993,8 +999,6 @@ def _fill_selected_sources(stage_stats: dict, submitted, feed_counts: dict) -> N
     count) is one unit: ok when any of its own tasks returned >= 1 item.
     Nothing is recorded outside an allowlist run.
     """
-    from .source_filter import is_allowlist_run, normalize_host, selected_hosts
-
     if not is_allowlist_run():
         return
     wanted = selected_hosts()
